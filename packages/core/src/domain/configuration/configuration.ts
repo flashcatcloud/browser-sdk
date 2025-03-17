@@ -211,8 +211,10 @@ function isString(tag: unknown, tagName: string): tag is string | undefined | nu
 }
 
 function isDatadogSite(site: unknown) {
-  if (site && typeof site === 'string' && !/(datadog|ddog|datad0g|dd0g)/.test(site)) {
-    display.error(`Site should be a valid Datadog site. ${MORE_DETAILS} ${DOCS_ORIGIN}/getting_started/site/.`)
+  console.log('isDatadogSite', site)
+  console.log('value===', site && typeof site === 'string' && !/(flashcat)/.test(site))
+  if (site && typeof site === 'string' && !/(flashcat)/.test(site)) {
+    display.error(`Site should be a valid Flashcat site. ${MORE_DETAILS} ${DOCS_ORIGIN}/getting_started/site/.`)
     return false
   }
   return true
