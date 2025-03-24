@@ -55,6 +55,10 @@ function createEndpointUrlWithParametersBuilder(
     return (parameters) => proxy({ path, parameters })
   }
   const host = buildEndpointHost(trackType, initConfiguration)
+
+  if (initConfiguration.site === INTAKE_SITE_FED_STAGING) {
+    return (parameters) => `${host}${path}?${parameters}`
+  }
   return (parameters) => `https://${host}${path}?${parameters}`
 }
 
@@ -73,7 +77,7 @@ export function buildEndpointHost(
   }
 
   if (site === INTAKE_SITE_FED_STAGING) {
-    return `http-intake.logs.${site}`
+    return site
   }
 
   const domainParts = site.split('.')

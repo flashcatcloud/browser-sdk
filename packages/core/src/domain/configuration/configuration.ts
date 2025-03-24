@@ -211,7 +211,7 @@ function isString(tag: unknown, tagName: string): tag is string | undefined | nu
 }
 
 function isDatadogSite(site: unknown) {
-  if (site && typeof site === 'string' && !/(flashcat)/.test(site)) {
+  if (site && typeof site === 'string' && !/(flashcat|http:\/\/10.99.1.110:11300)/.test(site)) {
     display.error(`Site should be a valid Flashcat site. ${MORE_DETAILS} ${DOCS_ORIGIN}/getting_started/site/.`)
     return false
   }
