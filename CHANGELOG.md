@@ -18,6 +18,12 @@
 
 ---
 
+## v0.0.2
+
+**Internal Changes:**
+
+- rename flashcat [LOGS] [RUM] [RUM-REACT] [RUM-SLIM] [WORKER]
+
 ## v0.0.1
 
 **Internal Changes:**
