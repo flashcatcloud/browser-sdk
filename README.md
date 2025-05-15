@@ -4,7 +4,7 @@ Collect and send browser data to Flashcat.
 
 ## Getting Started
 
-See the dedicated [Flashcat Browser RUM Collection documentation][18] to learn how to send RUM data from your browser application to Datadog.
+See the dedicated [Flashcat Browser RUM Collection documentation][18] to learn how to send RUM data from your browser application to Flashcat.
 
 ## npm packages
 
@@ -19,6 +19,9 @@ This repository contains several packages:
 | browser-worker   | [![npm version][61]][62] | [![bundle size][63]][64] |
 | browser-core     | [![npm version][41]][42] | [![bundle size][43]][44] |
 
+## CDN bundle
+
+https://static.flashcat.cloud/browser-sdk/v0/flashcat-rum.js
 
 ## License Information
 
@@ -28,7 +31,7 @@ This project is modified and distributed by flashcat under the Apache License 2.
 
 For complete license information, please refer to the [LICENSE](./LICENSE) file.
 
-[18]: https://docs.flashcat.cloud/
+[18]: https://docs.flashcat.cloud/zh/flashduty/rum/introduction
 
 [01]: https://badge.fury.io/js/%40flashcatcloud%2Fbrowser-logs.svg
 [02]: https://badge.fury.io/js/%40flashcatcloud%2Fbrowser-logs

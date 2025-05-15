@@ -1,6 +1,6 @@
 # RUM Browser Monitoring - React integration
 
-This package provides React and React ecosystem integrations for Datadog Browser RUM.
+This package provides React and React ecosystem integrations for Flashcat Browser RUM.
 
 ## Installation
 
@@ -30,7 +30,7 @@ flashcatRum.init({
 
 To track React component rendering errors, use one of the following:
 
-- An `ErrorBoundary` component (see [React documentation][1]) that catches errors and reports them to Datadog.
+- An `ErrorBoundary` component (see [React documentation][1]) that catches errors and reports them to Flashcat.
 - A function that you can use to report errors from your own `ErrorBoundary` component.
 
 #### `ErrorBoundary` usage
@@ -80,7 +80,7 @@ class MyErrorBoundary extends React.Component {
 - Use the [`useRoutes`][5] hook.
 - Use the [`Routes`][6] component.
 
-To track route changes with the Datadog RUM Browser SDK, first initialize the `reactPlugin` with the `router: true` option, then replace those functions with their equivalent from `@flashcatcloud/browser-rum-react/react-router-v6`. Example:
+To track route changes with the Flashcat RUM Browser SDK, first initialize the `reactPlugin` with the `router: true` option, then replace those functions with their equivalent from `@flashcatcloud/browser-rum-react/react-router-v6`. Example:
 
 ```javascript
 import { RouterProvider } from 'react-router-dom'
