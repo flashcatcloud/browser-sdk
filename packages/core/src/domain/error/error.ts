@@ -89,8 +89,8 @@ export function tryToGetFingerprint(originalError: unknown) {
 }
 
 export function tryToGetErrorContext(originalError: unknown) {
-  if (originalError !== null && typeof originalError === 'object' && 'dd_context' in originalError) {
-    return originalError.dd_context as Context
+  if (originalError !== null && typeof originalError === 'object' && 'fc_content' in originalError) {
+    return originalError.fc_content as Context
   }
 }
 
