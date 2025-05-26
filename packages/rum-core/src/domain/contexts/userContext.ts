@@ -22,8 +22,8 @@ export function startUserContext(hooks: Hooks, configuration: RumConfiguration, 
     const session = sessionManager.findTrackedSession(startTime)
 
     if (session && session.anonymousId && !user.anonymous_id && !!configuration.trackAnonymousUser) {
+      user.id = isEmptyObject(user) ? session.anonymousId : user.id
       user.anonymous_id = session.anonymousId
-      user.id = user.id ?? session.anonymousId
     }
 
     if (isEmptyObject(user)) {
