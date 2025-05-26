@@ -13,7 +13,7 @@
   },
   "resolutions": {
     "@flashcatcloud/browser-rum-core": "file:../../../packages/rum-core/package.tgz",
-    "@flashcatcloud/browser-rum": "file:../../../packages/core/package.tgz",
+    "@flashcatcloud/browser-core": "file:../../../packages/core/package.tgz",
     "@flashcatcloud/browser-rum-slim": "file:../../../packages/rum-slim/package.tgz",
     "@flashcatcloud/browser-worker": "file:../../../packages/worker/package.tgz"
   },
