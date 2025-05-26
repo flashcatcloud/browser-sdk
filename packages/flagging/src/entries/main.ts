@@ -1,9 +1,9 @@
 import { defineGlobal, getGlobalObject } from '@flashcatcloud/browser-core'
 import { flagging as importedFlagging } from '../hello'
 
-export const datadogFlagging = importedFlagging
+export const flashcatFlagging = importedFlagging
 
 interface BrowserWindow extends Window {
-  DD_FLAGGING?: typeof datadogFlagging
+  FC_FLAGGING?: typeof flashcatFlagging
 }
-defineGlobal(getGlobalObject<BrowserWindow>(), 'DD_FLAGGING', datadogFlagging)
+defineGlobal(getGlobalObject<BrowserWindow>(), 'FC_FLAGGING', flashcatFlagging)
