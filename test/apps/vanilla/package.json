@@ -11,7 +11,7 @@
     "@flashcatcloud/browser-rum": "file:../../../packages/rum/package.tgz"
   },
   "resolutions": {
-    "@flashcatcloud/browser-rum": "file:../../../packages/core/package.tgz",
+    "@flashcatcloud/browser-core": "file:../../../packages/core/package.tgz",
     "@flashcatcloud/browser-rum-core": "file:../../../packages/rum-core/package.tgz",
     "@flashcatcloud/browser-rum-react": "file:../../../packages/rum-react/package.tgz",
     "@flashcatcloud/browser-rum-slim": "file:../../../packages/rum-slim/package.tgz",

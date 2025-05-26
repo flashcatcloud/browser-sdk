@@ -21,7 +21,8 @@
       "@flashcatcloud/browser-rum-core": ["./packages/rum-core/src"],
       "@flashcatcloud/browser-rum-react": ["./packages/rum-react/src/entries/main"],
       "@flashcatcloud/browser-rum-react/react-router-v6": ["./packages/rum-react/src/entries/reactRouter"],
-      "@flashcatcloud/browser-rum-react/react-router-v7": ["./packages/rum-react/src/entries/reactRouter"]
+      "@flashcatcloud/browser-rum-react/react-router-v7": ["./packages/rum-react/src/entries/reactRouter"],
+      "@flashcatcloud/browser-flagging": ["./packages/flagging/src/entries/main"]
     }
   }
 }

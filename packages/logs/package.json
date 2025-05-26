@@ -14,10 +14,10 @@
     "replace-build-env": "node ../../scripts/build/replace-build-env.js"
   },
   "dependencies": {
-    "@flashcatcloud/browser-core": "0.0.2"
+    "@flashcatcloud/browser-core": "workspace:*"
   },
   "peerDependencies": {
-    "@flashcatcloud/browser-rum": "0.0.2"
+    "@flashcatcloud/browser-rum": "workspace:*"
   },
   "peerDependenciesMeta": {
     "@flashcatcloud/browser-rum": {
