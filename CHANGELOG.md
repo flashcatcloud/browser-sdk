@@ -18,6 +18,16 @@
 
 ---
 
+## v0.0.3-beta.1
+
+**Public Changes:**
+
+- 🐛 [RUM-10101] Persist session cookie to one year when opt-in anonymous user tracking ([#3559](https://github.com/DataDog/browser-sdk/pull/3559)) [FLAGGING] [LOGS] [RUM] [RUM-REACT] [RUM-SLIM] [WORKER]
+
+**Internal Changes:**
+
+- 🔧 add flagging path to tsconfig ([#3566](https://github.com/DataDog/browser-sdk/pull/3566))
+
 ## v0.0.3-beta.0
 
 **Public Changes:**
