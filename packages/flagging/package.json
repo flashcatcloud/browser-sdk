@@ -1,6 +1,6 @@
 {
   "name": "@flashcatcloud/browser-flagging",
-  "version": "0.0.2",
+  "version": "0.0.3-beta.0",
   "license": "Apache-2.0",
   "private": true,
   "main": "cjs/entries/main.js",
@@ -18,7 +18,7 @@
     "@flashcatcloud/browser-core": "workspace:*"
   },
   "peerDependencies": {
-    "@flashcatcloud/browser-rum": "workspace:*"
+    "@flashcatcloud/browser-rum": "0.0.3-beta.0"
   },
   "peerDependenciesMeta": {
     "@flashcatcloud/browser-rum": {
