@@ -211,6 +211,201 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@alicloud/cdn20180510@npm:5.0.0":
+  version: 5.0.0
+  resolution: "@alicloud/cdn20180510@npm:5.0.0"
+  dependencies:
+    "@alicloud/openapi-core": "npm:^1.0.0"
+    "@darabonba/typescript": "npm:^1.0.0"
+  checksum: 10c0/41ef701053fcffb1507be13b12161e2a8a1a6495bb70779b100ce540ad7c03771105bdf97020e9914324e7164ae2a296e369434cb143a114118f23882325df77
+  languageName: node
+  linkType: hard
+
+"@alicloud/credentials@npm:^2, @alicloud/credentials@npm:^2.4.2":
+  version: 2.4.2
+  resolution: "@alicloud/credentials@npm:2.4.2"
+  dependencies:
+    "@alicloud/tea-typescript": "npm:^1.8.0"
+    httpx: "npm:^2.3.3"
+    ini: "npm:^1.3.5"
+    kitx: "npm:^2.0.0"
+  checksum: 10c0/a6a6d76448d2b629658808f3eddd1113f3a94239c32b22578aed35e5442c1e84137eeb835593a0a475df5dc585a1eeeb75c0ad03e53ae0c455b2e55a9148714a
+  languageName: node
+  linkType: hard
+
+"@alicloud/darabonba-array@npm:^0.1.0":
+  version: 0.1.0
+  resolution: "@alicloud/darabonba-array@npm:0.1.0"
+  dependencies:
+    "@alicloud/tea-typescript": "npm:latest"
+  checksum: 10c0/50b81a54b7071fb1c1b09c8aebd480c7004679b09d7012a34f816823f3eb99365dfcd9629e3099bf77b459722e343b8c8371cbd070dd0b11fe35cf86baca28c6
+  languageName: node
+  linkType: hard
+
+"@alicloud/darabonba-encode-util@npm:^0.0.1":
+  version: 0.0.1
+  resolution: "@alicloud/darabonba-encode-util@npm:0.0.1"
+  dependencies:
+    "@alicloud/tea-typescript": "npm:^1.7.1"
+    moment: "npm:^2.29.1"
+  checksum: 10c0/81f1cca815e6d6a9e75fb52f719cc9247a3bedf2da546ddad5b2ed07e5bf9be0041229a474449b2b93da9044c8a2fdb1256c0e3f9b4fceb4b5c4a6ecfba105e2
+  languageName: node
+  linkType: hard
+
+"@alicloud/darabonba-encode-util@npm:^0.0.2":
+  version: 0.0.2
+  resolution: "@alicloud/darabonba-encode-util@npm:0.0.2"
+  dependencies:
+    moment: "npm:^2.29.1"
+  checksum: 10c0/fb0fefcdc72b033bd4acb986dbc8f0dd893c0cf3952db5be8b0ba88721a4bb1702cfeb57cb04dc19a31bf6d95f155a71c282db8702cbfb7cc0f109202efb6669
+  languageName: node
+  linkType: hard
+
+"@alicloud/darabonba-map@npm:^0.0.1":
+  version: 0.0.1
+  resolution: "@alicloud/darabonba-map@npm:0.0.1"
+  dependencies:
+    "@alicloud/tea-typescript": "npm:^1.7.1"
+  checksum: 10c0/98796892ac3222bb4d152e786ac33ed09b5ade7930b6d1c9cd101b176cf7d1880a70b085eb7efaf8bc691316595f1b4b0989162c56e979d445e9e40421ee501f
+  languageName: node
+  linkType: hard
+
+"@alicloud/darabonba-signature-util@npm:^0.0.4":
+  version: 0.0.4
+  resolution: "@alicloud/darabonba-signature-util@npm:0.0.4"
+  dependencies:
+    "@alicloud/darabonba-encode-util": "npm:^0.0.1"
+  checksum: 10c0/b26b2a5b5fefa823c415259623cdfef2d50b0fc7aeec919f53e52f72e0db3f0b7fe51699a76c8a48556b3ad3f0e0d7c5584f61f12c827ef03b2bb3d94874526c
+  languageName: node
+  linkType: hard
+
+"@alicloud/darabonba-string@npm:^1.0.2":
+  version: 1.0.3
+  resolution: "@alicloud/darabonba-string@npm:1.0.3"
+  dependencies:
+    "@alicloud/tea-typescript": "npm:^1.5.1"
+  checksum: 10c0/ba1ce6617ad0cbf28418db74fa62cf9f5c313a54b8caeccc88a66dc7954e41a0076e3e3107300f59baa04eea14e944bb3c202e77445e33909fced91f35779889
+  languageName: node
+  linkType: hard
+
+"@alicloud/endpoint-util@npm:^0.0.1":
+  version: 0.0.1
+  resolution: "@alicloud/endpoint-util@npm:0.0.1"
+  dependencies:
+    "@alicloud/tea-typescript": "npm:^1.5.1"
+    kitx: "npm:^2.0.0"
+  checksum: 10c0/3f6476efd8699103c2906366749747330a605bad3c7a5bf544a311204a6b6749a536e8ebfe961337f79798f577a116e1a94593d10cf3778fe21785003f673675
+  languageName: node
+  linkType: hard
+
+"@alicloud/gateway-pop@npm:0.0.6":
+  version: 0.0.6
+  resolution: "@alicloud/gateway-pop@npm:0.0.6"
+  dependencies:
+    "@alicloud/credentials": "npm:^2"
+    "@alicloud/darabonba-array": "npm:^0.1.0"
+    "@alicloud/darabonba-encode-util": "npm:^0.0.2"
+    "@alicloud/darabonba-map": "npm:^0.0.1"
+    "@alicloud/darabonba-signature-util": "npm:^0.0.4"
+    "@alicloud/darabonba-string": "npm:^1.0.2"
+    "@alicloud/endpoint-util": "npm:^0.0.1"
+    "@alicloud/gateway-spi": "npm:^0.0.8"
+    "@alicloud/openapi-util": "npm:^0.3.2"
+    "@alicloud/tea-typescript": "npm:^1.7.1"
+    "@alicloud/tea-util": "npm:^1.4.8"
+  checksum: 10c0/59cbea2d906adc613ab4421ee85efa48191e74f138a7e1afbc514bcf48b39f24eff6f072bb8b2c2b642ac1f12ad3ecce7e96cbc1e4ab3baa618d1210f96fd04d
+  languageName: node
+  linkType: hard
+
+"@alicloud/gateway-spi@npm:^0.0.8":
+  version: 0.0.8
+  resolution: "@alicloud/gateway-spi@npm:0.0.8"
+  dependencies:
+    "@alicloud/credentials": "npm:^2"
+    "@alicloud/tea-typescript": "npm:^1.7.1"
+  checksum: 10c0/6d585aced75b874d1407b168f5230ff0511a30ac1620b759da9f58a3d1220d8b159941c5121ccfad7d2e64636d095f4569b1557af90b644c5f5aefe3c0bf76cc
+  languageName: node
+  linkType: hard
+
+"@alicloud/openapi-client@npm:0.4.13":
+  version: 0.4.13
+  resolution: "@alicloud/openapi-client@npm:0.4.13"
+  dependencies:
+    "@alicloud/credentials": "npm:^2.4.2"
+    "@alicloud/gateway-spi": "npm:^0.0.8"
+    "@alicloud/openapi-util": "npm:^0.3.2"
+    "@alicloud/tea-typescript": "npm:^1.7.1"
+    "@alicloud/tea-util": "npm:1.4.9"
+    "@alicloud/tea-xml": "npm:0.0.3"
+  checksum: 10c0/db7f2d3786476a92fcb3b479d4b35d08ca2816aec1296541ca64ba5a5945d14bd38e26503badbece8b0f3134e837de35aaf56ce17fa2a086068f6437e42ee756
+  languageName: node
+  linkType: hard
+
+"@alicloud/openapi-core@npm:^1.0.0":
+  version: 1.0.2
+  resolution: "@alicloud/openapi-core@npm:1.0.2"
+  dependencies:
+    "@alicloud/gateway-pop": "npm:0.0.6"
+    "@alicloud/gateway-spi": "npm:^0.0.8"
+    "@darabonba/typescript": "npm:^1.0.2"
+  checksum: 10c0/76facebc82edb08165545b29e332c77d488e485b83d653bbde657d3be03f93e565592a3ca1588d23efa45e8a7801a9366246743e66b0482e01f25b47e3902800
+  languageName: node
+  linkType: hard
+
+"@alicloud/openapi-util@npm:^0.3.2":
+  version: 0.3.2
+  resolution: "@alicloud/openapi-util@npm:0.3.2"
+  dependencies:
+    "@alicloud/tea-typescript": "npm:^1.7.1"
+    "@alicloud/tea-util": "npm:^1.3.0"
+    kitx: "npm:^2.1.0"
+    sm3: "npm:^1.0.3"
+  checksum: 10c0/1cdb89d59512fa2f75bc802ba7e662643aba9bc6d8ae7b9ffe7bbca7f5a7265745be19410c7f9059be0d419dbc2e4989ca374b3f4fba6c74d7734f19f51f064a
+  languageName: node
+  linkType: hard
+
+"@alicloud/tea-typescript@npm:^1, @alicloud/tea-typescript@npm:^1.5.1, @alicloud/tea-typescript@npm:^1.7.1, @alicloud/tea-typescript@npm:^1.8.0, @alicloud/tea-typescript@npm:latest":
+  version: 1.8.0
+  resolution: "@alicloud/tea-typescript@npm:1.8.0"
+  dependencies:
+    "@types/node": "npm:^12.0.2"
+    httpx: "npm:^2.2.6"
+  checksum: 10c0/72d894747e1bb176d5159f00c0a79f3bb0704ab6e0fe31ed9d3c899659d8365feea5c2bfa42914e2e3a0ebdcb7584a1f90f011a260cba66eca3d457f03cd96ba
+  languageName: node
+  linkType: hard
+
+"@alicloud/tea-util@npm:1.4.9":
+  version: 1.4.9
+  resolution: "@alicloud/tea-util@npm:1.4.9"
+  dependencies:
+    "@alicloud/tea-typescript": "npm:^1.5.1"
+    kitx: "npm:^2.0.0"
+  checksum: 10c0/1976e34d5bef689eb6de81b2b4075b9d36faab18cae2087ade6d28d28b0b395302d28863d22437cf760d22cc509c4c3891ba01997d0e7c07e6cd31454b1e5375
+  languageName: node
+  linkType: hard
+
+"@alicloud/tea-util@npm:^1.3.0, @alicloud/tea-util@npm:^1.4.8":
+  version: 1.4.10
+  resolution: "@alicloud/tea-util@npm:1.4.10"
+  dependencies:
+    "@alicloud/tea-typescript": "npm:^1.5.1"
+    "@darabonba/typescript": "npm:^1.0.0"
+    kitx: "npm:^2.0.0"
+  checksum: 10c0/e0fb40494044a7ad7f2a9f0f61d8d00bfa7bd02c321071aab0fa2ab353b7ee959547bb35b630b65d3e9229660b1b61e516dda7e29800d999b34e32fb6d8cc214
+  languageName: node
+  linkType: hard
+
+"@alicloud/tea-xml@npm:0.0.3":
+  version: 0.0.3
+  resolution: "@alicloud/tea-xml@npm:0.0.3"
+  dependencies:
+    "@alicloud/tea-typescript": "npm:^1"
+    "@types/xml2js": "npm:^0.4.5"
+    xml2js: "npm:^0.6.0"
+  checksum: 10c0/9f0ad91ba9221a867a60d120a83bbd4d67e6c6908aa73bb20fe0b80885b5707256b6bb4953204e2e1f0a329f09ecb2dc235899e809177273bc9562d6353d83d0
+  languageName: node
+  linkType: hard
+
 "@apidevtools/json-schema-ref-parser@https://github.com/bcherny/json-schema-ref-parser.git#984282d34a2993e5243aa35100fe32a63699164d":
   version: 0.0.0-dev
   resolution: "@apidevtools/json-schema-ref-parser@https://github.com/bcherny/json-schema-ref-parser.git#commit=984282d34a2993e5243aa35100fe32a63699164d"
@@ -2248,6 +2443,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/xml2js@npm:^0.4.5":
+  version: 0.4.14
+  resolution: "@types/xml2js@npm:0.4.14"
+  dependencies:
+    "@types/node": "npm:*"
+  checksum: 10c0/06776e7f7aec55a698795e60425417caa7d7db3ff680a7b4ccaae1567c5fec28ff49b9975e9a0d74ff4acb8f4a43730501bbe64f9f761d784c6476ba4db12e13
+  languageName: node
+  linkType: hard
+
 "@types/yauzl@npm:^2.9.1":
   version: 2.10.3
   resolution: "@types/yauzl@npm:2.10.3"
@@ -3460,6 +3664,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"builtin-status-codes@npm:^3.0.0":
+  version: 3.0.0
+  resolution: "builtin-status-codes@npm:3.0.0"
+  checksum: 10c0/c37bbba11a34c4431e56bd681b175512e99147defbe2358318d8152b3a01df7bf25e0305873947e5b350073d5ef41a364a22b37e48f1fb6d2fe6d5286a0f348c
+  languageName: node
+  linkType: hard
+
 "busboy@npm:^1.0.0":
   version: 1.6.0
   resolution: "busboy@npm:1.6.0"
@@ -3546,6 +3757,16 @@ __metadata:
   linkType: hard
 
 "call-bound@npm:^1.0.2, call-bound@npm:^1.0.3, call-bound@npm:^1.0.4":
+  version: 1.0.4
+  resolution: "call-bound@npm:1.0.4"
+  dependencies:
+    call-bind-apply-helpers: "npm:^1.0.2"
+    get-intrinsic: "npm:^1.3.0"
+  checksum: 10c0/f4796a6a0941e71c766aea672f63b72bc61234c4f4964dc6d7606e3664c307e7d77845328a8f3359ce39ddb377fed67318f9ee203dea1d47e46165dcf2917644
+  languageName: node
+  linkType: hard
+
+"call-bound@npm:^1.0.2":
   version: 1.0.4
   resolution: "call-bound@npm:1.0.4"
   dependencies:
@@ -4154,6 +4375,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"copy-to@npm:^2.0.1":
+  version: 2.0.1
+  resolution: "copy-to@npm:2.0.1"
+  checksum: 10c0/ee10fa7ab257ccc1fada75d8571312f7a7eb2fa6a3129d89c6e3afc9884e0eb0cbb79140a92671fd3e35fa285b1e7f27f5422f885494ff14cf4c8c56e62d9daf
+  languageName: node
+  linkType: hard
+
 "copy-webpack-plugin@npm:13.0.0":
   version: 13.0.0
   resolution: "copy-webpack-plugin@npm:13.0.0"
@@ -4381,6 +4609,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"dateformat@npm:^2.0.0":
+  version: 2.2.0
+  resolution: "dateformat@npm:2.2.0"
+  checksum: 10c0/cb41b1439162cd5852cf52717c5e4dea9f9a3207cca18e0be91c5bbd0cf95624f019a79b728fffb2c6e7ebb3499bc188631ac7d1e4bf984505174a33a524a264
+  languageName: node
+  linkType: hard
+
 "dateformat@npm:^3.0.3":
   version: 3.0.3
   resolution: "dateformat@npm:3.0.3"
@@ -4463,6 +4698,15 @@ __metadata:
   version: 0.1.4
   resolution: "deep-is@npm:0.1.4"
   checksum: 10c0/7f0ee496e0dff14a573dc6127f14c95061b448b87b995fc96c017ce0a1e66af1675e73f1d6064407975bc4ea6ab679497a29fff7b5b9c4e99cb10797c1ad0b4c
+  languageName: node
+  linkType: hard
+
+"default-user-agent@npm:^1.0.0":
+  version: 1.0.0
+  resolution: "default-user-agent@npm:1.0.0"
+  dependencies:
+    os-name: "npm:~1.0.3"
+  checksum: 10c0/c7389e78cef67e7bd7706e71bbf3e3012815e4f9ecc814202353072877573529c5caefd54fa0cb7c53918471443794e6f5347428692048923ab931ff43bea5db
   languageName: node
   linkType: hard
 
@@ -4721,6 +4965,17 @@ __metadata:
   linkType: hard
 
 "dunder-proto@npm:^1.0.0, dunder-proto@npm:^1.0.1":
+  version: 1.0.1
+  resolution: "dunder-proto@npm:1.0.1"
+  dependencies:
+    call-bind-apply-helpers: "npm:^1.0.1"
+    es-errors: "npm:^1.3.0"
+    gopd: "npm:^1.2.0"
+  checksum: 10c0/199f2a0c1c16593ca0a145dbf76a962f8033ce3129f01284d48c45ed4e14fea9bbacd7b3610b6cdc33486cef20385ac054948fefc6272fcce645c09468f93031
+  languageName: node
+  linkType: hard
+
+"dunder-proto@npm:^1.0.1":
   version: 1.0.1
   resolution: "dunder-proto@npm:1.0.1"
   dependencies:
@@ -5553,6 +5808,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"extend-shallow@npm:^2.0.1":
+  version: 2.0.1
+  resolution: "extend-shallow@npm:2.0.1"
+  dependencies:
+    is-extendable: "npm:^0.1.0"
+  checksum: 10c0/ee1cb0a18c9faddb42d791b2d64867bd6cfd0f3affb711782eb6e894dd193e2934a7f529426aac7c8ddb31ac5d38000a00aa2caf08aa3dfc3e1c8ff6ba340bd9
+  languageName: node
+  linkType: hard
+
 "extend@npm:^3.0.0":
   version: 3.0.2
   resolution: "extend@npm:3.0.2"
@@ -5853,6 +6117,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"formstream@npm:^1.1.0":
+  version: 1.5.1
+  resolution: "formstream@npm:1.5.1"
+  dependencies:
+    destroy: "npm:^1.0.4"
+    mime: "npm:^2.5.2"
+    node-hex: "npm:^1.0.1"
+    pause-stream: "npm:~0.0.11"
+  checksum: 10c0/f1a33a31fd9e6b9ae02238013c6112a92b77d443bb75c0b34f7d72287c7dc2413dba68cfda2345a652ac280ee05413716ef0ccb52eee7d611960d991f3b7b1cb
+  languageName: node
+  linkType: hard
+
 "forwarded@npm:0.2.0":
   version: 0.2.0
   resolution: "forwarded@npm:0.2.0"
@@ -6018,6 +6294,24 @@ __metadata:
   linkType: hard
 
 "get-intrinsic@npm:^1.2.4, get-intrinsic@npm:^1.2.5, get-intrinsic@npm:^1.2.6, get-intrinsic@npm:^1.2.7, get-intrinsic@npm:^1.3.0":
+  version: 1.3.0
+  resolution: "get-intrinsic@npm:1.3.0"
+  dependencies:
+    call-bind-apply-helpers: "npm:^1.0.2"
+    es-define-property: "npm:^1.0.1"
+    es-errors: "npm:^1.3.0"
+    es-object-atoms: "npm:^1.1.1"
+    function-bind: "npm:^1.1.2"
+    get-proto: "npm:^1.0.1"
+    gopd: "npm:^1.2.0"
+    has-symbols: "npm:^1.1.0"
+    hasown: "npm:^2.0.2"
+    math-intrinsics: "npm:^1.1.0"
+  checksum: 10c0/52c81808af9a8130f581e6a6a83e1ba4a9f703359e7a438d1369a5267a25412322f03dcbd7c549edaef0b6214a0630a28511d7df0130c93cfd380f4fa0b5b66a
+  languageName: node
+  linkType: hard
+
+"get-intrinsic@npm:^1.2.5, get-intrinsic@npm:^1.3.0":
   version: 1.3.0
   resolution: "get-intrinsic@npm:1.3.0"
   dependencies:
@@ -6348,6 +6642,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"gopd@npm:^1.2.0":
+  version: 1.2.0
+  resolution: "gopd@npm:1.2.0"
+  checksum: 10c0/50fff1e04ba2b7737c097358534eacadad1e68d24cccee3272e04e007bed008e68d2614f3987788428fd192a5ae3889d08fb2331417e4fc4a9ab366b2043cead
+  languageName: node
+  linkType: hard
+
 "graceful-fs@npm:4.2.11, graceful-fs@npm:^4.1.11, graceful-fs@npm:^4.1.15, graceful-fs@npm:^4.1.2, graceful-fs@npm:^4.1.6, graceful-fs@npm:^4.2.0, graceful-fs@npm:^4.2.10, graceful-fs@npm:^4.2.11, graceful-fs@npm:^4.2.4, graceful-fs@npm:^4.2.6":
   version: 4.2.11
   resolution: "graceful-fs@npm:4.2.11"
@@ -6663,6 +6964,15 @@ __metadata:
   linkType: hard
 
 "iconv-lite@npm:0.6.3, iconv-lite@npm:^0.6.2, iconv-lite@npm:^0.6.3":
+  version: 0.6.3
+  resolution: "iconv-lite@npm:0.6.3"
+  dependencies:
+    safer-buffer: "npm:>= 2.1.2 < 3.0.0"
+  checksum: 10c0/98102bc66b33fcf5ac044099d1257ba0b7ad5e3ccd3221f34dd508ab4070edff183276221684e1e0555b145fce0850c9f7d2b60a9fcac50fbb4ea0d6e845a3b1
+  languageName: node
+  linkType: hard
+
+"iconv-lite@npm:^0.6.3":
   version: 0.6.3
   resolution: "iconv-lite@npm:0.6.3"
   dependencies:
@@ -8878,6 +9188,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"node-hex@npm:^1.0.1":
+  version: 1.0.1
+  resolution: "node-hex@npm:1.0.1"
+  checksum: 10c0/de7ba2d1531306bcd9ab73973048c9220f10cbb2c2e69682635f1051fb999674674104105ca2bb2313dc6a01a4ea664df44afc8157c726aebe51b78279ae7a92
+  languageName: node
+  linkType: hard
+
 "node-machine-id@npm:1.1.12":
   version: 1.1.12
   resolution: "node-machine-id@npm:1.1.12"
@@ -9173,6 +9490,13 @@ __metadata:
   linkType: hard
 
 "object-inspect@npm:^1.13.3, object-inspect@npm:^1.13.4":
+  version: 1.13.4
+  resolution: "object-inspect@npm:1.13.4"
+  checksum: 10c0/d7f8711e803b96ea3191c745d6f8056ce1f2496e530e6a19a0e92d89b0fa3c76d910c31f0aa270432db6bd3b2f85500a376a83aaba849a8d518c8845b3211692
+  languageName: node
+  linkType: hard
+
+"object-inspect@npm:^1.13.3":
   version: 1.13.4
   resolution: "object-inspect@npm:1.13.4"
   checksum: 10c0/d7f8711e803b96ea3191c745d6f8056ce1f2496e530e6a19a0e92d89b0fa3c76d910c31f0aa270432db6bd3b2f85500a376a83aaba849a8d518c8845b3211692
@@ -11198,6 +11522,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"sm3@npm:^1.0.3":
+  version: 1.0.3
+  resolution: "sm3@npm:1.0.3"
+  checksum: 10c0/e33d5f4c6911b1c8cfa8232981c986eb3cb18ef08b87d0f78fc0da5f50f11b9234fa6c37e9ee218221ecc8e7b430095b3b66820da0cc8497b236237f5cdb696e
+  languageName: node
+  linkType: hard
+
 "smart-buffer@npm:^4.2.0":
   version: 4.2.0
   resolution: "smart-buffer@npm:4.2.0"
@@ -12425,6 +12756,31 @@ __metadata:
   dependencies:
     punycode: "npm:^2.1.0"
   checksum: 10c0/4ef57b45aa820d7ac6496e9208559986c665e49447cb072744c13b66925a362d96dd5a46c4530a6b8e203e5db5fe849369444440cb22ecfc26c679359e5dfa3c
+  languageName: node
+  linkType: hard
+
+"urllib@npm:^2.44.0":
+  version: 2.44.0
+  resolution: "urllib@npm:2.44.0"
+  dependencies:
+    any-promise: "npm:^1.3.0"
+    content-type: "npm:^1.0.2"
+    default-user-agent: "npm:^1.0.0"
+    digest-header: "npm:^1.0.0"
+    ee-first: "npm:~1.1.1"
+    formstream: "npm:^1.1.0"
+    humanize-ms: "npm:^1.2.0"
+    iconv-lite: "npm:^0.6.3"
+    pump: "npm:^3.0.0"
+    qs: "npm:^6.4.0"
+    statuses: "npm:^1.3.1"
+    utility: "npm:^1.16.1"
+  peerDependencies:
+    proxy-agent: ^5.0.0
+  peerDependenciesMeta:
+    proxy-agent:
+      optional: true
+  checksum: 10c0/69641aa5549ee657039979b659ef2a2054b41be1361309bed0ed4b23291e2c8db1864b156092b81a0036a5d9f55dbcfe6afa78fa3c57aad7e0c6a6ceee2fb5b5
   languageName: node
   linkType: hard
 
