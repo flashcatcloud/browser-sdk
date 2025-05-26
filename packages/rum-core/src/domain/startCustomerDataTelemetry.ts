@@ -1,5 +1,5 @@
-import type { FlushEvent, Observable, Telemetry } from '@datadog/browser-core'
-import { performDraw, ONE_SECOND, addTelemetryDebug, setInterval } from '@datadog/browser-core'
+import type { FlushEvent, Observable, Telemetry } from '@flashcatcloud/browser-core'
+import { performDraw, ONE_SECOND, addTelemetryDebug, setInterval } from '@flashcatcloud/browser-core'
 import type { RumConfiguration } from './configuration'
 import type { LifeCycle } from './lifeCycle'
 import { LifeCycleEventType } from './lifeCycle'

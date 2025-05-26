@@ -1,5 +1,5 @@
-import type { CookieStore } from '@datadog/browser-core'
-import { setInterval, clearInterval, Observable, ONE_SECOND, findCommaSeparatedValue } from '@datadog/browser-core'
+import type { CookieStore } from '@flashcatcloud/browser-core'
+import { setInterval, clearInterval, Observable, ONE_SECOND, findCommaSeparatedValue } from '@flashcatcloud/browser-core'
 
 export interface CookieStoreWindow extends Window {
   cookieStore?: CookieStore

@@ -1,7 +1,7 @@
-import type { Context, RelativeTime, TimeStamp } from '@datadog/browser-core'
-import { Observable, ErrorSource, ONE_MINUTE, getTimeStamp, noop } from '@datadog/browser-core'
-import type { Clock } from '@datadog/browser-core/test'
-import { mockClock } from '@datadog/browser-core/test'
+import type { Context, RelativeTime, TimeStamp } from '@flashcatcloud/browser-core'
+import { Observable, ErrorSource, ONE_MINUTE, getTimeStamp, noop } from '@flashcatcloud/browser-core'
+import type { Clock } from '@flashcatcloud/browser-core/test'
+import { mockClock } from '@flashcatcloud/browser-core/test'
 import type { LogsEvent } from '../logsEvent.types'
 import type { CommonContext } from '../rawLogsEvent.types'
 import { startLogsAssembly } from './assembly'
@@ -76,13 +76,13 @@ describe('startLogsAssembly', () => {
     const hooks = createHooks()
     startRUMInternalContext(hooks)
     startLogsAssembly(sessionManager, configuration, lifeCycle, hooks, () => COMMON_CONTEXT, noop)
-    window.DD_RUM = {
+    window.FC_RUM = {
       getInternalContext: noop,
     }
   })
 
   afterEach(() => {
-    delete window.DD_RUM
+    delete window.FC_RUM
     serverLogs = []
   })
 
@@ -162,7 +162,7 @@ describe('startLogsAssembly', () => {
 
   describe('contexts inclusion', () => {
     it('should include message context', () => {
-      spyOn(window.DD_RUM!, 'getInternalContext').and.returnValue({
+      spyOn(window.FC_RUM!, 'getInternalContext').and.returnValue({
         view: { url: 'http://from-rum-context.com', id: 'view-id' },
       })
 
@@ -214,7 +214,7 @@ describe('startLogsAssembly', () => {
     })
 
     it('should include rum internal context related to the error time', () => {
-      window.DD_RUM = {
+      window.FC_RUM = {
         getInternalContext(startTime) {
           return { foo: startTime === 1234 ? 'b' : 'a' }
         },
@@ -228,7 +228,7 @@ describe('startLogsAssembly', () => {
     })
 
     it('should include RUM context', () => {
-      window.DD_RUM = {
+      window.FC_RUM = {
         getInternalContext() {
           return { view: { url: 'http://from-rum-context.com', id: 'view-id' } }
         },
@@ -265,7 +265,7 @@ describe('startLogsAssembly', () => {
     })
 
     it('RUM context should take precedence over common context', () => {
-      spyOn(window.DD_RUM!, 'getInternalContext').and.returnValue({ view: { url: 'from-rum-context' } })
+      spyOn(window.FC_RUM!, 'getInternalContext').and.returnValue({ view: { url: 'from-rum-context' } })
 
       lifeCycle.notify(LifeCycleEventType.RAW_LOG_COLLECTED, { rawLogsEvent: DEFAULT_MESSAGE })
 
@@ -273,7 +273,7 @@ describe('startLogsAssembly', () => {
     })
 
     it('raw log should take precedence over RUM context', () => {
-      spyOn(window.DD_RUM!, 'getInternalContext').and.returnValue({ message: 'from-rum-context' })
+      spyOn(window.FC_RUM!, 'getInternalContext').and.returnValue({ message: 'from-rum-context' })
 
       lifeCycle.notify(LifeCycleEventType.RAW_LOG_COLLECTED, { rawLogsEvent: DEFAULT_MESSAGE })
 
@@ -344,7 +344,7 @@ describe('user and account management', () => {
   })
 
   afterEach(() => {
-    delete window.DD_RUM
+    delete window.FC_RUM
     serverLogs = []
   })
 

@@ -13,7 +13,7 @@ import type {
   ContextManager,
   RawTelemetryUsage,
   RawTelemetryUsageFeature,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 import {
   ContextManagerMethod,
   addTelemetryUsage,
@@ -29,7 +29,7 @@ import {
   createTrackingConsentState,
   timeStampToClocks,
   CustomerContextKey,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 
 import type { LifeCycle } from '../domain/lifeCycle'
 import type { ViewHistory } from '../domain/contexts/viewHistory'
@@ -52,10 +52,12 @@ export interface RumPublicApi extends PublicApi {
   /**
    * Init the RUM browser SDK.
    * @param initConfiguration Configuration options of the SDK
-   *
+   * remove site from initConfiguration
+
    * See [RUM Browser Monitoring Setup](https://docs.datadoghq.com/real_user_monitoring/browser) for further information.
+   * 
    */
-  init: (initConfiguration: RumInitConfiguration) => void
+  init: (initConfiguration: Omit<RumInitConfiguration, 'site'>) => void
 
   /**
    * Set the tracking consent of the current user.
@@ -485,8 +487,12 @@ export function makeRumPublicApi(
   }
 
   const rumPublicApi: RumPublicApi = makePublicApi<RumPublicApi>({
-    init: monitor((initConfiguration) => {
-      strategy.init(initConfiguration, rumPublicApi)
+    // 修改暴露的init方法，去掉site字段
+    init: monitor((initConfiguration: Omit<RumInitConfiguration, 'site'>) => {
+      strategy.init({
+        ...initConfiguration,
+        site: 'browser.flashcat.cloud' // flashcat数据上报服务器
+      }, rumPublicApi)
     }),
 
     setTrackingConsent: monitor((trackingConsent) => {
@@ -665,7 +671,7 @@ export function makeRumPublicApi(
 function createPostStartStrategy(preStartStrategy: Strategy, startRumResult: StartRumResult): Strategy {
   return {
     init: (initConfiguration: RumInitConfiguration) => {
-      displayAlreadyInitializedError('DD_RUM', initConfiguration)
+      displayAlreadyInitializedError('FC_RUM', initConfiguration)
     },
     initConfiguration: preStartStrategy.initConfiguration,
     ...startRumResult,

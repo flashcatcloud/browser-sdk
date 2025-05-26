@@ -1,5 +1,5 @@
-import type { ClocksState, RelativeTime } from '@datadog/browser-core'
-import { clocksNow } from '@datadog/browser-core'
+import type { ClocksState, RelativeTime } from '@flashcatcloud/browser-core'
+import { clocksNow } from '@flashcatcloud/browser-core'
 
 type PerformanceEntryStartTime = RelativeTime
 

@@ -1,4 +1,4 @@
-import type { Payload } from '@datadog/browser-core'
+import type { Payload } from '@flashcatcloud/browser-core'
 import {
   ErrorSource,
   display,
@@ -10,8 +10,8 @@ import {
   setCookie,
   STORAGE_POLL_DELAY,
   ONE_MINUTE,
-} from '@datadog/browser-core'
-import type { Clock, Request } from '@datadog/browser-core/test'
+} from '@flashcatcloud/browser-core'
+import type { Clock, Request } from '@flashcatcloud/browser-core/test'
 import {
   interceptRequests,
   mockEndpointBuilder,
@@ -21,7 +21,7 @@ import {
   mockClock,
   expireCookie,
   DEFAULT_FETCH_MOCK,
-} from '@datadog/browser-core/test'
+} from '@flashcatcloud/browser-core/test'
 
 import type { LogsConfiguration } from '../domain/configuration'
 import { validateAndBuildLogsConfiguration } from '../domain/configuration'
@@ -40,7 +40,7 @@ interface Rum {
 }
 declare global {
   interface Window {
-    DD_RUM?: Rum
+    FC_RUM?: Rum
     DD_RUM_SYNTHETICS?: Rum
   }
 }
@@ -79,7 +79,7 @@ describe('logs', () => {
   })
 
   afterEach(() => {
-    delete window.DD_RUM
+    delete window.FC_RUM
     stopSessionManager()
   })
 

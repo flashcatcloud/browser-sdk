@@ -1,4 +1,4 @@
-import type { RelativeTime } from '@datadog/browser-core'
+import type { RelativeTime } from '@flashcatcloud/browser-core'
 import { DISCARDED, HookNames, abstractHooks } from './abstractHooks'
 
 describe('startHooks', () => {

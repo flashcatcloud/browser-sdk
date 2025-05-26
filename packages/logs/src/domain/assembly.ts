@@ -1,4 +1,4 @@
-import type { EventRateLimiter, RawError } from '@datadog/browser-core'
+import type { EventRateLimiter, RawError } from '@flashcatcloud/browser-core'
 import {
   ErrorSource,
   HookNames,
@@ -6,7 +6,7 @@ import {
   createEventRateLimiter,
   getRelativeTime,
   isEmptyObject,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 import type { CommonContext } from '../rawLogsEvent.types'
 import type { LogsConfiguration } from './configuration'
 import type { LifeCycle } from './lifeCycle'

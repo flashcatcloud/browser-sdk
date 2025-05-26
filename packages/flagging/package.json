@@ -1,6 +1,6 @@
 {
-  "name": "@datadog/browser-flagging",
-  "version": "6.7.0",
+  "name": "@flashcatcloud/browser-flagging",
+  "version": "0.0.2",
   "license": "Apache-2.0",
   "private": true,
   "main": "cjs/entries/main.js",
@@ -15,19 +15,19 @@
     "replace-build-env": "node ../../scripts/build/replace-build-env.js"
   },
   "dependencies": {
-    "@datadog/browser-core": "6.7.0"
+    "@flashcatcloud/browser-core": "workspace:*"
   },
   "peerDependencies": {
-    "@datadog/browser-rum": "6.7.0"
+    "@flashcatcloud/browser-rum": "workspace:*"
   },
   "peerDependenciesMeta": {
-    "@datadog/browser-rum": {
+    "@flashcatcloud/browser-rum": {
       "optional": true
     }
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/DataDog/browser-sdk.git",
+    "url": "https://github.com/flashcatcloud/browser-sdk.git",
     "directory": "packages/flagging"
   },
   "volta": {
@@ -35,5 +35,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "devDependencies": {
+    "webpack": "5.99.9"
   }
 }

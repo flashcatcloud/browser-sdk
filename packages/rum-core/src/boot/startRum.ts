@@ -5,7 +5,7 @@ import type {
   DeflateEncoderStreamId,
   Encoder,
   TrackingConsentState,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 import {
   sendToExtension,
   createPageMayExitObservable,
@@ -15,7 +15,7 @@ import {
   getEventBridge,
   addTelemetryDebug,
   drainPreStartTelemetry,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 import type { RumMutationRecord } from '../browser/domMutationObservable'
 import { createDOMMutationObservable } from '../browser/domMutationObservable'
 import { createWindowOpenObservable } from '../browser/windowOpenObservable'

@@ -90,8 +90,8 @@ function uploadToDatadog(packageName, service, prefix, bundleFolder, sites) {
         --service ${service}
         --release-version ${getBuildEnvValue('SDK_VERSION')}
         --minified-path-prefix ${prefix}
-        --project-path @datadog/browser-${packageName}/
-        --repository-url https://www.github.com/datadog/browser-sdk
+        --project-path @flashcatcloud/browser-${packageName}/
+        --repository-url https://www.github.com/flashcatcloud/browser-sdk
     `
       .withEnvironment({
         DATADOG_API_KEY: getTelemetryOrgApiKey(site),

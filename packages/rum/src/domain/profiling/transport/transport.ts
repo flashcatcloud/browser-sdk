@@ -1,4 +1,4 @@
-import { addTelemetryDebug, currentDrift, type EndpointBuilder, type Payload } from '@datadog/browser-core'
+import { addTelemetryDebug, currentDrift, type EndpointBuilder, type Payload } from '@flashcatcloud/browser-core'
 import type { RumProfilerTrace } from '../types'
 import { getLongTaskId } from '../utils/longTaskRegistry'
 

@@ -1,5 +1,5 @@
-import type { RelativeTime } from '@datadog/browser-core'
-import { addEventListeners, DOM_EVENT, noop } from '@datadog/browser-core'
+import type { RelativeTime } from '@flashcatcloud/browser-core'
+import { addEventListeners, DOM_EVENT, noop } from '@flashcatcloud/browser-core'
 import type { RumConfiguration } from '../../configuration'
 import { supportPerformanceTimingEvent, RumPerformanceEntryType } from '../../../browser/performanceObservable'
 

@@ -1,6 +1,6 @@
-import { type Duration, type RelativeTime, type ServerDuration } from '@datadog/browser-core'
-import { ExperimentalFeature } from '@datadog/browser-core'
-import { mockExperimentalFeatures } from '@datadog/browser-core/test'
+import { type Duration, type RelativeTime, type ServerDuration } from '@flashcatcloud/browser-core'
+import { ExperimentalFeature } from '@flashcatcloud/browser-core'
+import { mockExperimentalFeatures } from '@flashcatcloud/browser-core/test'
 import { RumPerformanceEntryType, type RumPerformanceResourceTiming } from '../../browser/performanceObservable'
 import {
   MAX_ATTRIBUTE_VALUE_CHAR_LENGTH,

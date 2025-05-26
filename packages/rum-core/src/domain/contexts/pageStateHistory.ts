@@ -1,4 +1,4 @@
-import type { Duration, RelativeTime } from '@datadog/browser-core'
+import type { Duration, RelativeTime } from '@flashcatcloud/browser-core'
 import {
   SKIPPED,
   elapsed,
@@ -9,7 +9,7 @@ import {
   relativeNow,
   DOM_EVENT,
   HookNames,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 import type { RumConfiguration } from '../configuration'
 import { supportPerformanceTimingEvent, RumPerformanceEntryType } from '../../browser/performanceObservable'
 import { RumEventType, type PageStateServerEntry } from '../../rawRumEvent.types'

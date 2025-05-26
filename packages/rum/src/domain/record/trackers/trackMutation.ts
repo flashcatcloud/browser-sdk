@@ -1,4 +1,4 @@
-import { monitor, noop } from '@datadog/browser-core'
+import { monitor, noop } from '@flashcatcloud/browser-core'
 import type {
   RumConfiguration,
   NodePrivacyLevelCache,
@@ -6,7 +6,7 @@ import type {
   RumChildListMutationRecord,
   RumCharacterDataMutationRecord,
   RumAttributesMutationRecord,
-} from '@datadog/browser-rum-core'
+} from '@flashcatcloud/browser-rum-core'
 import {
   isNodeShadowHost,
   getMutationObserverConstructor,
@@ -15,7 +15,7 @@ import {
   getNodePrivacyLevel,
   getTextContent,
   NodePrivacyLevel,
-} from '@datadog/browser-rum-core'
+} from '@flashcatcloud/browser-rum-core'
 import { IncrementalSource } from '../../../types'
 import type {
   BrowserMutationData,

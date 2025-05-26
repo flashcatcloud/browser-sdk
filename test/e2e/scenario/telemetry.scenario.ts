@@ -11,7 +11,7 @@ test.describe('telemetry', () => {
             throw new window.Error('expected error')
           },
         }
-        window.DD_LOGS!.logger.log('hop', context as any)
+        window.FC_LOGS!.logger.log('hop', context as any)
       })
       await flushEvents()
       expect(intakeRegistry.telemetryErrorEvents).toHaveLength(1)
@@ -32,7 +32,7 @@ test.describe('telemetry', () => {
             throw new window.Error('expected error')
           },
         }
-        window.DD_RUM!.addAction('hop', context as any)
+        window.FC_RUM!.addAction('hop', context as any)
       })
       await flushEvents()
       expect(intakeRegistry.telemetryErrorEvents).toHaveLength(1)
@@ -72,7 +72,7 @@ test.describe('telemetry', () => {
     .withRum()
     .run(async ({ intakeRegistry, flushEvents, page }) => {
       await page.evaluate(() => {
-        window.DD_RUM!.addAction('foo')
+        window.FC_RUM!.addAction('foo')
       })
 
       await flushEvents()
@@ -86,7 +86,7 @@ test.describe('telemetry', () => {
     .withLogs()
     .run(async ({ intakeRegistry, flushEvents, page }) => {
       await page.evaluate(() => {
-        window.DD_LOGS!.setTrackingConsent('granted')
+        window.FC_LOGS!.setTrackingConsent('granted')
       })
 
       await flushEvents()

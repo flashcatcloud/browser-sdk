@@ -1,4 +1,4 @@
-import type { Context, RelativeTime } from '@datadog/browser-core'
+import type { Context, RelativeTime } from '@flashcatcloud/browser-core'
 import {
   willSyntheticsInjectRum,
   addTelemetryDebug,
@@ -6,7 +6,7 @@ import {
   getSyntheticsResultId,
   HookNames,
   SKIPPED,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 import type { Hooks } from '../hooks'
 
 interface Rum {
@@ -14,7 +14,7 @@ interface Rum {
 }
 
 interface BrowserWindow {
-  DD_RUM?: Rum
+  FC_RUM?: Rum
   DD_RUM_SYNTHETICS?: Rum
 }
 
@@ -33,7 +33,7 @@ export function startRUMInternalContext(hooks: Hooks) {
 
   function getRUMInternalContext(startTime?: RelativeTime) {
     const willSyntheticsInjectRumResult = willSyntheticsInjectRum()
-    const rumSource = willSyntheticsInjectRumResult ? browserWindow.DD_RUM_SYNTHETICS : browserWindow.DD_RUM
+    const rumSource = willSyntheticsInjectRumResult ? browserWindow.DD_RUM_SYNTHETICS : browserWindow.FC_RUM
     const rumContext = getInternalContextFromRumGlobal(startTime, rumSource)
 
     if (rumContext) {

@@ -1,5 +1,5 @@
-import { noop } from '@datadog/browser-core'
-import type { ProfilerApi } from '@datadog/browser-rum-core'
+import { noop } from '@flashcatcloud/browser-core'
+import type { ProfilerApi } from '@flashcatcloud/browser-rum-core'
 
 export function makeProfilerApiStub(): ProfilerApi {
   return {

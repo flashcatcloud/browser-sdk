@@ -1,5 +1,5 @@
-import { HookNames } from '@datadog/browser-core'
-import type { RelativeTime } from '@datadog/browser-core'
+import { HookNames } from '@flashcatcloud/browser-core'
+import type { RelativeTime } from '@flashcatcloud/browser-core'
 import { mockRumConfiguration } from '../../../test'
 import type { Hooks } from '../hooks'
 import { createHooks } from '../hooks'

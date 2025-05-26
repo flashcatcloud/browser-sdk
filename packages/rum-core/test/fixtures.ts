@@ -1,6 +1,6 @@
-import type { Context, Duration, RelativeTime, ServerDuration, TimeStamp } from '@datadog/browser-core'
-import { combine, ErrorHandling, ErrorSource, generateUUID, relativeNow, ResourceType } from '@datadog/browser-core'
-import type { RumMutationRecord } from '@datadog/browser-rum-core'
+import type { Context, Duration, RelativeTime, ServerDuration, TimeStamp } from '@flashcatcloud/browser-core'
+import { combine, ErrorHandling, ErrorSource, generateUUID, relativeNow, ResourceType } from '@flashcatcloud/browser-core'
+import type { RumMutationRecord } from '@flashcatcloud/browser-rum-core'
 import {
   type RumPerformanceEntry,
   type RumLayoutShiftAttribution,

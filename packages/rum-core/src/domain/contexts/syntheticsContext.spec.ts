@@ -1,5 +1,5 @@
-import type { RelativeTime } from '@datadog/browser-core'
-import { HookNames } from '@datadog/browser-core'
+import type { RelativeTime } from '@flashcatcloud/browser-core'
+import { HookNames } from '@flashcatcloud/browser-core'
 import { mockSyntheticsWorkerValues } from '../../../../core/test'
 import { SessionType } from '../rumSessionManager'
 import type { Hooks } from '../hooks'

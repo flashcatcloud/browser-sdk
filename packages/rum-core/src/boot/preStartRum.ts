@@ -1,4 +1,4 @@
-import type { TrackingConsentState, DeflateWorker, Context, ContextManager, BoundedBuffer } from '@datadog/browser-core'
+import type { TrackingConsentState, DeflateWorker, Context, ContextManager, BoundedBuffer } from '@flashcatcloud/browser-core'
 import {
   createBoundedBuffer,
   display,
@@ -13,7 +13,7 @@ import {
   addTelemetryConfiguration,
   initFetchObservable,
   CustomerContextKey,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 import {
   validateAndBuildRumConfiguration,
   type RumConfiguration,
@@ -103,7 +103,7 @@ export function createPreStartStrategy(
     addTelemetryConfiguration(serializeRumConfiguration(initConfiguration))
 
     if (cachedConfiguration) {
-      displayAlreadyInitializedError('DD_RUM', initConfiguration)
+      displayAlreadyInitializedError('FC_RUM', initConfiguration)
       return
     }
 

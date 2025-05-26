@@ -1,4 +1,4 @@
-import type { Subscription, TimeoutId, TimeStamp } from '@datadog/browser-core'
+import type { Subscription, TimeoutId, TimeStamp } from '@flashcatcloud/browser-core'
 import {
   matchList,
   monitor,
@@ -8,7 +8,7 @@ import {
   clearTimeout,
   isExperimentalFeatureEnabled,
   ExperimentalFeature,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 import { createPerformanceObservable, RumPerformanceEntryType } from '../browser/performanceObservable'
 import type { RumMutationRecord } from '../browser/domMutationObservable'
 import { isElementNode } from '../browser/htmlDomUtils'

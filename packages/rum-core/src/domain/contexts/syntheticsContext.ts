@@ -4,7 +4,7 @@ import {
   getSyntheticsTestId,
   HookNames,
   willSyntheticsInjectRum,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 import { SessionType } from '../rumSessionManager'
 import type { DefaultRumEventAttributes, Hooks } from '../hooks'
 

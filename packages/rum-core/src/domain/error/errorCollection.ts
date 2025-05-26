@@ -1,4 +1,4 @@
-import type { Context, RawError, ClocksState } from '@datadog/browser-core'
+import type { Context, RawError, ClocksState } from '@flashcatcloud/browser-core'
 import {
   ErrorSource,
   generateUUID,
@@ -8,7 +8,7 @@ import {
   trackRuntimeError,
   NonErrorPrefix,
   combine,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 import type { RumConfiguration } from '../configuration'
 import type { RawRumErrorEvent } from '../../rawRumEvent.types'
 import { RumEventType } from '../../rawRumEvent.types'

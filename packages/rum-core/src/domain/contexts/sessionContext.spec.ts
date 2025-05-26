@@ -1,5 +1,5 @@
-import type { RelativeTime } from '@datadog/browser-core'
-import { clocksNow, DISCARDED, HookNames } from '@datadog/browser-core'
+import type { RelativeTime } from '@flashcatcloud/browser-core'
+import { clocksNow, DISCARDED, HookNames } from '@flashcatcloud/browser-core'
 import type { RumSessionManagerMock } from '../../../test'
 import { createRumSessionManagerMock, noopRecorderApi } from '../../../test'
 import { SessionType } from '../rumSessionManager'

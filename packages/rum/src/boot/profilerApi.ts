@@ -1,5 +1,5 @@
-import type { LifeCycle, ViewHistory, RumSessionManager, RumConfiguration } from '@datadog/browser-rum-core'
-import { addTelemetryDebug, monitorError, performDraw } from '@datadog/browser-core'
+import type { LifeCycle, ViewHistory, RumSessionManager, RumConfiguration } from '@flashcatcloud/browser-rum-core'
+import { addTelemetryDebug, monitorError, performDraw } from '@flashcatcloud/browser-core'
 import type { RUMProfiler } from '../domain/profiling/types'
 import { isProfilingSupported } from '../domain/profiling/profilingSupported'
 import { lazyLoadProfiler } from './lazyLoadProfiler'

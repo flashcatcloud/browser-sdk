@@ -1,4 +1,4 @@
-import type { Duration, RelativeTime } from '@datadog/browser-core'
+import type { Duration, RelativeTime } from '@flashcatcloud/browser-core'
 import {
   addTelemetryDebug,
   elapsed,
@@ -9,7 +9,7 @@ import {
   isIntakeUrl,
   isExperimentalFeatureEnabled,
   ExperimentalFeature,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 
 import type { RumPerformanceResourceTiming } from '../../browser/performanceObservable'
 

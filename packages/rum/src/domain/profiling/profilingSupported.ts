@@ -1,4 +1,4 @@
-import { getGlobalObject } from '@datadog/browser-core'
+import { getGlobalObject } from '@flashcatcloud/browser-core'
 import type { Profiler } from './types'
 
 export function isProfilingSupported(): boolean {

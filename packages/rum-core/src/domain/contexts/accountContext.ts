@@ -1,4 +1,4 @@
-import type { Account } from '@datadog/browser-core'
+import type { Account } from '@flashcatcloud/browser-core'
 import {
   SKIPPED,
   createContextManager,
@@ -6,7 +6,7 @@ import {
   HookNames,
   isEmptyObject,
   storeContextManager,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 import type { RumConfiguration } from '../configuration'
 import type { DefaultRumEventAttributes, Hooks } from '../hooks'
 

@@ -1,5 +1,5 @@
-import type { ContextManager, ContextValue } from '@datadog/browser-core'
-import { display, objectEntries, TraceContextInjection } from '@datadog/browser-core'
+import type { ContextManager, ContextValue } from '@flashcatcloud/browser-core'
+import { display, objectEntries, TraceContextInjection } from '@flashcatcloud/browser-core'
 import type { RumSessionManagerMock } from '../../../test'
 import { createRumSessionManagerMock } from '../../../test'
 import type { RumFetchResolveContext, RumFetchStartContext, RumXhrStartContext } from '../requestCollection'

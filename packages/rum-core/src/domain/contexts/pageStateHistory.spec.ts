@@ -1,5 +1,5 @@
-import type { ServerDuration, Duration, RelativeTime } from '@datadog/browser-core'
-import { HookNames } from '@datadog/browser-core'
+import type { ServerDuration, Duration, RelativeTime } from '@flashcatcloud/browser-core'
+import { HookNames } from '@flashcatcloud/browser-core'
 import type { Clock } from '../../../../core/test'
 import { mockClock, registerCleanupTask } from '../../../../core/test'
 import { mockRumConfiguration, mockPerformanceObserver } from '../../../test'

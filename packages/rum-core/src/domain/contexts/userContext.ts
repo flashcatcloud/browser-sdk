@@ -5,7 +5,7 @@ import {
   HookNames,
   isEmptyObject,
   storeContextManager,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 import type { RumConfiguration } from '../configuration'
 import type { RumSessionManager } from '../rumSessionManager'
 import type { DefaultRumEventAttributes, Hooks } from '../hooks'
@@ -23,6 +23,7 @@ export function startUserContext(hooks: Hooks, configuration: RumConfiguration, 
 
     if (session && session.anonymousId && !user.anonymous_id && !!configuration.trackAnonymousUser) {
       user.anonymous_id = session.anonymousId
+      user.id = user.id ?? session.anonymousId
     }
 
     if (isEmptyObject(user)) {

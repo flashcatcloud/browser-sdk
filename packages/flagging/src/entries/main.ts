@@ -1,4 +1,4 @@
-import { defineGlobal, getGlobalObject } from '@datadog/browser-core'
+import { defineGlobal, getGlobalObject } from '@flashcatcloud/browser-core'
 import { flagging as importedFlagging } from '../hello'
 
 export const datadogFlagging = importedFlagging

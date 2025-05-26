@@ -1,4 +1,4 @@
-import type { ContextManager } from '@datadog/browser-core'
+import type { ContextManager } from '@flashcatcloud/browser-core'
 import {
   objectEntries,
   shallowClone,
@@ -6,7 +6,7 @@ import {
   isMatchOption,
   matchList,
   TraceContextInjection,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 import type { RumConfiguration } from '../configuration'
 import type {
   RumFetchResolveContext,
@@ -184,15 +184,6 @@ function makeTracingHeaders(
 
   propagatorTypes.forEach((propagatorType) => {
     switch (propagatorType) {
-      case 'datadog': {
-        Object.assign(tracingHeaders, {
-          'x-datadog-origin': 'rum',
-          'x-datadog-parent-id': spanId.toString(),
-          'x-datadog-sampling-priority': traceSampled ? '1' : '0',
-          'x-datadog-trace-id': traceId.toString(),
-        })
-        break
-      }
       // https://www.w3.org/TR/trace-context/
       case 'tracecontext': {
         Object.assign(tracingHeaders, {

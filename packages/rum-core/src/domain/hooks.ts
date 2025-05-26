@@ -5,8 +5,8 @@ import type {
   RecursivePartialExcept,
   RelativeTime,
   SKIPPED,
-} from '@datadog/browser-core'
-import { abstractHooks } from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
+import { abstractHooks } from '@flashcatcloud/browser-core'
 import type { RumEvent } from '../rumEvent.types'
 
 // Define a partial RUM event type.

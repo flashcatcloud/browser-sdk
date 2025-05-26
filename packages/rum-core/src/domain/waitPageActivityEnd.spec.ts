@@ -1,7 +1,7 @@
-import type { Subscription } from '@datadog/browser-core'
-import { ExperimentalFeature, Observable, ONE_SECOND } from '@datadog/browser-core'
-import type { Clock } from '@datadog/browser-core/test'
-import { mockClock, mockExperimentalFeatures } from '@datadog/browser-core/test'
+import type { Subscription } from '@flashcatcloud/browser-core'
+import { ExperimentalFeature, Observable, ONE_SECOND } from '@flashcatcloud/browser-core'
+import type { Clock } from '@flashcatcloud/browser-core/test'
+import { mockClock, mockExperimentalFeatures } from '@flashcatcloud/browser-core/test'
 import {
   appendElement,
   createMutationRecord,

@@ -1,4 +1,4 @@
-import { createContextManager, CustomerDataType, HookNames, storeContextManager } from '@datadog/browser-core'
+import { createContextManager, CustomerDataType, HookNames, storeContextManager } from '@flashcatcloud/browser-core'
 import type { RumConfiguration } from '../configuration'
 import type { DefaultRumEventAttributes, Hooks } from '../hooks'
 

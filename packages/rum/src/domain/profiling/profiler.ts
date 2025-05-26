@@ -1,4 +1,4 @@
-import type { Duration, RelativeTime } from '@datadog/browser-core'
+import type { Duration, RelativeTime } from '@flashcatcloud/browser-core'
 import {
   addEventListener,
   clearTimeout,
@@ -11,10 +11,10 @@ import {
   clocksOrigin,
   clocksNow,
   elapsed,
-} from '@datadog/browser-core'
+} from '@flashcatcloud/browser-core'
 
-import type { LifeCycle, RumConfiguration, RumSessionManager, ViewHistoryEntry } from '@datadog/browser-rum-core'
-import { LifeCycleEventType, RumPerformanceEntryType, supportPerformanceTimingEvent } from '@datadog/browser-rum-core'
+import type { LifeCycle, RumConfiguration, RumSessionManager, ViewHistoryEntry } from '@flashcatcloud/browser-rum-core'
+import { LifeCycleEventType, RumPerformanceEntryType, supportPerformanceTimingEvent } from '@flashcatcloud/browser-rum-core'
 import type {
   RumProfilerTrace,
   RumProfilerInstance,
