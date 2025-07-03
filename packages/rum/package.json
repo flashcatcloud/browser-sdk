@@ -8,14 +8,17 @@
   "scripts": {
     "pack": "yarn pack",
     "build": "run-p build:cjs build:esm build:bundle",
+    "build:dev": "run-p build:cjs build:esm build:bundle:dev",
     "build:bundle": "rm -rf bundle && SDK_SETUP=cdn webpack --mode=production",
+    "build:bundle:dev": "rm -rf bundle && SDK_SETUP=cdn webpack --mode=development",
     "build:cjs": "rm -rf cjs && tsc -p tsconfig.cjs.json && yarn replace-build-env cjs",
     "build:esm": "rm -rf esm && tsc -p tsconfig.esm.json && yarn replace-build-env esm",
     "replace-build-env": "node ../../scripts/build/replace-build-env.js"
   },
   "dependencies": {
     "@flashcatcloud/browser-core": "workspace:*",
-    "@flashcatcloud/browser-rum-core": "workspace:*"
+    "@flashcatcloud/browser-rum-core": "workspace:*",
+    "@rrweb/record": "2.0.0-alpha.18"
   },
   "peerDependencies": {
     "@flashcatcloud/browser-logs": "0.0.2"

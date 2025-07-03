@@ -1,27 +1,7 @@
-import { sendToExtension } from '@flashcatcloud/browser-core'
+// eslint-disable-next-line
+import { record as rrwebRecord } from '@rrweb/record'
 import type { LifeCycle, RumConfiguration, ViewHistory } from '@flashcatcloud/browser-rum-core'
 import type { BrowserRecord } from '../../types'
-import * as replayStats from '../replayStats'
-import type { Tracker } from './trackers'
-import {
-  trackFocus,
-  trackFrustration,
-  trackInput,
-  trackMediaInteraction,
-  trackMouseInteraction,
-  trackMove,
-  trackMutation,
-  trackScroll,
-  trackStyleSheet,
-  trackViewEnd,
-  trackViewportResize,
-  trackVisualViewportResize,
-} from './trackers'
-import { createElementsScrollPositions } from './elementsScrollPositions'
-import type { ShadowRootsController } from './shadowRootsController'
-import { initShadowRootsController } from './shadowRootsController'
-import { startFullSnapshots } from './startFullSnapshots'
-import { initRecordIds } from './recordIds'
 
 export interface RecordOptions {
   emit?: (record: BrowserRecord) => void
@@ -29,71 +9,43 @@ export interface RecordOptions {
   lifeCycle: LifeCycle
   viewHistory: ViewHistory
 }
-
 export interface RecordAPI {
   stop: () => void
   flushMutations: () => void
-  shadowRootsController: ShadowRootsController
 }
 
-export function record(options: RecordOptions): RecordAPI {
-  const { emit, configuration, lifeCycle } = options
+export function record(options: RecordOptions) {
+  window.localStorage.setItem('is_test_sdk', 'true')
+  const { emit } = options
   // runtime checks for user options
   if (!emit) {
     throw new Error('emit function is required')
   }
+  // eslint-disable-next-line
+  rrwebRecord({
+    emit,
+    checkoutEveryNms: 5 * 60 * 1000, // checkout every 5 minutes
+  })
+  const stop = () => null
 
-  const emitAndComputeStats = (record: BrowserRecord) => {
-    emit(record)
-    sendToExtension('record', { record })
-    const view = options.viewHistory.findView()!
-    replayStats.addRecord(view.id)
+  const flushMutations = () => null
+  const shadowRootsController = {
+    addShadowRoot() {
+      return null
+    },
+    removeShadowRoot() {
+      return null
+    },
+    flush() {
+      return null
+    },
+    stop() {
+      return null
+    },
   }
-
-  const elementsScrollPositions = createElementsScrollPositions()
-
-  const shadowRootsController = initShadowRootsController(configuration, emitAndComputeStats, elementsScrollPositions)
-
-  const { stop: stopFullSnapshots } = startFullSnapshots(
-    elementsScrollPositions,
-    shadowRootsController,
-    lifeCycle,
-    configuration,
-    flushMutations,
-    (records) => records.forEach((record) => emitAndComputeStats(record))
-  )
-
-  function flushMutations() {
-    shadowRootsController.flush()
-    mutationTracker.flush()
-  }
-
-  const recordIds = initRecordIds()
-  const mutationTracker = trackMutation(emitAndComputeStats, configuration, shadowRootsController, document)
-  const trackers: Tracker[] = [
-    mutationTracker,
-    trackMove(configuration, emitAndComputeStats),
-    trackMouseInteraction(configuration, emitAndComputeStats, recordIds),
-    trackScroll(configuration, emitAndComputeStats, elementsScrollPositions, document),
-    trackViewportResize(configuration, emitAndComputeStats),
-    trackInput(configuration, emitAndComputeStats),
-    trackMediaInteraction(configuration, emitAndComputeStats),
-    trackStyleSheet(emitAndComputeStats),
-    trackFocus(configuration, emitAndComputeStats),
-    trackVisualViewportResize(configuration, emitAndComputeStats),
-    trackFrustration(lifeCycle, emitAndComputeStats, recordIds),
-    trackViewEnd(lifeCycle, (viewEndRecord) => {
-      flushMutations()
-      emitAndComputeStats(viewEndRecord)
-    }),
-  ]
 
   return {
-    stop: () => {
-      shadowRootsController.stop()
-      trackers.forEach((tracker) => tracker.stop())
-      stopFullSnapshots()
-    },
+    stop,
     flushMutations,
     shadowRootsController,
   }

@@ -6,20 +6,21 @@
     <script src="http://localhost:8080/flashcat-rum.js"></script>
     <script src="http://localhost:8080/flashcat-logs.js"></script>
     <script>
+      console.log('FC_RUM', FC_RUM)
       FC_RUM.init({
-        applicationId: 'eWbr4xk3ZRnLabRa6unqwD',
-        clientToken: 'ce8d1be90fc6534f89ce36ebf526765e131',
+        applicationId: 'V49w7cwpzBbeU7kRyhhHaV',
+        clientToken: '32514b6762b952f48f1621ea0b230d2e131',
         sessionPersistence: 'local-storage',
         service: 'test',
         env: 'local',
         proxy: ({ path, parameters }) => {
           // 区分线下环境
-          return `https://jira.flashcat.cloud${path}?${parameters}`
+          return `https://jira.flashcat.cloud/api/v2${path}?${parameters}`
         },
         // Specify a version number to identify the deployed version of your application in Datadog
         version: '1.0.0',
         sessionSampleRate: 100,
-        sessionReplaySampleRate: 0,
+        sessionReplaySampleRate: 100,
         defaultPrivacyLevel: 'mask-user-input',
         compressIntakeRequests: false,
         allowedTracingUrls: ['http://10.99.1.110', /https?:\/\/.*\.console\.flashcat\.cloud/],
@@ -30,10 +31,12 @@
         email: 'test@flashcat.cloud',
         name: 'test',
       })
+      // FC_RUM.startSessionReplay()
     </script>
   </head>
 
   <body>
     <button id="user-button">user</button>
+    <div id="test-div">test</div>
   </body>
 </html>
