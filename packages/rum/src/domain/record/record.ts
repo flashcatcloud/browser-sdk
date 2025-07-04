@@ -15,6 +15,8 @@ export interface RecordAPI {
 }
 
 export function record(options: RecordOptions) {
+  // eslint-disable-next-line
+  console.log('record', options)
   window.localStorage.setItem('is_test_sdk', 'true')
   const { emit } = options
   // runtime checks for user options
@@ -23,7 +25,11 @@ export function record(options: RecordOptions) {
   }
   // eslint-disable-next-line
   rrwebRecord({
-    emit,
+    emit: (record) => {
+      // eslint-disable-next-line
+      console.log('record from rrweb', record)
+      emit(record as unknown as BrowserRecord)
+    },
     checkoutEveryNms: 5 * 60 * 1000, // checkout every 5 minutes
   })
   const stop = () => null

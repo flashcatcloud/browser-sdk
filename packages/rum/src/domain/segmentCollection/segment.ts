@@ -37,6 +37,9 @@ export function createSegment({
   replayStats.addSegment(viewId)
 
   function addRecord(record: BrowserRecord, callback: AddRecordCallback): void {
+    // eslint-disable-next-line
+    console.log('addRecord is called', record)
+
     metadata.start = Math.min(metadata.start, record.timestamp)
     metadata.end = Math.max(metadata.end, record.timestamp)
     metadata.records_count += 1
