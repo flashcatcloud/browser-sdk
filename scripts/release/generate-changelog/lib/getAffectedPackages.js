@@ -16,6 +16,11 @@ const PACKAGES_REVERSE_DEPENDENCIES = (() => {
 })()
 
 exports.getAffectedPackages = (hash) => {
+  // Handle empty hash case (e.g., when there are no commits between versions)
+  if (!hash || hash.trim() === '') {
+    return []
+  }
+  
   const changedFiles = command`git diff-tree --no-commit-id --name-only -r ${hash}`.run().trim().split('\n')
   const affectedPackages = new Set()
 
