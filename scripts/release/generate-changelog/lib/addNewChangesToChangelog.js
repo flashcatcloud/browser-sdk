@@ -57,7 +57,6 @@ async function getEmojisLegend() {
 function getChangeLists() {
   const lastTagName = getLastReleaseTagName()
   const commits = command`git log ${[`${lastTagName}..HEAD`, '--pretty=format:%H %s']}`.run().split('\n')
-    .filter(commit => commit.trim() !== '')
 
   const internalChanges = []
   const publicChanges = []
