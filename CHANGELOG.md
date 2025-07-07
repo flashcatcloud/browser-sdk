@@ -18,6 +18,12 @@
 
 ---
 
+## v0.0.3-beta.2
+
+**Internal Changes:**
+
+- chore: release v0.0.3
+
 ## v0.0.3-beta.1
 
 **Public Changes:**
