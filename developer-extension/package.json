@@ -1,6 +1,6 @@
 {
   "name": "@flashcatcloud/browser-sdk-developer-extension",
-  "version": "0.0.2",
+  "version": "0.0.3-beta.1",
   "private": true,
   "scripts": {
     "build": "rm -rf dist && webpack --mode production",
