@@ -6,27 +6,27 @@ __metadata:
   cacheKey: 10c0
 
 "@flashcatcloud/browser-core@file:../../../packages/core/package.tgz::locator=react-app%40workspace%3A.":
-  version: 0.0.4-alpha.1
-  resolution: "@flashcatcloud/browser-core@file:../../../packages/core/package.tgz#../../../packages/core/package.tgz::hash=c1fa63&locator=react-app%40workspace%3A."
-  checksum: 10c0/1560d066f9f277781b58932408353453d839afd23a5dce7541ba60a745e4a0ca3f77e325403b4c417f97e9262c700326e272d0d3dc8a7c8c298c66e8125a2e71
+  version: 0.0.4-alpha.2
+  resolution: "@flashcatcloud/browser-core@file:../../../packages/core/package.tgz#../../../packages/core/package.tgz::hash=9406cc&locator=react-app%40workspace%3A."
+  checksum: 10c0/c46b3bbe4a213c120b007f6c11b0a47ed1eb16a83a95e76b4195c05470c4e9cdc5957c8cc1ed5933fc2ccabcb41a654bbb9d94e1248a6ed317fdd51d66927593
   languageName: node
   linkType: hard
 
 "@flashcatcloud/browser-rum-core@file:../../../packages/rum-core/package.tgz::locator=react-app%40workspace%3A.":
-  version: 0.0.4-alpha.1
-  resolution: "@flashcatcloud/browser-rum-core@file:../../../packages/rum-core/package.tgz#../../../packages/rum-core/package.tgz::hash=358305&locator=react-app%40workspace%3A."
+  version: 0.0.4-alpha.2
+  resolution: "@flashcatcloud/browser-rum-core@file:../../../packages/rum-core/package.tgz#../../../packages/rum-core/package.tgz::hash=9b85c1&locator=react-app%40workspace%3A."
   dependencies:
-    "@flashcatcloud/browser-core": "npm:0.0.4-alpha.1"
-  checksum: 10c0/bdfca0d8d7b334b93eb443eea5a719dfeb58d0beafce99926de1736b6ac37230683fbc902efbf2133687d40df0980b78225f96bede09edb54119e43762427533
+    "@flashcatcloud/browser-core": "npm:0.0.4-alpha.2"
+  checksum: 10c0/fd0c5aa88461175f8c611f17975241706f45e168c3f9251fc6249ad1724cc22acf23b41ea5d5bff6fa4c824144bd1fbc029966961e9acf117b0a088d53729135
   languageName: node
   linkType: hard
 
 "@flashcatcloud/browser-rum-react@file:../../../packages/rum-react/package.tgz::locator=react-app%40workspace%3A.":
-  version: 0.0.4-alpha.1
-  resolution: "@flashcatcloud/browser-rum-react@file:../../../packages/rum-react/package.tgz#../../../packages/rum-react/package.tgz::hash=832471&locator=react-app%40workspace%3A."
+  version: 0.0.4-alpha.2
+  resolution: "@flashcatcloud/browser-rum-react@file:../../../packages/rum-react/package.tgz#../../../packages/rum-react/package.tgz::hash=6319ee&locator=react-app%40workspace%3A."
   dependencies:
-    "@flashcatcloud/browser-core": "npm:0.0.4-alpha.1"
-    "@flashcatcloud/browser-rum-core": "npm:0.0.4-alpha.1"
+    "@flashcatcloud/browser-core": "npm:0.0.4-alpha.2"
+    "@flashcatcloud/browser-rum-core": "npm:0.0.4-alpha.2"
   peerDependencies:
     react: 18 || 19
     react-router-dom: 6 || 7
@@ -39,23 +39,22 @@ __metadata:
       optional: true
     react-router-dom:
       optional: true
-  checksum: 10c0/a38bfc6fb8ff2e6311855471088aa116308ce56bf81437ce49f4e1e93e348f9f26a4fa4a57bcaa4e406eb52f0cc70b6804f00c2b0bc9a477267553a1db87599f
+  checksum: 10c0/94c3e532eeb0330655af616fbf3b519a177c790d770305435f2641a06e09e395a2ebffe30b56c995a883b73f17ab12222dc6e3d510caa8ac2bcd05bedde0a784
   languageName: node
   linkType: hard
 
 "@flashcatcloud/browser-rum@file:../../../packages/rum/package.tgz::locator=react-app%40workspace%3A.":
-  version: 0.0.4-alpha.1
-  resolution: "@flashcatcloud/browser-rum@file:../../../packages/rum/package.tgz#../../../packages/rum/package.tgz::hash=13284e&locator=react-app%40workspace%3A."
+  version: 0.0.4-alpha.2
+  resolution: "@flashcatcloud/browser-rum@file:../../../packages/rum/package.tgz#../../../packages/rum/package.tgz::hash=43d9a9&locator=react-app%40workspace%3A."
   dependencies:
-    "@flashcatcloud/browser-core": "npm:0.0.4-alpha.1"
-    "@flashcatcloud/browser-rum-core": "npm:0.0.4-alpha.1"
-    "@rrweb/record": "npm:2.0.0-alpha.18"
+    "@flashcatcloud/browser-core": "npm:0.0.4-alpha.2"
+    "@flashcatcloud/browser-rum-core": "npm:0.0.4-alpha.2"
   peerDependencies:
-    "@flashcatcloud/browser-logs": 0.0.4-alpha.1
+    "@flashcatcloud/browser-logs": 0.0.4-alpha.2
   peerDependenciesMeta:
     "@flashcatcloud/browser-logs":
       optional: true
-  checksum: 10c0/9217ac53e8558f95215cca9d5a5b164694a526d8aceb4c808d22b6124d7fdb305b9c5a06f9d9c5304e8493da77b6ea06c03776a4fb7ffd64da17f82c286fac9a
+  checksum: 10c0/dc8f26fff8b3bf7750b605f6bcda016048fdba44ddbeafb60c563bf2cfe10f1fd8a8b2a20144ebb960d0fbd2caa221c372383ac60a2b70ea655e5c32319a6f58
   languageName: node
   linkType: hard
 
@@ -115,37 +114,6 @@ __metadata:
   version: 1.23.0
   resolution: "@remix-run/router@npm:1.23.0"
   checksum: 10c0/eaef5cb46a1e413f7d1019a75990808307e08e53a39d4cf69c339432ddc03143d725decef3d6b9b5071b898da07f72a4a57c4e73f787005fcf10162973d8d7d7
-  languageName: node
-  linkType: hard
-
-"@rrweb/record@npm:2.0.0-alpha.18":
-  version: 2.0.0-alpha.18
-  resolution: "@rrweb/record@npm:2.0.0-alpha.18"
-  dependencies:
-    "@rrweb/types": "npm:^2.0.0-alpha.18"
-    rrweb: "npm:^2.0.0-alpha.18"
-  checksum: 10c0/dce00f173fe69630928de9488ced16ee7d4fa9589e464e8639d22983caa2b41464229bb653ed9eeee64457bf0a69fbc572061f6cfc15254f9627836d9badae3c
-  languageName: node
-  linkType: hard
-
-"@rrweb/types@npm:^2.0.0-alpha.18":
-  version: 2.0.0-alpha.18
-  resolution: "@rrweb/types@npm:2.0.0-alpha.18"
-  checksum: 10c0/a1adb842f59b782e04576a7e88ffc2e43b8b29460555922e6a15f8ffd4840e554e96c1331653b0a322a3a8f25e73a9ae38ff37d3e60f1da71b6f6c0d001a20e7
-  languageName: node
-  linkType: hard
-
-"@rrweb/utils@npm:^2.0.0-alpha.18":
-  version: 2.0.0-alpha.18
-  resolution: "@rrweb/utils@npm:2.0.0-alpha.18"
-  checksum: 10c0/04a24b838de7294254ead08fbdc39daa9e04a86ed519eba3d6a85d485da56da02aa19cd61d82606c538d324060d6a0fc80fc41813d474e2b57ad9b61e74a137c
-  languageName: node
-  linkType: hard
-
-"@types/css-font-loading-module@npm:0.0.7":
-  version: 0.0.7
-  resolution: "@types/css-font-loading-module@npm:0.0.7"
-  checksum: 10c0/a74759a14bcc7d60a1a1d863b53b7638d4aa7f88f1d97347426262cc6fe8f9335d8fa80c7e0608cd67e33ff0067608e9b5475a1227a684e1dfad3cac87df1405
   languageName: node
   linkType: hard
 
@@ -343,13 +311,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@xstate/fsm@npm:^1.4.0":
-  version: 1.6.5
-  resolution: "@xstate/fsm@npm:1.6.5"
-  checksum: 10c0/472fe625b84b9e7102b8774e80c441b8b7dbc9585e700223d9c7a39c583d38ba50636909a5d749d44b361555daa841862f932a29c52b81c8829a74884e715bf4
-  languageName: node
-  linkType: hard
-
 "@xtuc/ieee754@npm:^1.2.0":
   version: 1.2.0
   resolution: "@xtuc/ieee754@npm:1.2.0"
@@ -416,13 +377,6 @@ __metadata:
   dependencies:
     color-convert: "npm:^2.0.1"
   checksum: 10c0/895a23929da416f2bd3de7e9cb4eabd340949328ab85ddd6e484a637d8f6820d485f53933446f5291c3b760cbc488beb8e88573dd0f9c7daf83dccc8fe81b041
-  languageName: node
-  linkType: hard
-
-"base64-arraybuffer@npm:^1.0.1":
-  version: 1.0.2
-  resolution: "base64-arraybuffer@npm:1.0.2"
-  checksum: 10c0/3acac95c70f9406e87a41073558ba85b6be9dbffb013a3d2a710e3f2d534d506c911847d5d9be4de458af6362c676de0a5c4c2d7bdf4def502d00b313368e72f
   languageName: node
   linkType: hard
 
@@ -690,22 +644,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"mitt@npm:^3.0.0":
-  version: 3.0.1
-  resolution: "mitt@npm:3.0.1"
-  checksum: 10c0/3ab4fdecf3be8c5255536faa07064d05caa3dd332bd318ff02e04621f7b3069ca1de9106cfe8e7ced675abfc2bec2ce4c4ef321c4a1bb1fb29df8ae090741913
-  languageName: node
-  linkType: hard
-
-"nanoid@npm:^3.3.11":
-  version: 3.3.11
-  resolution: "nanoid@npm:3.3.11"
-  bin:
-    nanoid: bin/nanoid.cjs
-  checksum: 10c0/40e7f70b3d15f725ca072dfc4f74e81fcf1fbb02e491cf58ac0c79093adc9b0a73b152bcde57df4b79cd097e13023d7504acb38404a4da7bc1cd8e887b82fe0b
-  languageName: node
-  linkType: hard
-
 "neo-async@npm:^2.6.2":
   version: 2.6.2
   resolution: "neo-async@npm:2.6.2"
@@ -731,17 +669,6 @@ __metadata:
   version: 2.3.1
   resolution: "picomatch@npm:2.3.1"
   checksum: 10c0/26c02b8d06f03206fc2ab8d16f19960f2ff9e81a658f831ecb656d8f17d9edc799e8364b1f4a7873e89d9702dff96204be0fa26fe4181f6843f040f819dac4be
-  languageName: node
-  linkType: hard
-
-"postcss@npm:^8.4.38":
-  version: 8.5.6
-  resolution: "postcss@npm:8.5.6"
-  dependencies:
-    nanoid: "npm:^3.3.11"
-    picocolors: "npm:^1.1.1"
-    source-map-js: "npm:^1.2.1"
-  checksum: 10c0/5127cc7c91ed7a133a1b7318012d8bfa112da9ef092dddf369ae699a1f10ebbd89b1b9f25f3228795b84585c72aabd5ced5fc11f2ba467eedf7b081a66fad024
   languageName: node
   linkType: hard
 
@@ -818,40 +745,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"rrdom@npm:^2.0.0-alpha.18":
-  version: 2.0.0-alpha.18
-  resolution: "rrdom@npm:2.0.0-alpha.18"
-  dependencies:
-    rrweb-snapshot: "npm:^2.0.0-alpha.18"
-  checksum: 10c0/13770f81a475eff96d50bb74d313965a4e3d5b904b9a27dc43cb33fb92dac040fa5acd602db3a20de5366997a4cf3f55c635a5359e58bd26187ef074c0704fe5
-  languageName: node
-  linkType: hard
-
-"rrweb-snapshot@npm:^2.0.0-alpha.18":
-  version: 2.0.0-alpha.18
-  resolution: "rrweb-snapshot@npm:2.0.0-alpha.18"
-  dependencies:
-    postcss: "npm:^8.4.38"
-  checksum: 10c0/296996f50f8a9c5f5dad2f92cea8fcc670bf364e094db48592919cab8987cdc19ce2e7b9b20653c63160f924e733a213329e87ff092353d4a5364c0a3a66405c
-  languageName: node
-  linkType: hard
-
-"rrweb@npm:^2.0.0-alpha.18":
-  version: 2.0.0-alpha.18
-  resolution: "rrweb@npm:2.0.0-alpha.18"
-  dependencies:
-    "@rrweb/types": "npm:^2.0.0-alpha.18"
-    "@rrweb/utils": "npm:^2.0.0-alpha.18"
-    "@types/css-font-loading-module": "npm:0.0.7"
-    "@xstate/fsm": "npm:^1.4.0"
-    base64-arraybuffer: "npm:^1.0.1"
-    mitt: "npm:^3.0.0"
-    rrdom: "npm:^2.0.0-alpha.18"
-    rrweb-snapshot: "npm:^2.0.0-alpha.18"
-  checksum: 10c0/8f33a64f4648fbba1621ec4ec383ee909435a0621259cf1b38c88074b8e23c875a7837f7e403d176f8399ad25312f6632c16c0879618a327d4b1797f8c4b37b1
-  languageName: node
-  linkType: hard
-
 "safe-buffer@npm:^5.1.0":
   version: 5.2.1
   resolution: "safe-buffer@npm:5.2.1"
@@ -893,13 +786,6 @@ __metadata:
   dependencies:
     randombytes: "npm:^2.1.0"
   checksum: 10c0/2dd09ef4b65a1289ba24a788b1423a035581bef60817bea1f01eda8e3bda623f86357665fe7ac1b50f6d4f583f97db9615b3f07b2a2e8cbcb75033965f771dd2
-  languageName: node
-  linkType: hard
-
-"source-map-js@npm:^1.2.1":
-  version: 1.2.1
-  resolution: "source-map-js@npm:1.2.1"
-  checksum: 10c0/7bda1fc4c197e3c6ff17de1b8b2c20e60af81b63a52cb32ec5a5d67a20a7d42651e2cb34ebe93833c5a2a084377e17455854fee3e21e7925c64a51b6a52b0faf
   languageName: node
   linkType: hard
 

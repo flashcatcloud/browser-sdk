@@ -18,6 +18,12 @@
 
 ---
 
+## v0.0.4-alpha.2
+
+**Internal Changes:**
+
+- Modified "Feat/session replay ([#8](https://github.com/DataDog/browser-sdk/pull/8))" ([#10](https://github.com/DataDog/browser-sdk/pull/10)) [RUM]
+
 ## v0.0.4-alpha.1
 
 **Internal Changes:**
