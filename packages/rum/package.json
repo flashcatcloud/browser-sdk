@@ -15,8 +15,7 @@
   },
   "dependencies": {
     "@flashcatcloud/browser-core": "workspace:*",
-    "@flashcatcloud/browser-rum-core": "workspace:*",
-    "@rrweb/record": "2.0.0-alpha.18"
+    "@flashcatcloud/browser-rum-core": "workspace:*"
   },
   "peerDependencies": {
     "@flashcatcloud/browser-logs": "0.0.4-alpha.1"

@@ -15,24 +15,24 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@alicloud/credentials@npm:^2, @alicloud/credentials@npm:^2.4.2":
-  version: 2.4.2
-  resolution: "@alicloud/credentials@npm:2.4.2"
+"@alicloud/credentials@npm:^2, @alicloud/credentials@npm:^2.4.2, @alicloud/credentials@npm:latest":
+  version: 2.4.3
+  resolution: "@alicloud/credentials@npm:2.4.3"
   dependencies:
     "@alicloud/tea-typescript": "npm:^1.8.0"
     httpx: "npm:^2.3.3"
     ini: "npm:^1.3.5"
     kitx: "npm:^2.0.0"
-  checksum: 10c0/a6a6d76448d2b629658808f3eddd1113f3a94239c32b22578aed35e5442c1e84137eeb835593a0a475df5dc585a1eeeb75c0ad03e53ae0c455b2e55a9148714a
+  checksum: 10c0/a1f49a7b70f87325561bf4632f60bad21174fc38da74a0076b1bc8d8e7a20fcf960d86d3960f9494050bb1ccead98cb12ca01f3bc21857f10556915692645e59
   languageName: node
   linkType: hard
 
 "@alicloud/darabonba-array@npm:^0.1.0":
-  version: 0.1.0
-  resolution: "@alicloud/darabonba-array@npm:0.1.0"
+  version: 0.1.1
+  resolution: "@alicloud/darabonba-array@npm:0.1.1"
   dependencies:
-    "@alicloud/tea-typescript": "npm:latest"
-  checksum: 10c0/50b81a54b7071fb1c1b09c8aebd480c7004679b09d7012a34f816823f3eb99365dfcd9629e3099bf77b459722e343b8c8371cbd070dd0b11fe35cf86baca28c6
+    "@alicloud/tea-typescript": "npm:^1.7.1"
+  checksum: 10c0/fe02153505398e3c0b31c73b5e4e15e23b988746b1f699421b69e8298cc573f436e7d2ee92ba9bd9f3e0910c84603302545f29ace77f43935bc8430d8161e002
   languageName: node
   linkType: hard
 
@@ -136,13 +136,14 @@ __metadata:
   linkType: hard
 
 "@alicloud/openapi-core@npm:^1.0.0":
-  version: 1.0.2
-  resolution: "@alicloud/openapi-core@npm:1.0.2"
+  version: 1.0.4
+  resolution: "@alicloud/openapi-core@npm:1.0.4"
   dependencies:
+    "@alicloud/credentials": "npm:latest"
     "@alicloud/gateway-pop": "npm:0.0.6"
     "@alicloud/gateway-spi": "npm:^0.0.8"
     "@darabonba/typescript": "npm:^1.0.2"
-  checksum: 10c0/76facebc82edb08165545b29e332c77d488e485b83d653bbde657d3be03f93e565592a3ca1588d23efa45e8a7801a9366246743e66b0482e01f25b47e3902800
+  checksum: 10c0/83beebe993bc4307ef1fed8f608fef63ef2bd569c9157555a1235d535212e6816bd751f6ad29ac4363e2c872517d0da2649885668fc8b8e5b6e75b0bdaf030e4
   languageName: node
   linkType: hard
 
@@ -158,7 +159,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@alicloud/tea-typescript@npm:^1, @alicloud/tea-typescript@npm:^1.5.1, @alicloud/tea-typescript@npm:^1.7.1, @alicloud/tea-typescript@npm:^1.8.0, @alicloud/tea-typescript@npm:latest":
+"@alicloud/tea-typescript@npm:^1, @alicloud/tea-typescript@npm:^1.5.1, @alicloud/tea-typescript@npm:^1.7.1, @alicloud/tea-typescript@npm:^1.8.0":
   version: 1.8.0
   resolution: "@alicloud/tea-typescript@npm:1.8.0"
   dependencies:
@@ -670,7 +671,6 @@ __metadata:
   dependencies:
     "@flashcatcloud/browser-core": "workspace:*"
     "@flashcatcloud/browser-rum-core": "workspace:*"
-    "@rrweb/record": "npm:2.0.0-alpha.18"
     "@types/pako": "npm:2.0.3"
     pako: "npm:2.1.0"
   peerDependencies:
@@ -1603,30 +1603,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@rrweb/record@npm:2.0.0-alpha.18":
-  version: 2.0.0-alpha.18
-  resolution: "@rrweb/record@npm:2.0.0-alpha.18"
-  dependencies:
-    "@rrweb/types": "npm:^2.0.0-alpha.18"
-    rrweb: "npm:^2.0.0-alpha.18"
-  checksum: 10c0/dce00f173fe69630928de9488ced16ee7d4fa9589e464e8639d22983caa2b41464229bb653ed9eeee64457bf0a69fbc572061f6cfc15254f9627836d9badae3c
-  languageName: node
-  linkType: hard
-
-"@rrweb/types@npm:^2.0.0-alpha.18":
-  version: 2.0.0-alpha.18
-  resolution: "@rrweb/types@npm:2.0.0-alpha.18"
-  checksum: 10c0/a1adb842f59b782e04576a7e88ffc2e43b8b29460555922e6a15f8ffd4840e554e96c1331653b0a322a3a8f25e73a9ae38ff37d3e60f1da71b6f6c0d001a20e7
-  languageName: node
-  linkType: hard
-
-"@rrweb/utils@npm:^2.0.0-alpha.18":
-  version: 2.0.0-alpha.18
-  resolution: "@rrweb/utils@npm:2.0.0-alpha.18"
-  checksum: 10c0/04a24b838de7294254ead08fbdc39daa9e04a86ed519eba3d6a85d485da56da02aa19cd61d82606c538d324060d6a0fc80fc41813d474e2b57ad9b61e74a137c
-  languageName: node
-  linkType: hard
-
 "@rtsao/scc@npm:^1.1.0":
   version: 1.1.0
   resolution: "@rtsao/scc@npm:1.1.0"
@@ -1982,13 +1958,6 @@ __metadata:
   dependencies:
     "@types/node": "npm:*"
   checksum: 10c0/9dd1075de0e3a40c304826668960c797e67e597a734fb8e8ab404561f31ef2bd553ef5500eb86da7e91a344bee038a59931d2fbf182fbce09f13816f51fdd80e
-  languageName: node
-  linkType: hard
-
-"@types/css-font-loading-module@npm:0.0.7":
-  version: 0.0.7
-  resolution: "@types/css-font-loading-module@npm:0.0.7"
-  checksum: 10c0/a74759a14bcc7d60a1a1d863b53b7638d4aa7f88f1d97347426262cc6fe8f9335d8fa80c7e0608cd67e33ff0067608e9b5475a1227a684e1dfad3cac87df1405
   languageName: node
   linkType: hard
 
@@ -2594,13 +2563,6 @@ __metadata:
     webpack-dev-server:
       optional: true
   checksum: 10c0/65245e45bfa35e11a5b30631b99cfed0c1b39b2cc8320fa2d2a4185264535618827d349ec032c58af4201d6236cbc43bec894fcb840fdd06314611537a80e210
-  languageName: node
-  linkType: hard
-
-"@xstate/fsm@npm:^1.4.0":
-  version: 1.6.5
-  resolution: "@xstate/fsm@npm:1.6.5"
-  checksum: 10c0/472fe625b84b9e7102b8774e80c441b8b7dbc9585e700223d9c7a39c583d38ba50636909a5d749d44b361555daa841862f932a29c52b81c8829a74884e715bf4
   languageName: node
   linkType: hard
 
@@ -3214,13 +3176,6 @@ __metadata:
     bare-events:
       optional: true
   checksum: 10c0/1242286f8f3147e9fd353cdaa9cf53226a807ac0dde8177c13f1463aa4cd1f88e07407c883a1b322b901e9af2d1cd30aacd873529031132c384622972e0419df
-  languageName: node
-  linkType: hard
-
-"base64-arraybuffer@npm:^1.0.1":
-  version: 1.0.2
-  resolution: "base64-arraybuffer@npm:1.0.2"
-  checksum: 10c0/3acac95c70f9406e87a41073558ba85b6be9dbffb013a3d2a710e3f2d534d506c911847d5d9be4de458af6362c676de0a5c4c2d7bdf4def502d00b313368e72f
   languageName: node
   linkType: hard
 
@@ -8659,7 +8614,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"mitt@npm:^3.0.0, mitt@npm:^3.0.1":
+"mitt@npm:^3.0.1":
   version: 3.0.1
   resolution: "mitt@npm:3.0.1"
   checksum: 10c0/3ab4fdecf3be8c5255536faa07064d05caa3dd332bd318ff02e04621f7b3069ca1de9106cfe8e7ced675abfc2bec2ce4c4ef321c4a1bb1fb29df8ae090741913
@@ -8779,7 +8734,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"nanoid@npm:^3.3.11, nanoid@npm:^3.3.8":
+"nanoid@npm:^3.3.8":
   version: 3.3.11
   resolution: "nanoid@npm:3.3.11"
   bin:
@@ -10031,17 +9986,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"postcss@npm:^8.4.38":
-  version: 8.5.6
-  resolution: "postcss@npm:8.5.6"
-  dependencies:
-    nanoid: "npm:^3.3.11"
-    picocolors: "npm:^1.1.1"
-    source-map-js: "npm:^1.2.1"
-  checksum: 10c0/5127cc7c91ed7a133a1b7318012d8bfa112da9ef092dddf369ae699a1f10ebbd89b1b9f25f3228795b84585c72aabd5ced5fc11f2ba467eedf7b081a66fad024
-  languageName: node
-  linkType: hard
-
 "prelude-ls@npm:^1.2.1":
   version: 1.2.1
   resolution: "prelude-ls@npm:1.2.1"
@@ -10861,40 +10805,6 @@ __metadata:
     parseurl: "npm:^1.3.3"
     path-to-regexp: "npm:^8.0.0"
   checksum: 10c0/3279de7450c8eae2f6e095e9edacbdeec0abb5cb7249c6e719faa0db2dba43574b4fff5892d9220631c9abaff52dd3cad648cfea2aaace845e1a071915ac8867
-  languageName: node
-  linkType: hard
-
-"rrdom@npm:^2.0.0-alpha.18":
-  version: 2.0.0-alpha.18
-  resolution: "rrdom@npm:2.0.0-alpha.18"
-  dependencies:
-    rrweb-snapshot: "npm:^2.0.0-alpha.18"
-  checksum: 10c0/13770f81a475eff96d50bb74d313965a4e3d5b904b9a27dc43cb33fb92dac040fa5acd602db3a20de5366997a4cf3f55c635a5359e58bd26187ef074c0704fe5
-  languageName: node
-  linkType: hard
-
-"rrweb-snapshot@npm:^2.0.0-alpha.18":
-  version: 2.0.0-alpha.18
-  resolution: "rrweb-snapshot@npm:2.0.0-alpha.18"
-  dependencies:
-    postcss: "npm:^8.4.38"
-  checksum: 10c0/296996f50f8a9c5f5dad2f92cea8fcc670bf364e094db48592919cab8987cdc19ce2e7b9b20653c63160f924e733a213329e87ff092353d4a5364c0a3a66405c
-  languageName: node
-  linkType: hard
-
-"rrweb@npm:^2.0.0-alpha.18":
-  version: 2.0.0-alpha.18
-  resolution: "rrweb@npm:2.0.0-alpha.18"
-  dependencies:
-    "@rrweb/types": "npm:^2.0.0-alpha.18"
-    "@rrweb/utils": "npm:^2.0.0-alpha.18"
-    "@types/css-font-loading-module": "npm:0.0.7"
-    "@xstate/fsm": "npm:^1.4.0"
-    base64-arraybuffer: "npm:^1.0.1"
-    mitt: "npm:^3.0.0"
-    rrdom: "npm:^2.0.0-alpha.18"
-    rrweb-snapshot: "npm:^2.0.0-alpha.18"
-  checksum: 10c0/8f33a64f4648fbba1621ec4ec383ee909435a0621259cf1b38c88074b8e23c875a7837f7e403d176f8399ad25312f6632c16c0879618a327d4b1797f8c4b37b1
   languageName: node
   linkType: hard
 
