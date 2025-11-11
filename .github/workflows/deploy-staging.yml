@@ -1,0 +1,48 @@
+name: Staging Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_deploy:
+        description: 'Type "yes" to confirm deployment'
+        required: true
+        default: 'no'
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: yarn
+
+      - name: Export BUILD_MODE
+        run: export BUILD_MODE=release
+
+      - name: Get version
+        run: |
+          FULL_VERSION=$(node -p -e "require('./lerna.json').version")
+          MAJOR_VERSION=$(echo $FULL_VERSION | cut -d. -f1)
+          echo "VERSION=$MAJOR_VERSION" >> $GITHUB_ENV
+          echo "version=$MAJOR_VERSION" >> $GITHUB_OUTPUT
+        env:
+          BUILD_MODE: release
+
+      - name: Build bundle
+        run: yarn build:bundle
+
+      - name: Deploy to staging
+        run: node ./scripts/deploy/deploy-oss.js staging v${VERSION}
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_REGION: ${{ secrets.OSS_REGION }}
+          OSS_ACCESS_KEY: ${{ secrets.OSS_ACCESS_KEY }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          OSS_SECRET_KEY: ${{ secrets.OSS_SECRET_KEY }}
