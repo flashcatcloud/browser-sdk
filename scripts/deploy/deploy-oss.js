@@ -1,11 +1,8 @@
-const { printLog, printError, runMain } = require('../lib/executionUtils')
-const { forEachFile } = require('../lib/filesUtils')
 const OSS = require('ali-oss')
-const dotenv = require('dotenv')
 const CDN = require('@alicloud/cdn20180510')
 const OpenApi = require('@alicloud/openapi-client')
-
-dotenv.config()
+const { printLog, printError, runMain } = require('../lib/executionUtils')
+const { forEachFile } = require('../lib/filesUtils')
 
 const { buildBundleFolder, packages } = require('./lib/deploymentUtils')
 
@@ -40,6 +37,10 @@ const client = new OSS({
 if (require.main === module) {
   const env = process.argv[2]
   const version = process.argv[3]
+  if (env === 'prod' && (version.includes('beta') || version.includes('alpha'))) {
+    printError('❌❌❌❌检测到非正式版本，跳过CDN发布，当前版本为：', version)
+    process.exit(1)
+  }
   runMain(async () => {
     await main(env, version)
   })
@@ -53,7 +54,7 @@ async function main(env, version) {
     const pathsToInvalidate = await uploadPackage(awsConfig, packageName, version)
     cloudfrontPathsToInvalidate.push(...pathsToInvalidate)
   }
-  refreshCdnCache(cloudfrontPathsToInvalidate)
+  await refreshCdnCache(cloudfrontPathsToInvalidate)
 }
 
 // 读取bundle文件夹，上传到ali oss，并刷新cdn缓存
