@@ -1,8 +1,7 @@
 import type { Configuration } from '../domain/configuration'
-import { ONE_SECOND } from '../tools/utils/timeUtils'
 import type { Clock } from '../../test'
 import { createNewEvent, setPageVisibility, restorePageVisibility, registerCleanupTask, mockClock } from '../../test'
-import { createPageActivationObservable } from './pageActivationObservable'
+import { createPageActivationObservable, REACTIVATE_DEBOUNCE } from './pageActivationObservable'
 
 describe('createPageActivationObservable', () => {
   let onActivateSpy: jasmine.Spy<() => void>
@@ -59,7 +58,7 @@ describe('createPageActivationObservable', () => {
   it('notifies twice for two genuine cycles spaced beyond the debounce window', () => {
     window.dispatchEvent(createNewEvent('blur'))
     window.dispatchEvent(createNewEvent('focus'))
-    clock.tick(ONE_SECOND + 1)
+    clock.tick(REACTIVATE_DEBOUNCE + 1)
     window.dispatchEvent(createNewEvent('blur'))
     window.dispatchEvent(createNewEvent('focus'))
 
