@@ -1,0 +1,131 @@
+name: Browser SDK CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - publish
+  push:
+    branches:
+      - main
+      - publish
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '23.11.1'
+
+jobs:
+  quality:
+    name: Build, lint, typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Check formatting
+        run: yarn format
+
+      - name: Build packages
+        run: yarn build
+
+      - name: Lint packages
+        run: yarn lint
+
+      - name: Check package metadata
+        run: node scripts/check-packages.js
+
+      - name: Typecheck packages and test apps
+        run: |
+          yarn typecheck
+          scripts/cli typecheck test/apps/vanilla
+          scripts/cli typecheck test/e2e
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Run unit tests
+        run: yarn test:unit --single-run
+
+  compatibility:
+    name: Compatibility checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Check TypeScript compatibility
+        run: yarn test:compat:tsc
+
+      - name: Check server-side rendering compatibility
+        run: yarn test:compat:ssr
+
+  bundle:
+    name: Bundle and script tests
+    runs-on: ubuntu-latest
+    env:
+      BUILD_MODE: release
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build release bundles
+        run: yarn build:bundle
+
+      - name: Run script tests
+        run: yarn test:script
+
+  e2e:
+    name: Chromium e2e
+    runs-on: ubuntu-latest
+    env:
+      FORCE_COLOR: '1'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Run Chromium e2e tests
+        run: yarn test:e2e:ci

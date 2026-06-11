@@ -7,6 +7,7 @@ const MAX_SERVER_CREATION_RETRY = 5
 // Pick a ports in range 9200-9400
 const PORT_MIN = 9200
 const PORT_MAX = 9400
+const isBrowserStack = !!process.env.BROWSER_STACK
 
 export type ServerApp = (req: http.IncomingMessage, res: http.ServerResponse) => any
 
@@ -72,6 +73,10 @@ async function createServer<App extends ServerApp>(): Promise<Server<App>> {
 }
 
 async function instantiateServer(): Promise<http.Server> {
+  if (!isBrowserStack) {
+    return instantiateServerOnPort(0)
+  }
+
   for (let tryNumber = 0; tryNumber < MAX_SERVER_CREATION_RETRY; tryNumber += 1) {
     const port = PORT_MIN + Math.floor(Math.random() * (PORT_MAX - PORT_MIN + 1))
 

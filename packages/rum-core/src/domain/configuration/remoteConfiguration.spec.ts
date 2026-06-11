@@ -71,7 +71,7 @@ describe('remoteConfiguration', () => {
     it('should return the remote configuration endpoint', () => {
       const remoteConfigurationId = '0e008b1b-8600-4709-9d1d-f4edcfdf5587'
       expect(buildEndpoint({ site: INTAKE_SITE_US1, remoteConfigurationId } as RumInitConfiguration)).toEqual(
-        `https://sdk-configuration.browser-intake-datadoghq.com/v1/${remoteConfigurationId}.json`
+        `https://sdk-configuration.browser.flashcat.cloud/v1/${remoteConfigurationId}.json`
       )
     })
   })

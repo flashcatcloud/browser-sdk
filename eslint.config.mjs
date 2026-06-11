@@ -29,6 +29,8 @@ export default tseslint.config(
       'test/**/dist',
       'sandbox',
       'coverage',
+      'playwright-report',
+      'test-results',
       'rum-events-format',
       '.yarn',
     ],

@@ -58,7 +58,11 @@ export const DEFAULT_REQUEST_ERROR_RESPONSE_LENGTH_LIMIT = 32 * ONE_KIBI_BYTE
 export function validateAndBuildLogsConfiguration(
   initConfiguration: LogsInitConfiguration
 ): LogsConfiguration | undefined {
-  if (initConfiguration.usePciIntake === true && initConfiguration.site && initConfiguration.site !== 'browser.flashcat.cloud') {
+  if (
+    initConfiguration.usePciIntake === true &&
+    initConfiguration.site &&
+    initConfiguration.site !== 'browser.flashcat.cloud'
+  ) {
     display.warn(
       'PCI compliance for Logs is only available for Datadog organizations in the US1 site. Default intake will be used.'
     )

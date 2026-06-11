@@ -54,7 +54,7 @@ n=o.getElementsByTagName(u)[0];n.parentNode.insertBefore(d,n)
   if (options.logs) {
     body += html`
       <script>
-        ${formatSnippet('./datadog-logs.js', 'FC_LOGS')}
+        ${formatSnippet('./flashcat-logs.js', 'FC_LOGS')}
         FC_LOGS.onReady(function () {
           FC_LOGS.setGlobalContext(${JSON.stringify(options.context)})
           ;(${options.logsInit.toString()})(${formatConfiguration(options.logs, servers)})
@@ -66,7 +66,7 @@ n=o.getElementsByTagName(u)[0];n.parentNode.insertBefore(d,n)
   if (options.rum) {
     body += html`
       <script type="text/javascript">
-        ${formatSnippet(options.useRumSlim ? './datadog-rum-slim.js' : './datadog-rum.js', 'FC_RUM')}
+        ${formatSnippet(options.useRumSlim ? './flashcat-rum-slim.js' : './flashcat-rum.js', 'FC_RUM')}
         FC_RUM.onReady(function () {
           FC_RUM.setGlobalContext(${JSON.stringify(options.context)})
           ;(${options.rumInit.toString()})(${formatConfiguration(options.rum, servers)})
@@ -90,7 +90,7 @@ export function bundleSetup(options: SetupOptions, servers: Servers) {
 
   if (options.logs) {
     header += html`
-      <script type="text/javascript" src="./datadog-logs.js"></script>
+      <script type="text/javascript" src="./flashcat-logs.js"></script>
       <script type="text/javascript">
         FC_LOGS.setGlobalContext(${JSON.stringify(options.context)})
         ;(${options.logsInit.toString()})(${formatConfiguration(options.logs, servers)})
@@ -102,7 +102,7 @@ export function bundleSetup(options: SetupOptions, servers: Servers) {
     header += html`
       <script
         type="text/javascript"
-        src="${options.useRumSlim ? './datadog-rum-slim.js' : './datadog-rum.js'}"
+        src="${options.useRumSlim ? './flashcat-rum-slim.js' : './flashcat-rum.js'}"
       ></script>
       <script type="text/javascript">
         FC_RUM.setGlobalContext(${JSON.stringify(options.context)})

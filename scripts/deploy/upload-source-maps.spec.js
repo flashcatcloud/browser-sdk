@@ -55,23 +55,23 @@ void describe('upload-source-maps', () => {
       // rename the files with the version suffix
       assert.deepEqual(getFileRenamingCommands(), [
         {
-          command: 'mv packages/logs/bundle/datadog-logs.js packages/logs/bundle/datadog-logs-v6.js',
+          command: 'mv packages/logs/bundle/flashcat-logs.js packages/logs/bundle/flashcat-logs-v6.js',
         },
         {
-          command: 'mv packages/logs/bundle/datadog-logs.js.map packages/logs/bundle/datadog-logs-v6.js.map',
+          command: 'mv packages/logs/bundle/flashcat-logs.js.map packages/logs/bundle/flashcat-logs-v6.js.map',
         },
         {
-          command: 'mv packages/rum/bundle/datadog-rum.js packages/rum/bundle/datadog-rum-v6.js',
+          command: 'mv packages/rum/bundle/flashcat-rum.js packages/rum/bundle/flashcat-rum-v6.js',
         },
         {
-          command: 'mv packages/rum/bundle/datadog-rum.js.map packages/rum/bundle/datadog-rum-v6.js.map',
+          command: 'mv packages/rum/bundle/flashcat-rum.js.map packages/rum/bundle/flashcat-rum-v6.js.map',
         },
         {
-          command: 'mv packages/rum-slim/bundle/datadog-rum-slim.js packages/rum-slim/bundle/datadog-rum-slim-v6.js',
+          command: 'mv packages/rum-slim/bundle/flashcat-rum-slim.js packages/rum-slim/bundle/flashcat-rum-slim-v6.js',
         },
         {
           command:
-            'mv packages/rum-slim/bundle/datadog-rum-slim.js.map packages/rum-slim/bundle/datadog-rum-slim-v6.js.map',
+            'mv packages/rum-slim/bundle/flashcat-rum-slim.js.map packages/rum-slim/bundle/flashcat-rum-slim-v6.js.map',
         },
       ])
 
@@ -85,17 +85,17 @@ void describe('upload-source-maps', () => {
       assert.deepEqual(commandsByDatacenter, [
         {
           command:
-            'datadog-ci sourcemaps upload packages/logs/bundle --service browser-logs-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-logs/ --repository-url https://www.github.com/datadog/browser-sdk',
+            'datadog-ci sourcemaps upload packages/logs/bundle --service browser-logs-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-logs/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
           env,
         },
         {
           command:
-            'datadog-ci sourcemaps upload packages/rum/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum/ --repository-url https://www.github.com/datadog/browser-sdk',
+            'datadog-ci sourcemaps upload packages/rum/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
           env,
         },
         {
           command:
-            'datadog-ci sourcemaps upload packages/rum-slim/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum-slim/ --repository-url https://www.github.com/datadog/browser-sdk',
+            'datadog-ci sourcemaps upload packages/rum-slim/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum-slim/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
           env,
         },
       ])
@@ -108,17 +108,17 @@ void describe('upload-source-maps', () => {
     assert.deepEqual(commands, [
       {
         command:
-          'datadog-ci sourcemaps upload packages/logs/bundle --service browser-logs-sdk --release-version dev --minified-path-prefix /us1/v6 --project-path @flashcatcloud/browser-logs/ --repository-url https://www.github.com/datadog/browser-sdk',
+          'datadog-ci sourcemaps upload packages/logs/bundle --service browser-logs-sdk --release-version dev --minified-path-prefix /us1/v6 --project-path @flashcatcloud/browser-logs/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
         env: ENV_PROD,
       },
       {
         command:
-          'datadog-ci sourcemaps upload packages/rum/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix /us1/v6 --project-path @flashcatcloud/browser-rum/ --repository-url https://www.github.com/datadog/browser-sdk',
+          'datadog-ci sourcemaps upload packages/rum/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix /us1/v6 --project-path @flashcatcloud/browser-rum/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
         env: ENV_PROD,
       },
       {
         command:
-          'datadog-ci sourcemaps upload packages/rum-slim/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix /us1/v6 --project-path @flashcatcloud/browser-rum-slim/ --repository-url https://www.github.com/datadog/browser-sdk',
+          'datadog-ci sourcemaps upload packages/rum-slim/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix /us1/v6 --project-path @flashcatcloud/browser-rum-slim/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
         env: ENV_PROD,
       },
     ])
@@ -130,23 +130,24 @@ void describe('upload-source-maps', () => {
     // rename the files with the version suffix
     assert.deepEqual(getFileRenamingCommands(), [
       {
-        command: 'mv packages/logs/bundle/datadog-logs.js packages/logs/bundle/datadog-logs-staging.js',
+        command: 'mv packages/logs/bundle/flashcat-logs.js packages/logs/bundle/flashcat-logs-staging.js',
       },
       {
-        command: 'mv packages/logs/bundle/datadog-logs.js.map packages/logs/bundle/datadog-logs-staging.js.map',
+        command: 'mv packages/logs/bundle/flashcat-logs.js.map packages/logs/bundle/flashcat-logs-staging.js.map',
       },
       {
-        command: 'mv packages/rum/bundle/datadog-rum.js packages/rum/bundle/datadog-rum-staging.js',
+        command: 'mv packages/rum/bundle/flashcat-rum.js packages/rum/bundle/flashcat-rum-staging.js',
       },
       {
-        command: 'mv packages/rum/bundle/datadog-rum.js.map packages/rum/bundle/datadog-rum-staging.js.map',
-      },
-      {
-        command: 'mv packages/rum-slim/bundle/datadog-rum-slim.js packages/rum-slim/bundle/datadog-rum-slim-staging.js',
+        command: 'mv packages/rum/bundle/flashcat-rum.js.map packages/rum/bundle/flashcat-rum-staging.js.map',
       },
       {
         command:
-          'mv packages/rum-slim/bundle/datadog-rum-slim.js.map packages/rum-slim/bundle/datadog-rum-slim-staging.js.map',
+          'mv packages/rum-slim/bundle/flashcat-rum-slim.js packages/rum-slim/bundle/flashcat-rum-slim-staging.js',
+      },
+      {
+        command:
+          'mv packages/rum-slim/bundle/flashcat-rum-slim.js.map packages/rum-slim/bundle/flashcat-rum-slim-staging.js.map',
       },
     ])
 
@@ -154,32 +155,32 @@ void describe('upload-source-maps', () => {
     assert.deepEqual(getSourceMapCommands(), [
       {
         command:
-          'datadog-ci sourcemaps upload packages/logs/bundle --service browser-logs-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-logs/ --repository-url https://www.github.com/datadog/browser-sdk',
+          'datadog-ci sourcemaps upload packages/logs/bundle --service browser-logs-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-logs/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
         env: ENV_STAGING,
       },
       {
         command:
-          'datadog-ci sourcemaps upload packages/logs/bundle --service browser-logs-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-logs/ --repository-url https://www.github.com/datadog/browser-sdk',
+          'datadog-ci sourcemaps upload packages/logs/bundle --service browser-logs-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-logs/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
         env: ENV_PROD,
       },
       {
         command:
-          'datadog-ci sourcemaps upload packages/rum/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum/ --repository-url https://www.github.com/datadog/browser-sdk',
+          'datadog-ci sourcemaps upload packages/rum/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
         env: ENV_STAGING,
       },
       {
         command:
-          'datadog-ci sourcemaps upload packages/rum/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum/ --repository-url https://www.github.com/datadog/browser-sdk',
+          'datadog-ci sourcemaps upload packages/rum/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
         env: ENV_PROD,
       },
       {
         command:
-          'datadog-ci sourcemaps upload packages/rum-slim/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum-slim/ --repository-url https://www.github.com/datadog/browser-sdk',
+          'datadog-ci sourcemaps upload packages/rum-slim/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum-slim/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
         env: ENV_STAGING,
       },
       {
         command:
-          'datadog-ci sourcemaps upload packages/rum-slim/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum-slim/ --repository-url https://www.github.com/datadog/browser-sdk',
+          'datadog-ci sourcemaps upload packages/rum-slim/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum-slim/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
         env: ENV_PROD,
       },
     ])
@@ -191,23 +192,24 @@ void describe('upload-source-maps', () => {
     // rename the files with the version suffix
     assert.deepEqual(getFileRenamingCommands(), [
       {
-        command: 'mv packages/logs/bundle/datadog-logs.js packages/logs/bundle/datadog-logs-canary.js',
+        command: 'mv packages/logs/bundle/flashcat-logs.js packages/logs/bundle/flashcat-logs-canary.js',
       },
       {
-        command: 'mv packages/logs/bundle/datadog-logs.js.map packages/logs/bundle/datadog-logs-canary.js.map',
+        command: 'mv packages/logs/bundle/flashcat-logs.js.map packages/logs/bundle/flashcat-logs-canary.js.map',
       },
       {
-        command: 'mv packages/rum/bundle/datadog-rum.js packages/rum/bundle/datadog-rum-canary.js',
+        command: 'mv packages/rum/bundle/flashcat-rum.js packages/rum/bundle/flashcat-rum-canary.js',
       },
       {
-        command: 'mv packages/rum/bundle/datadog-rum.js.map packages/rum/bundle/datadog-rum-canary.js.map',
-      },
-      {
-        command: 'mv packages/rum-slim/bundle/datadog-rum-slim.js packages/rum-slim/bundle/datadog-rum-slim-canary.js',
+        command: 'mv packages/rum/bundle/flashcat-rum.js.map packages/rum/bundle/flashcat-rum-canary.js.map',
       },
       {
         command:
-          'mv packages/rum-slim/bundle/datadog-rum-slim.js.map packages/rum-slim/bundle/datadog-rum-slim-canary.js.map',
+          'mv packages/rum-slim/bundle/flashcat-rum-slim.js packages/rum-slim/bundle/flashcat-rum-slim-canary.js',
+      },
+      {
+        command:
+          'mv packages/rum-slim/bundle/flashcat-rum-slim.js.map packages/rum-slim/bundle/flashcat-rum-slim-canary.js.map',
       },
     ])
 
@@ -215,17 +217,17 @@ void describe('upload-source-maps', () => {
     assert.deepEqual(getSourceMapCommands(), [
       {
         command:
-          'datadog-ci sourcemaps upload packages/logs/bundle --service browser-logs-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-logs/ --repository-url https://www.github.com/datadog/browser-sdk',
+          'datadog-ci sourcemaps upload packages/logs/bundle --service browser-logs-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-logs/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
         env: ENV_PROD,
       },
       {
         command:
-          'datadog-ci sourcemaps upload packages/rum/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum/ --repository-url https://www.github.com/datadog/browser-sdk',
+          'datadog-ci sourcemaps upload packages/rum/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
         env: ENV_PROD,
       },
       {
         command:
-          'datadog-ci sourcemaps upload packages/rum-slim/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum-slim/ --repository-url https://www.github.com/datadog/browser-sdk',
+          'datadog-ci sourcemaps upload packages/rum-slim/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum-slim/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
         env: ENV_PROD,
       },
     ])

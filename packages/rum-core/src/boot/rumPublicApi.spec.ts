@@ -114,7 +114,10 @@ describe('rum public api', () => {
 
       rumPublicApi.init(DEFAULT_INIT_CONFIGURATION)
 
-      expect(rumPublicApi.getInitConfiguration()).toEqual(DEFAULT_INIT_CONFIGURATION)
+      expect(rumPublicApi.getInitConfiguration()).toEqual({
+        ...DEFAULT_INIT_CONFIGURATION,
+        site: 'browser.flashcat.cloud',
+      })
       expect(rumPublicApi.getInitConfiguration()).not.toBe(DEFAULT_INIT_CONFIGURATION)
     })
   })

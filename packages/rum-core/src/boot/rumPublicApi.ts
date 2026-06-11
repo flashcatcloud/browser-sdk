@@ -53,9 +53,9 @@ export interface RumPublicApi extends PublicApi {
    * Init the RUM browser SDK.
    * @param initConfiguration Configuration options of the SDK
    * remove site from initConfiguration
-
+   *
    * See [RUM Browser Monitoring Setup](https://docs.datadoghq.com/real_user_monitoring/browser) for further information.
-   * 
+   *
    */
   init: (initConfiguration: Omit<RumInitConfiguration, 'site'>) => void
 
@@ -489,10 +489,13 @@ export function makeRumPublicApi(
   const rumPublicApi: RumPublicApi = makePublicApi<RumPublicApi>({
     // 修改暴露的init方法，去掉site字段
     init: monitor((initConfiguration: Omit<RumInitConfiguration, 'site'>) => {
-      strategy.init({
-        ...initConfiguration,
-        site: 'browser.flashcat.cloud' // flashcat数据上报服务器
-      }, rumPublicApi)
+      strategy.init(
+        {
+          ...initConfiguration,
+          site: 'browser.flashcat.cloud', // flashcat数据上报服务器
+        },
+        rumPublicApi
+      )
     }),
 
     setTrackingConsent: monitor((trackingConsent) => {
