@@ -9,6 +9,7 @@ import type {
 import {
   sendToExtension,
   createPageMayExitObservable,
+  createPageActivationObservable,
   TelemetryService,
   startTelemetry,
   canUseEventBridge,
@@ -105,6 +106,12 @@ export function startRum(
     lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, event)
   })
   cleanupTasks.push(() => pageMayExitSubscription.unsubscribe())
+
+  const pageActivationObservable = createPageActivationObservable(configuration)
+  const pageActivationSubscription = pageActivationObservable.subscribe(() => {
+    lifeCycle.notify(LifeCycleEventType.PAGE_REACTIVATED)
+  })
+  cleanupTasks.push(() => pageActivationSubscription.unsubscribe())
 
   const session = !canUseEventBridge()
     ? startRumSessionManager(configuration, lifeCycle, trackingConsentState)

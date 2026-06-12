@@ -186,6 +186,23 @@ describe('startSegmentCollection', () => {
       })
     })
 
+    describe('flush when the page is re-activated', () => {
+      function emulateReactivation() {
+        lifeCycle.notify(LifeCycleEventType.PAGE_REACTIVATED)
+      }
+
+      it('uses `httpRequest.send` when sending the segment', () => {
+        addRecordAndFlushSegment(emulateReactivation)
+        expect(httpRequestSpy.send).toHaveBeenCalled()
+      })
+
+      it('next segment is created because of re-activation', async () => {
+        addRecordAndFlushSegment(emulateReactivation)
+        addRecordAndFlushSegment()
+        expect((await readMostRecentMetadata(httpRequestSpy.sendOnExit)).creation_reason).toBe('view_change')
+      })
+    })
+
     describe('flush when reaching a bytes limit', () => {
       it('uses `httpRequest.send` when sending the segment', () => {
         addRecordAndFlushSegment(() => {
