@@ -2,7 +2,8 @@
 
 set -euo pipefail
 
-PATH="$PATH:node_modules/.bin"
+# prepend so the repo-pinned binaries (tsc, eslint, ...) win over any globally installed ones
+PATH="node_modules/.bin:$PATH"
 
 main () {
   if [[ $# -lt 1 ]]; then
