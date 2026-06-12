@@ -18,6 +18,26 @@
 
 ---
 
+## v0.0.5
+
+**Internal Changes:**
+
+- Merge pull request #14 from flashcatcloud/fix/ci-baseline-followup
+- test(e2e): use latest view update per view id in init scenario
+- fix: CI baseline follow-up — replay focus misfire, BUILD_MODE leak, PATH precedence [FLAGGING] [LOGS] [RUM] [RUM-REACT] [RUM-SLIM] [WORKER]
+- Merge pull request #13 from flashcatcloud/chore/release-safety-automation
+- test(logs): expect default usr.id from anonymous id in request spec [LOGS]
+- Merge remote-tracking branch 'origin/publish' into chore/release-safety-automation
+- Merge pull request #12 from flashcatcloud/feat/replay-resnapshot-on-reactivation
+- chore: restore release safety baseline [FLAGGING] [LOGS] [RUM] [RUM-REACT] [RUM-SLIM] [WORKER]
+- test(replay): drive debounce test from REACTIVATE_DEBOUNCE constant [FLAGGING] [LOGS] [RUM] [RUM-REACT] [RUM-SLIM] [WORKER]
+- feat(replay): take a subsequent full snapshot on page re-activation [RUM]
+- feat(replay): flush replay segment on page re-activation [RUM]
+- feat(replay): add PAGE_REACTIVATED lifecycle event and bridge [RUM] [RUM-REACT] [RUM-SLIM]
+- feat(replay): add createPageActivationObservable for inactive->active detection [FLAGGING] [LOGS] [RUM] [RUM-REACT] [RUM-SLIM] [WORKER]
+- Merge branch 'main' into publish
+- feat: 跳过cdn发布
+
 ## v0.0.4-alpha.2
 
 **Internal Changes:**
