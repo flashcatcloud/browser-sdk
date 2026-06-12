@@ -37,6 +37,11 @@ export function createPageActivationObservable(configuration: Configuration): Ob
       window,
       [DOM_EVENT.BLUR, DOM_EVENT.FOCUS, DOM_EVENT.VISIBILITY_CHANGE, DOM_EVENT.PAGE_SHOW],
       (event) => {
+        // With capture on window, focus/blur of descendant elements are also received (they don't
+        // bubble but are captured). Only window-level focus/blur indicate page (de)activation.
+        if ((event.type === DOM_EVENT.BLUR || event.type === DOM_EVENT.FOCUS) && event.target !== window) {
+          return
+        }
         if (event.type === DOM_EVENT.BLUR) {
           isInactive = true
         } else if (event.type === DOM_EVENT.VISIBILITY_CHANGE) {

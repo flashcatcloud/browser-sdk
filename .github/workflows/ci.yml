@@ -90,8 +90,6 @@ jobs:
   bundle:
     name: Bundle and script tests
     runs-on: ubuntu-latest
-    env:
-      BUILD_MODE: release
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -106,6 +104,9 @@ jobs:
 
       - name: Build release bundles
         run: yarn build:bundle
+        env:
+          # scoped to this step only: script tests must run with the default (dev) build mode
+          BUILD_MODE: release
 
       - name: Run script tests
         run: yarn test:script
