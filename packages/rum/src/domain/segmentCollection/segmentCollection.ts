@@ -96,6 +96,13 @@ export function doStartSegmentCollection(
     }
   )
 
+  // When the page is re-activated (window/tab switched back to), flush the current segment so the
+  // next one starts fresh with the full snapshot taken by startFullSnapshots on the same event.
+  // Reuses the 'view_change' creation reason to avoid a schema change.
+  const { unsubscribe: unsubscribeReactivated } = lifeCycle.subscribe(LifeCycleEventType.PAGE_REACTIVATED, () => {
+    flushSegment('view_change')
+  })
+
   function flushSegment(flushReason: FlushReason) {
     if (state.status === SegmentCollectionStatus.SegmentPending) {
       state.segment.flush((metadata, encoderResult) => {
@@ -154,6 +161,7 @@ export function doStartSegmentCollection(
       flushSegment('stop')
       unsubscribeViewCreated()
       unsubscribePageMayExit()
+      unsubscribeReactivated()
     },
   }
 }

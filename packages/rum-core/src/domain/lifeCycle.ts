@@ -33,6 +33,7 @@ export const enum LifeCycleEventType {
   SESSION_EXPIRED,
   SESSION_RENEWED,
   PAGE_MAY_EXIT,
+  PAGE_REACTIVATED,
   RAW_RUM_EVENT_COLLECTED,
   RUM_EVENT_COLLECTED,
   RAW_ERROR_COLLECTED,
@@ -64,6 +65,7 @@ declare const LifeCycleEventTypeAsConst: {
   SESSION_EXPIRED: LifeCycleEventType.SESSION_EXPIRED
   SESSION_RENEWED: LifeCycleEventType.SESSION_RENEWED
   PAGE_MAY_EXIT: LifeCycleEventType.PAGE_MAY_EXIT
+  PAGE_REACTIVATED: LifeCycleEventType.PAGE_REACTIVATED
   RAW_RUM_EVENT_COLLECTED: LifeCycleEventType.RAW_RUM_EVENT_COLLECTED
   RUM_EVENT_COLLECTED: LifeCycleEventType.RUM_EVENT_COLLECTED
   RAW_ERROR_COLLECTED: LifeCycleEventType.RAW_ERROR_COLLECTED
@@ -84,6 +86,7 @@ export interface LifeCycleEventMap {
   [LifeCycleEventTypeAsConst.SESSION_EXPIRED]: void
   [LifeCycleEventTypeAsConst.SESSION_RENEWED]: void
   [LifeCycleEventTypeAsConst.PAGE_MAY_EXIT]: PageMayExitEvent
+  [LifeCycleEventTypeAsConst.PAGE_REACTIVATED]: void
   [LifeCycleEventTypeAsConst.RAW_RUM_EVENT_COLLECTED]: RawRumEventCollectedData
   [LifeCycleEventTypeAsConst.RUM_EVENT_COLLECTED]: RumEvent & Context
   [LifeCycleEventTypeAsConst.RAW_ERROR_COLLECTED]: {

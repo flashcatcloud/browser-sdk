@@ -67,7 +67,7 @@ export function startFullSnapshots(
 
   fullSnapshotCallback(takeFullSnapshot())
 
-  const { unsubscribe } = lifeCycle.subscribe(LifeCycleEventType.VIEW_CREATED, (view) => {
+  const { unsubscribe: unsubscribeViewCreated } = lifeCycle.subscribe(LifeCycleEventType.VIEW_CREATED, (view) => {
     flushMutations()
     fullSnapshotCallback(
       takeFullSnapshot(view.startClocks.timeStamp, {
@@ -78,7 +78,24 @@ export function startFullSnapshots(
     )
   })
 
+  // When the page is re-activated (window/tab switched back to), take a fresh full snapshot so the
+  // new segment has its own baseline instead of inheriting another window/tab's snapshot. The
+  // segment is flushed first by segmentCollection, which subscribes to PAGE_REACTIVATED earlier.
+  const { unsubscribe: unsubscribeReactivated } = lifeCycle.subscribe(LifeCycleEventType.PAGE_REACTIVATED, () => {
+    flushMutations()
+    fullSnapshotCallback(
+      takeFullSnapshot(timeStampNow(), {
+        shadowRootsController,
+        status: SerializationContextStatus.SUBSEQUENT_FULL_SNAPSHOT,
+        elementsScrollPositions,
+      })
+    )
+  })
+
   return {
-    stop: unsubscribe,
+    stop: () => {
+      unsubscribeViewCreated()
+      unsubscribeReactivated()
+    },
   }
 }
