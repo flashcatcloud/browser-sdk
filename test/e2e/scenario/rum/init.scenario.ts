@@ -38,14 +38,22 @@ test.describe('API calls and events around init', () => {
     .run(async ({ intakeRegistry, flushEvents }) => {
       await flushEvents()
 
-      const initialView = intakeRegistry.rumViewEvents[0]
+      // a view can emit several update events; pick the latest one per view as it carries the
+      // cumulative state (e.g. custom_timings added after the first update)
+      const latestViewUpdate = (viewId: string) =>
+        intakeRegistry.rumViewEvents
+          .filter((event) => event.view.id === viewId)
+          .sort((a, b) => a._dd.document_version - b._dd.document_version)
+          .at(-1)!
+
+      const initialView = latestViewUpdate(intakeRegistry.rumViewEvents[0].view.id)
       expect(initialView.view.name).toBeUndefined()
       expect(initialView.view.custom_timings).toEqual({
         before_manual_view: expect.any(Number),
       })
 
-      const manualView = intakeRegistry.rumViewEvents[1]
-      expect(manualView.view.name).toBe('manual view')
+      const manualViewId = intakeRegistry.rumViewEvents.find((event) => event.view.name === 'manual view')!.view.id
+      const manualView = latestViewUpdate(manualViewId)
       expect(manualView.view.custom_timings).toEqual({
         after_manual_view: expect.any(Number),
       })
