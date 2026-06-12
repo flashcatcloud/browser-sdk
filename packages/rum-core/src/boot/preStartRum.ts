@@ -1,4 +1,10 @@
-import type { TrackingConsentState, DeflateWorker, Context, ContextManager, BoundedBuffer } from '@flashcatcloud/browser-core'
+import type {
+  TrackingConsentState,
+  DeflateWorker,
+  Context,
+  ContextManager,
+  BoundedBuffer,
+} from '@flashcatcloud/browser-core'
 import {
   createBoundedBuffer,
   display,

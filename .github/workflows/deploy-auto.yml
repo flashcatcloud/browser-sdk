@@ -5,8 +5,13 @@ on:
     tags:
       - 'v*' # 当推送带有 v 前缀的标签时触发
 
+env:
+  NODE_VERSION: '23.11.1'
+  BUILD_MODE: release
+
 jobs:
-  deploy-prod:
+  preflight:
+    name: Release preflight
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -15,25 +20,69 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies
-        run: yarn
+        run: yarn install --immutable
 
-      - name: Export BUILD_MODE
-        run: export BUILD_MODE=release
-
-      - name: Get version
+      - name: Validate tag matches package version
         run: |
-          FULL_VERSION=$(node -p -e "require('./lerna.json').version")
-          MAJOR_VERSION=$(echo $FULL_VERSION | cut -d. -f1)
-          echo "VERSION=$MAJOR_VERSION" >> $GITHUB_ENV
-          echo "version=$MAJOR_VERSION" >> $GITHUB_OUTPUT
-        env:
-          BUILD_MODE: release
+          FULL_VERSION=$(node -p "require('./lerna.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$FULL_VERSION" != "$TAG_VERSION" ]; then
+            echo "Tag v$TAG_VERSION does not match lerna.json version $FULL_VERSION"
+            exit 1
+          fi
+
+      - name: Check release metadata
+        run: node scripts/release/check-release.js
+
+      - name: Run release checks
+        run: |
+          yarn format
+          yarn build
+          yarn lint
+          node scripts/check-packages.js
+          yarn typecheck
+          yarn test:unit --single-run
+          yarn test:compat:tsc
+          yarn test:compat:ssr
 
       - name: Build bundle
         run: yarn build:bundle
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundles
+          path: packages/*/bundle/**
+          if-no-files-found: error
+
+  deploy-prod:
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Download verified bundle artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-bundles
+          path: packages
+
+      - name: Get version
+        run: |
+          FULL_VERSION=$(node -p "require('./lerna.json').version")
+          echo "VERSION=$FULL_VERSION" >> $GITHUB_ENV
 
       - name: Deploy to prod
         run: node ./scripts/deploy/deploy-oss.js prod v${VERSION}
@@ -54,11 +103,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: ${{ env.NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org/'
 
       - name: Install dependencies
-        run: yarn
+        run: yarn install --immutable
 
       - name: Publish to NPM
         run: node ./scripts/deploy/publish-npm.js

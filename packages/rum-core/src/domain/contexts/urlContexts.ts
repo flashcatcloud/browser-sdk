@@ -1,5 +1,11 @@
 import type { RelativeTime, Observable } from '@flashcatcloud/browser-core'
-import { SESSION_TIME_OUT_DELAY, relativeNow, createValueHistory, HookNames, DISCARDED } from '@flashcatcloud/browser-core'
+import {
+  SESSION_TIME_OUT_DELAY,
+  relativeNow,
+  createValueHistory,
+  HookNames,
+  DISCARDED,
+} from '@flashcatcloud/browser-core'
 import type { LocationChange } from '../../browser/locationChangeObservable'
 import type { LifeCycle } from '../lifeCycle'
 import { LifeCycleEventType } from '../lifeCycle'

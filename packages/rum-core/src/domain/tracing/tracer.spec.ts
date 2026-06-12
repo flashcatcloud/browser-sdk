@@ -7,7 +7,7 @@ import type { RumInitConfiguration } from '../configuration'
 import { validateAndBuildRumConfiguration } from '../configuration'
 import { startTracer } from './tracer'
 import type { SpanIdentifier, TraceIdentifier } from './identifier'
-import { createSpanIdentifier, createTraceIdentifier } from './identifier'
+import { createSpanIdentifier, createTraceIdentifier, toPaddedHexadecimalString } from './identifier'
 
 describe('tracer', () => {
   const ALLOWED_DOMAIN_CONTEXT: Partial<RumXhrStartContext | RumFetchStartContext> = {
@@ -30,7 +30,7 @@ describe('tracer', () => {
       clientToken: 'xxx',
       applicationId: 'xxx',
       service: 'service',
-      allowedTracingUrls: [{ match: window.location.origin, propagatorTypes: ['datadog'] }],
+      allowedTracingUrls: [{ match: window.location.origin, propagatorTypes: ['tracecontext'] }],
       ...initConfiguration,
     })!
     const userContext = { getContext: () => ({ id: userId }) } as unknown as ContextManager
@@ -241,8 +241,8 @@ describe('tracer', () => {
       const context = { ...ALLOWED_DOMAIN_CONTEXT }
       tracer.traceXhr(context, xhr as unknown as XMLHttpRequest)
 
-      expect(xhr.headers['x-datadog-trace-id']).toBeDefined()
-      expect(xhr.headers['x-datadog-sampling-priority']).toBeDefined()
+      expect(xhr.headers['traceparent']).toBeDefined()
+      expect(xhr.headers['tracestate']).toBeDefined()
     })
 
     it('should add headers when trace not sampled and config set to all', () => {
@@ -255,8 +255,8 @@ describe('tracer', () => {
       const context = { ...ALLOWED_DOMAIN_CONTEXT }
       tracer.traceXhr(context, xhr as unknown as XMLHttpRequest)
 
-      expect(xhr.headers['x-datadog-trace-id']).toBeDefined()
-      expect(xhr.headers['x-datadog-sampling-priority']).toBeDefined()
+      expect(xhr.headers['traceparent']).toBeDefined()
+      expect(xhr.headers['tracestate']).toBeDefined()
     })
 
     describe('baggage propagation header', () => {
@@ -651,10 +651,8 @@ describe('tracer', () => {
       const context: Partial<RumFetchStartContext> = { ...ALLOWED_DOMAIN_CONTEXT }
       tracer.traceFetch(context)
 
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-origin']))
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-parent-id']))
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-trace-id']))
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-sampling-priority']))
+      expect(context.init!.headers).toContain(jasmine.arrayContaining(['traceparent']))
+      expect(context.init!.headers).toContain(jasmine.arrayContaining(['tracestate']))
     })
 
     it('should add headers when trace not sampled and config set to all', () => {
@@ -668,10 +666,8 @@ describe('tracer', () => {
       const context: Partial<RumFetchStartContext> = { ...ALLOWED_DOMAIN_CONTEXT }
       tracer.traceFetch(context)
 
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-origin']))
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-parent-id']))
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-trace-id']))
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-sampling-priority']))
+      expect(context.init!.headers).toContain(jasmine.arrayContaining(['traceparent']))
+      expect(context.init!.headers).toContain(jasmine.arrayContaining(['tracestate']))
     })
   })
 
@@ -716,10 +712,10 @@ function toPlainObject(headers: Headers) {
 
 function tracingHeadersFor(traceId: TraceIdentifier, spanId: SpanIdentifier, samplingPriority: '1' | '0') {
   return {
-    'x-datadog-origin': 'rum',
-    'x-datadog-parent-id': spanId.toString(),
-    'x-datadog-sampling-priority': samplingPriority,
-    'x-datadog-trace-id': traceId.toString(),
+    traceparent: `00-0000000000000000${toPaddedHexadecimalString(traceId)}-${toPaddedHexadecimalString(
+      spanId
+    )}-0${samplingPriority}`,
+    tracestate: `dd=s:${samplingPriority};o:rum`,
   }
 }
 

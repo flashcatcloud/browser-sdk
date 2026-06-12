@@ -8,8 +8,25 @@ on:
         required: true
         default: 'no'
 
+env:
+  NODE_VERSION: '23.11.1'
+  BUILD_MODE: release
+
 jobs:
-  deploy-staging:
+  validate-confirmation:
+    name: Validate manual confirmation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require explicit confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm_deploy }}" != "yes" ]; then
+            echo 'Deployment blocked: confirm_deploy must be exactly "yes".'
+            exit 1
+          fi
+
+  preflight:
+    name: Staging preflight
+    needs: validate-confirmation
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -18,25 +35,54 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies
-        run: yarn
+        run: yarn install --immutable
 
-      - name: Export BUILD_MODE
-        run: export BUILD_MODE=release
-
-      - name: Get version
+      - name: Run staging checks
         run: |
-          FULL_VERSION=$(node -p -e "require('./lerna.json').version")
-          MAJOR_VERSION=$(echo $FULL_VERSION | cut -d. -f1)
-          echo "VERSION=$MAJOR_VERSION" >> $GITHUB_ENV
-          echo "version=$MAJOR_VERSION" >> $GITHUB_OUTPUT
-        env:
-          BUILD_MODE: release
+          yarn build
+          yarn lint
+          yarn typecheck
+          yarn test:unit --single-run
+          yarn test:compat:ssr
 
       - name: Build bundle
         run: yarn build:bundle
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-bundles
+          path: packages/*/bundle/**
+          if-no-files-found: error
+
+  deploy-staging:
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Download verified bundle artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: staging-bundles
+          path: packages
+
+      - name: Get version
+        run: |
+          FULL_VERSION=$(node -p "require('./lerna.json').version")
+          echo "VERSION=$FULL_VERSION" >> $GITHUB_ENV
 
       - name: Deploy to staging
         run: node ./scripts/deploy/deploy-oss.js staging v${VERSION}

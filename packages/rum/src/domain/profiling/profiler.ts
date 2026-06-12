@@ -14,7 +14,11 @@ import {
 } from '@flashcatcloud/browser-core'
 
 import type { LifeCycle, RumConfiguration, RumSessionManager, ViewHistoryEntry } from '@flashcatcloud/browser-rum-core'
-import { LifeCycleEventType, RumPerformanceEntryType, supportPerformanceTimingEvent } from '@flashcatcloud/browser-rum-core'
+import {
+  LifeCycleEventType,
+  RumPerformanceEntryType,
+  supportPerformanceTimingEvent,
+} from '@flashcatcloud/browser-rum-core'
 import type {
   RumProfilerTrace,
   RumProfilerInstance,

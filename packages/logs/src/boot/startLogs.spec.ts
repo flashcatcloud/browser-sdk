@@ -120,6 +120,8 @@ describe('logs', () => {
         },
         origin: ErrorSource.LOGGER,
         usr: {
+          // the FlashCat fork defaults usr.id to the session anonymous id when no user is set
+          id: jasmine.any(String),
           anonymous_id: jasmine.any(String),
         },
       })

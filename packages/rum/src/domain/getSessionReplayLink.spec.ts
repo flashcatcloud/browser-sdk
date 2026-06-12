@@ -1,3 +1,4 @@
+import { INTAKE_SITE_US1 } from '@flashcatcloud/browser-core'
 import type { RumConfiguration, ViewHistory } from '@flashcatcloud/browser-rum-core'
 import { registerCleanupTask } from '@flashcatcloud/browser-core/test'
 import { createRumSessionManagerMock } from '../../../rum-core/test'
@@ -5,7 +6,7 @@ import { getSessionReplayLink } from './getSessionReplayLink'
 import { addRecord, resetReplayStats } from './replayStats'
 
 const DEFAULT_CONFIGURATION = {
-  site: 'datadoghq.com',
+  site: INTAKE_SITE_US1,
 } as RumConfiguration
 
 describe('getReplayLink', () => {
@@ -18,7 +19,7 @@ describe('getReplayLink', () => {
 
     const link = getSessionReplayLink(DEFAULT_CONFIGURATION, sessionManager, viewHistory, true)
 
-    expect(link).toBe('https://app.datadoghq.com/rum/replay/sessions/session-id-1?')
+    expect(link).toBe('https://app.browser.flashcat.cloud/rum/replay/sessions/session-id-1?')
   })
 
   it('should return the replay link', () => {
@@ -40,7 +41,7 @@ describe('getReplayLink', () => {
       true
     )
 
-    expect(link).toBe('https://toto.datadoghq.com/rum/replay/sessions/session-id-1?seed=view-id-1&from=123456')
+    expect(link).toBe('https://toto.browser.flashcat.cloud/rum/replay/sessions/session-id-1?seed=view-id-1&from=123456')
   })
 
   it('should return link when replay is forced', () => {
@@ -66,7 +67,7 @@ describe('getReplayLink', () => {
       true
     )
 
-    expect(link).toBe('https://toto.datadoghq.com/rum/replay/sessions/session-id-1?seed=view-id-1&from=123456')
+    expect(link).toBe('https://toto.browser.flashcat.cloud/rum/replay/sessions/session-id-1?seed=view-id-1&from=123456')
   })
 
   it('return a param if replay is sampled out', () => {
@@ -82,7 +83,7 @@ describe('getReplayLink', () => {
 
     const link = getSessionReplayLink(DEFAULT_CONFIGURATION, sessionManager, viewHistory, true)
     expect(link).toBe(
-      'https://app.datadoghq.com/rum/replay/sessions/session-id-1?error-type=incorrect-session-plan&seed=view-id-1&from=123456'
+      'https://app.browser.flashcat.cloud/rum/replay/sessions/session-id-1?error-type=incorrect-session-plan&seed=view-id-1&from=123456'
     )
   })
 
@@ -94,7 +95,7 @@ describe('getReplayLink', () => {
 
     const link = getSessionReplayLink(DEFAULT_CONFIGURATION, sessionManager, viewHistory, true)
 
-    expect(link).toBe('https://app.datadoghq.com/rum/replay/sessions/no-session-id?error-type=rum-not-tracked')
+    expect(link).toBe('https://app.browser.flashcat.cloud/rum/replay/sessions/no-session-id?error-type=rum-not-tracked')
   })
 
   it('should add a param if the replay was not started', () => {
@@ -111,7 +112,7 @@ describe('getReplayLink', () => {
     const link = getSessionReplayLink(DEFAULT_CONFIGURATION, sessionManager, viewHistory, false)
 
     expect(link).toBe(
-      'https://app.datadoghq.com/rum/replay/sessions/session-id-1?error-type=replay-not-started&seed=view-id-1&from=123456'
+      'https://app.browser.flashcat.cloud/rum/replay/sessions/session-id-1?error-type=replay-not-started&seed=view-id-1&from=123456'
     )
   })
 
@@ -140,7 +141,7 @@ describe('getReplayLink', () => {
       const link = getSessionReplayLink(DEFAULT_CONFIGURATION, sessionManager, viewContexts, false)
 
       expect(link).toBe(
-        'https://app.datadoghq.com/rum/replay/sessions/session-id-1?error-type=browser-not-supported&seed=view-id-1&from=123456'
+        'https://app.browser.flashcat.cloud/rum/replay/sessions/session-id-1?error-type=browser-not-supported&seed=view-id-1&from=123456'
       )
     })
   })
