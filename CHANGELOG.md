@@ -18,6 +18,16 @@
 
 ---
 
+## v0.0.6
+
+**Public Changes:**
+
+- ✨ Add `trackWebVitals` configuration option to opt out of initial view (Web Vitals) metrics — FCP, LCP, FID and loading time. Disable it (`trackWebVitals: false`) for pages loaded in the background or pre-warmed (e.g. a hidden Electron window), where these metrics would otherwise be measured from an irrelevant navigation start and reported as abnormally large values. Defaults to `true`, so existing behavior is unchanged. ([#15](https://github.com/flashcatcloud/browser-sdk/pull/15)) [RUM] [RUM-REACT] [RUM-SLIM]
+
+**Internal Changes:**
+
+- Merge pull request #15 from flashcatcloud/feat/track-web-vitals
+
 ## v0.0.5
 
 **Internal Changes:**
