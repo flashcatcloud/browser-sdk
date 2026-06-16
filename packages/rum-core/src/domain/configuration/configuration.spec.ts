@@ -369,6 +369,28 @@ describe('validateAndBuildRumConfiguration', () => {
     })
   })
 
+  describe('trackWebVitals', () => {
+    it('defaults to true', () => {
+      expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.trackWebVitals).toBeTrue()
+    })
+
+    it('is set to provided value', () => {
+      expect(
+        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, trackWebVitals: true })!.trackWebVitals
+      ).toBeTrue()
+      expect(
+        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, trackWebVitals: false })!.trackWebVitals
+      ).toBeFalse()
+    })
+
+    it('the provided value is cast to boolean', () => {
+      expect(
+        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, trackWebVitals: 'foo' as any })!
+          .trackWebVitals
+      ).toBeTrue()
+    })
+  })
+
   describe('trackResources', () => {
     it('defaults to true', () => {
       expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.trackResources).toBeTrue()
@@ -535,6 +557,7 @@ describe('serializeRumConfiguration', () => {
       trackUserInteractions: true,
       actionNameAttribute: 'test-id',
       trackViewsManually: true,
+      trackWebVitals: true,
       trackResources: true,
       trackLongTasks: true,
       remoteConfigurationId: '123',
@@ -556,6 +579,7 @@ describe('serializeRumConfiguration', () => {
                 | 'remoteConfigurationId'
                 | 'profilingSampleRate'
                 | 'propagateTraceBaggage'
+                | 'trackWebVitals'
             ? never
             : CamelToSnakeCase<Key>
     // By specifying the type here, we can ensure that serializeConfiguration is returning an

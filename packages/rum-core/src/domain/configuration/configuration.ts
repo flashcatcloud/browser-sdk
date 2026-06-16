@@ -128,6 +128,14 @@ export interface RumInitConfiguration extends InitConfiguration {
    */
   trackViewsManually?: boolean | undefined
   /**
+   * Enables collection of Web Vitals / initial view metrics (FCP, LCP, FID, loading time) on the
+   * initial load view. Disable it for pages that are loaded in the background or pre-warmed (e.g. a
+   * hidden Electron window) where these metrics would be measured from an irrelevant navigation
+   * start and reported as abnormally large values.
+   * @default true
+   */
+  trackWebVitals?: boolean | undefined
+  /**
    * Enables collection of resource events.
    * @default true
    */
@@ -178,6 +186,7 @@ export interface RumConfiguration extends Configuration {
   startSessionReplayRecordingManually: boolean
   trackUserInteractions: boolean
   trackViewsManually: boolean
+  trackWebVitals: boolean
   trackResources: boolean
   trackLongTasks: boolean
   version?: string
@@ -248,6 +257,7 @@ export function validateAndBuildRumConfiguration(
     compressIntakeRequests: !!initConfiguration.compressIntakeRequests,
     trackUserInteractions: !!(initConfiguration.trackUserInteractions ?? true),
     trackViewsManually: !!initConfiguration.trackViewsManually,
+    trackWebVitals: !!(initConfiguration.trackWebVitals ?? true),
     trackResources: !!(initConfiguration.trackResources ?? true),
     trackLongTasks: !!(initConfiguration.trackLongTasks ?? true),
     subdomain: initConfiguration.subdomain,
