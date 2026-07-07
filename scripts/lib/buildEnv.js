@@ -41,6 +41,11 @@ const buildEnvFactories = {
     }
   },
   SDK_SETUP: () => getSdkSetup(),
+  // Staging intake endpoints. Injected from the environment at build time so the
+  // internal staging host is never hardcoded in source or shipped in public
+  // release artifacts. Empty by default (e.g. release builds).
+  INTAKE_SITE_STAGING: () => process.env.INTAKE_SITE_STAGING || '',
+  INTAKE_SITE_FED_STAGING: () => process.env.INTAKE_SITE_FED_STAGING || process.env.INTAKE_SITE_STAGING || '',
   WORKER_STRING: () => {
     const workerPath = path.join(__dirname, '../../packages/worker')
     // Make sure the worker is built
