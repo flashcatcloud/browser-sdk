@@ -1,6 +1,6 @@
 import type { ContextManager, RelativeTime } from '@flashcatcloud/browser-core'
 import { HookNames, removeStorageListeners } from '@flashcatcloud/browser-core'
-import { registerCleanupTask } from '@flashcatcloud/browser-core/test'
+import { mockEventBridge, registerCleanupTask } from '@flashcatcloud/browser-core/test'
 import { createRumSessionManagerMock, mockRumConfiguration } from '../../../test'
 import type { Hooks } from '../hooks'
 import { createHooks } from '../hooks'
@@ -64,6 +64,72 @@ describe('user context', () => {
           id: '123',
           anonymous_id: 'device-123',
         },
+      })
+    })
+
+    // FLASHCAT FORK - pins the web behavior the bridge case below deviates from.
+    it('should backfill the user id with the anonymous id when no user is set', () => {
+      userContext = startUserContext(
+        hooks,
+        mockRumConfiguration({ trackAnonymousUser: true }),
+        createRumSessionManagerMock()
+      )
+      const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {
+        eventType: 'view',
+        startTime: 0 as RelativeTime,
+      })
+
+      expect(defaultRumEventAttributes).toEqual({
+        type: 'view',
+        usr: {
+          id: 'device-123',
+          anonymous_id: 'device-123',
+        },
+      })
+    })
+
+    // FLASHCAT FORK (4/4) - see `sessionReplayDirectUpload` in RumInitConfiguration.
+    describe('when a host application provides the anonymous id', () => {
+      it('should not backfill the user id, but still set anonymous_id', () => {
+        mockEventBridge()
+        userContext = startUserContext(
+          hooks,
+          mockRumConfiguration({ trackAnonymousUser: true }),
+          createRumSessionManagerMock()
+        )
+        const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {
+          eventType: 'view',
+          startTime: 0 as RelativeTime,
+        })
+
+        expect(defaultRumEventAttributes).toEqual({
+          type: 'view',
+          usr: {
+            anonymous_id: 'device-123',
+          },
+        })
+      })
+
+      it('should leave a customer provided user id untouched', () => {
+        mockEventBridge()
+        userContext = startUserContext(
+          hooks,
+          mockRumConfiguration({ trackAnonymousUser: true }),
+          createRumSessionManagerMock()
+        )
+        userContext.setContext({ id: '123' })
+        const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {
+          eventType: 'view',
+          startTime: 0 as RelativeTime,
+        })
+
+        expect(defaultRumEventAttributes).toEqual({
+          type: 'view',
+          usr: {
+            id: '123',
+            anonymous_id: 'device-123',
+          },
+        })
       })
     })
 
