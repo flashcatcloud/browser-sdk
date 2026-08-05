@@ -18,7 +18,7 @@ export function startUserContext(hooks: Hooks, configuration: RumConfiguration, 
     storeContextManager(configuration, userContextManager, 'rum', CustomerDataType.User)
   }
 
-  // FLASHCAT FORK (4/4) - see `sessionReplayDirectUpload` in RumInitConfiguration.
+  // FLASHCAT FORK - see `getAnonymousId` in `DatadogEventBridge`.
   // Whether the anonymous id belongs to us or to a host application. Evaluated once: a bridge is
   // injected before any page script runs, so its presence cannot change afterwards.
   const hasHostProvidedAnonymousId = canUseEventBridge()
@@ -28,7 +28,7 @@ export function startUserContext(hooks: Hooks, configuration: RumConfiguration, 
     const session = sessionManager.findTrackedSession(startTime)
 
     if (session && session.anonymousId && !user.anonymous_id && !!configuration.trackAnonymousUser) {
-      // FLASHCAT FORK (4/4) - the copy into `user.id` is a Flashcat addition, not upstream: on the
+      // FLASHCAT FORK - the copy into `user.id` is a Flashcat addition, not upstream: on the
       // web it is what makes unique users countable, because that baseline only counts `usr.id` and
       // would otherwise miss every logged-out visitor.
       //

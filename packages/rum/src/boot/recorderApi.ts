@@ -31,7 +31,7 @@ export function makeRecorderApi(
   loadRecorder: () => Promise<StartRecording | undefined>,
   createDeflateWorkerImpl?: CreateDeflateWorker
 ): RecorderApi {
-  // FLASHCAT FORK (1/3) - see `sessionReplayDirectUpload` in RumInitConfiguration.
+  // FLASHCAT FORK (1/4) - see `sessionReplayDirectUpload` in RumInitConfiguration.
   // Upstream also disables the recorder here when an event bridge is present without the `records`
   // capability. That check now lives in `onRumStart` below, because it depends on a configuration
   // option that is not known yet when this function runs.
@@ -90,7 +90,7 @@ export function makeRecorderApi(
     viewHistory: ViewHistory,
     worker: DeflateWorker | undefined
   ) {
-    // FLASHCAT FORK (1/3) - see `sessionReplayDirectUpload` in RumInitConfiguration.
+    // FLASHCAT FORK (1/4) - see `sessionReplayDirectUpload` in RumInitConfiguration.
     // A host application declaring the `records` capability collects the records itself. When it
     // does not, upstream gives up on Session Replay entirely; `sessionReplayDirectUpload` opts out
     // of that and keeps the regular in-page recorder running.

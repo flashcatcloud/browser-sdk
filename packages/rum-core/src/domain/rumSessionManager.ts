@@ -108,11 +108,15 @@ export const STUB_SESSION_ID = '00000000-aaaa-0000-aaaa-000000000000'
  * Start a tracked replay session stub
  */
 export function startRumSessionManagerStub(configuration: RumConfiguration): RumSessionManager {
-  // FLASHCAT FORK (3/3) - see `sessionReplayDirectUpload` in RumInitConfiguration.
-  // Session Replay segments uploaded from this page are joined to a session by `(account, session
-  // id)`, so they need the session id the host application actually uses, not the placeholder.
-  // `getSessionId()`/`getAnonymousId()` are absent on older host SDKs, hence the fallbacks.
+  // FLASHCAT FORK - the host application owns the session id and the anonymous id, and answers for
+  // them through `DatadogEventBridge`. Both getters are absent on hosts built against an older SDK,
+  // hence the fallbacks below.
   const bridge = getEventBridge()
+
+  // FLASHCAT FORK (3/4) - see `sessionReplayDirectUpload` in RumInitConfiguration.
+  // Upstream only ever samples the stub for replay when the host declares the `records` capability,
+  // meaning the host records for us. With the option, this page records itself, so the draw is ours
+  // to make.
   const sessionReplay =
     bridgeSupports(BridgeCapability.RECORDS) ||
     (configuration.sessionReplayDirectUpload && performDraw(configuration.sessionReplaySampleRate))

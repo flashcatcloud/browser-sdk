@@ -88,7 +88,7 @@ describe('user context', () => {
       })
     })
 
-    // FLASHCAT FORK (4/4) - see `sessionReplayDirectUpload` in RumInitConfiguration.
+    // FLASHCAT FORK - see `getAnonymousId` in `DatadogEventBridge`.
     describe('when a host application provides the anonymous id', () => {
       it('should not backfill the user id, but still set anonymous_id', () => {
         mockEventBridge()
