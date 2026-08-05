@@ -530,6 +530,7 @@ describe('serializeRumConfiguration', () => {
       subdomain: 'foo',
       sessionReplaySampleRate: 60,
       startSessionReplayRecordingManually: true,
+      sessionReplayDirectUpload: true,
       trackUserInteractions: true,
       actionNameAttribute: 'test-id',
       trackViewsManually: true,
@@ -554,6 +555,8 @@ describe('serializeRumConfiguration', () => {
                 | 'remoteConfigurationId'
                 | 'profilingSampleRate'
                 | 'propagateTraceBaggage'
+                // FLASHCAT FORK: not reported to telemetry
+                | 'sessionReplayDirectUpload'
             ? never
             : CamelToSnakeCase<Key>
     // By specifying the type here, we can ensure that serializeConfiguration is returning an

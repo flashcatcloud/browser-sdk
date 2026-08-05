@@ -3,6 +3,7 @@ import {
   BridgeCapability,
   Observable,
   bridgeSupports,
+  getEventBridge,
   noop,
   performDraw,
   startSessionManager,
@@ -96,15 +97,35 @@ export function startRumSessionManager(
 }
 
 /**
+ * Session id used when the host application does not provide one. The host application is expected
+ * to override the session id of the events it forwards, so the placeholder never reaches the intake
+ * for RUM events. It does reach the intake for Session Replay segments, which are uploaded by this
+ * page directly, hence the `getSessionId()` lookup below.
+ */
+export const STUB_SESSION_ID = '00000000-aaaa-0000-aaaa-000000000000'
+
+/**
  * Start a tracked replay session stub
  */
-export function startRumSessionManagerStub(): RumSessionManager {
-  const session: RumSession = {
-    id: '00000000-aaaa-0000-aaaa-000000000000',
-    sessionReplay: bridgeSupports(BridgeCapability.RECORDS) ? SessionReplayState.SAMPLED : SessionReplayState.OFF,
-  }
+export function startRumSessionManagerStub(configuration: RumConfiguration): RumSessionManager {
+  // FLASHCAT FORK (3/3) - see `sessionReplayDirectUpload` in RumInitConfiguration.
+  // Session Replay segments uploaded from this page are joined to a session by `(account, session
+  // id)`, so they need the session id the host application actually uses, not the placeholder.
+  // `getSessionId()`/`getAnonymousId()` are absent on older host SDKs, hence the fallbacks.
+  const bridge = getEventBridge()
+  const sessionReplay =
+    bridgeSupports(BridgeCapability.RECORDS) ||
+    (configuration.sessionReplayDirectUpload && performDraw(configuration.sessionReplaySampleRate))
+      ? SessionReplayState.SAMPLED
+      : SessionReplayState.OFF
+
   return {
-    findTrackedSession: () => session,
+    // Read from the bridge on each call: the host application renews its session id over time.
+    findTrackedSession: (): RumSession => ({
+      id: bridge?.getSessionId() ?? STUB_SESSION_ID,
+      sessionReplay,
+      anonymousId: bridge?.getAnonymousId(),
+    }),
     expire: noop,
     expireObservable: new Observable(),
     setForcedReplay: noop,

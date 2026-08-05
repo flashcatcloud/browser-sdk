@@ -108,7 +108,7 @@ export function startRum(
 
   const session = !canUseEventBridge()
     ? startRumSessionManager(configuration, lifeCycle, trackingConsentState)
-    : startRumSessionManagerStub()
+    : startRumSessionManagerStub(configuration)
 
   if (!canUseEventBridge()) {
     const batch = startRumBatch(

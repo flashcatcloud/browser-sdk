@@ -10,6 +10,17 @@ export interface DatadogEventBridge {
   getPrivacyLevel?(): DefaultPrivacyLevel
   getAllowedWebViewHosts(): string
   send(msg: string): void
+  /**
+   * FLASHCAT FORK: identifiers owned by the host application.
+   *
+   * Both are optional: hosts built against an older SDK do not implement them, in which case the
+   * web SDK falls back to its own placeholder values.
+   *
+   * They are expected to be synchronous: the host pushes updates to the bridge implementation
+   * (e.g. an Electron preload script), which caches them and answers from that cache.
+   */
+  getSessionId?(): string
+  getAnonymousId?(): string
 }
 
 export const enum BridgeCapability {
@@ -32,6 +43,13 @@ export function getEventBridge<T, E>() {
     },
     getAllowedWebViewHosts() {
       return JSON.parse(eventBridgeGlobal.getAllowedWebViewHosts()) as string[]
+    },
+    // FLASHCAT FORK: see `DatadogEventBridge`. Returns `undefined` when the host does not provide it.
+    getSessionId() {
+      return eventBridgeGlobal.getSessionId?.() || undefined
+    },
+    getAnonymousId() {
+      return eventBridgeGlobal.getAnonymousId?.() || undefined
     },
     send(eventType: T, event: E, viewId?: string) {
       const view = viewId ? { id: viewId } : undefined
