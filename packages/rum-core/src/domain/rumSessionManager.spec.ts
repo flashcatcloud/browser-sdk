@@ -27,6 +27,7 @@ import {
   RUM_SESSION_KEY,
   RumTrackingType,
   SessionReplayState,
+  STUB_SESSION_ID,
   startRumSessionManager,
   startRumSessionManagerStub,
 } from './rumSessionManager'
@@ -227,11 +228,70 @@ describe('rum session manager', () => {
 describe('rum session manager stub', () => {
   it('should return a tracked session with replay allowed when the event bridge support records', () => {
     mockEventBridge({ capabilities: [BridgeCapability.RECORDS] })
-    expect(startRumSessionManagerStub().findTrackedSession()!.sessionReplay).toEqual(SessionReplayState.SAMPLED)
+    expect(startRumSessionManagerStub(mockRumConfiguration()).findTrackedSession()!.sessionReplay).toEqual(
+      SessionReplayState.SAMPLED
+    )
   })
 
   it('should return a tracked session without replay allowed when the event bridge support records', () => {
     mockEventBridge({ capabilities: [] })
-    expect(startRumSessionManagerStub().findTrackedSession()!.sessionReplay).toEqual(SessionReplayState.OFF)
+    expect(startRumSessionManagerStub(mockRumConfiguration()).findTrackedSession()!.sessionReplay).toEqual(
+      SessionReplayState.OFF
+    )
+  })
+
+  // FLASHCAT FORK - see `sessionReplayDirectUpload` in RumInitConfiguration.
+  describe('with sessionReplayDirectUpload', () => {
+    it('should return a tracked session with replay allowed even when the bridge does not support records', () => {
+      mockEventBridge({ capabilities: [] })
+      const configuration = mockRumConfiguration({ sessionReplayDirectUpload: true, sessionReplaySampleRate: 100 })
+      expect(startRumSessionManagerStub(configuration).findTrackedSession()!.sessionReplay).toEqual(
+        SessionReplayState.SAMPLED
+      )
+    })
+
+    it('should honor sessionReplaySampleRate', () => {
+      mockEventBridge({ capabilities: [] })
+      const configuration = mockRumConfiguration({ sessionReplayDirectUpload: true, sessionReplaySampleRate: 0 })
+      expect(startRumSessionManagerStub(configuration).findTrackedSession()!.sessionReplay).toEqual(
+        SessionReplayState.OFF
+      )
+    })
+  })
+
+  // FLASHCAT FORK - the host application owns the session id and the anonymous id.
+  describe('host provided identifiers', () => {
+    it('should use the session id and the anonymous id provided by the bridge', () => {
+      mockEventBridge({ sessionId: 'host-session-id', anonymousId: 'host-anonymous-id' })
+      const session = startRumSessionManagerStub(mockRumConfiguration()).findTrackedSession()!
+      expect(session.id).toBe('host-session-id')
+      expect(session.anonymousId).toBe('host-anonymous-id')
+    })
+
+    it('should fall back to the placeholder session id when the bridge does not implement the methods', () => {
+      mockEventBridge()
+      const session = startRumSessionManagerStub(mockRumConfiguration()).findTrackedSession()!
+      expect(session.id).toBe(STUB_SESSION_ID)
+      expect(session.anonymousId).toBeUndefined()
+    })
+
+    it('should fall back to the placeholder session id when the bridge returns an empty session id', () => {
+      mockEventBridge({ sessionId: '', anonymousId: '' })
+      const session = startRumSessionManagerStub(mockRumConfiguration()).findTrackedSession()!
+      expect(session.id).toBe(STUB_SESSION_ID)
+      expect(session.anonymousId).toBeUndefined()
+    })
+
+    it('should read the session id again on each call, as the host renews it', () => {
+      let sessionId = 'first-session-id'
+      const eventBridge = mockEventBridge({ sessionId: '' })
+      eventBridge.getSessionId = () => sessionId
+
+      const sessionManager = startRumSessionManagerStub(mockRumConfiguration())
+      expect(sessionManager.findTrackedSession()!.id).toBe('first-session-id')
+
+      sessionId = 'renewed-session-id'
+      expect(sessionManager.findTrackedSession()!.id).toBe('renewed-session-id')
+    })
   })
 })

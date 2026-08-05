@@ -30,7 +30,12 @@ describe('makeRecorderApi', () => {
   function setupRecorderApi({
     sessionManager,
     startSessionReplayRecordingManually,
-  }: { sessionManager?: RumSessionManager; startSessionReplayRecordingManually?: boolean } = {}) {
+    sessionReplayDirectUpload,
+  }: {
+    sessionManager?: RumSessionManager
+    startSessionReplayRecordingManually?: boolean
+    sessionReplayDirectUpload?: boolean
+  } = {}) {
     mockWorker = new MockWorker()
     createDeflateWorkerSpy = jasmine.createSpy('createDeflateWorkerSpy').and.callFake(() => mockWorker)
     spyOn(display, 'error')
@@ -51,7 +56,10 @@ describe('makeRecorderApi', () => {
     rumInit = ({ worker } = {}) => {
       recorderApi.onRumStart(
         lifeCycle,
-        mockRumConfiguration({ startSessionReplayRecordingManually: startSessionReplayRecordingManually ?? false }),
+        mockRumConfiguration({
+          startSessionReplayRecordingManually: startSessionReplayRecordingManually ?? false,
+          sessionReplayDirectUpload: sessionReplayDirectUpload ?? false,
+        }),
         sessionManager ?? createRumSessionManagerMock().setId('1234'),
         mockViewHistory(),
         worker
@@ -258,6 +266,18 @@ describe('makeRecorderApi', () => {
 
         expect(loadRecorderSpy).not.toHaveBeenCalled()
         expect(startRecordingSpy).not.toHaveBeenCalled()
+      })
+
+      // FLASHCAT FORK - see `sessionReplayDirectUpload` in RumInitConfiguration.
+      it('should start recording when the bridge does not support records but sessionReplayDirectUpload is set', async () => {
+        mockEventBridge({ capabilities: [] })
+
+        setupRecorderApi({ startSessionReplayRecordingManually: true, sessionReplayDirectUpload: true })
+        rumInit()
+        recorderApi.start()
+        await collectAsyncCalls(startRecordingSpy, 1)
+
+        expect(startRecordingSpy).toHaveBeenCalled()
       })
     })
 
