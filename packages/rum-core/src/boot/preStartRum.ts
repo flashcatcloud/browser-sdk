@@ -253,10 +253,17 @@ export function createPreStartStrategy(
 }
 
 function overrideInitConfigurationForBridge(initConfiguration: RumInitConfiguration): RumInitConfiguration {
+  // FLASHCAT FORK (4/4) - see `sessionReplayDirectUpload` in RumInitConfiguration.
+  // Upstream replaces the credentials with placeholders, because a page hosting a bridge is assumed
+  // never to send a request of its own. `sessionReplayDirectUpload` breaks that assumption: the page
+  // uploads Session Replay segments over HTTP, and the intake authenticates them with the client
+  // token and stores them under the application id. Both have to survive for those uploads to be
+  // accepted. RUM events are unaffected either way, as they go through `bridge.send()`, never HTTP.
+  const keepIntakeCredentials = !!initConfiguration.sessionReplayDirectUpload
   return {
     ...initConfiguration,
-    applicationId: '00000000-aaaa-0000-aaaa-000000000000',
-    clientToken: 'empty',
+    applicationId: keepIntakeCredentials ? initConfiguration.applicationId : '00000000-aaaa-0000-aaaa-000000000000',
+    clientToken: keepIntakeCredentials ? initConfiguration.clientToken : 'empty',
     sessionSampleRate: 100,
     defaultPrivacyLevel: initConfiguration.defaultPrivacyLevel ?? getEventBridge()?.getPrivacyLevel(),
   }

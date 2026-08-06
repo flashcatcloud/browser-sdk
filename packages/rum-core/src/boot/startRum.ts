@@ -28,6 +28,7 @@ import { startActionCollection } from '../domain/action/actionCollection'
 import { startErrorCollection } from '../domain/error/errorCollection'
 import { startResourceCollection } from '../domain/resource/resourceCollection'
 import { startViewCollection } from '../domain/view/viewCollection'
+import type { RumSessionManager } from '../domain/rumSessionManager'
 import { startRumSessionManager, startRumSessionManagerStub } from '../domain/rumSessionManager'
 import { startRumBatch } from '../transport/startRumBatch'
 import { startRumEventBridge } from '../transport/startRumEventBridge'
@@ -113,9 +114,15 @@ export function startRum(
   })
   cleanupTasks.push(() => pageActivationSubscription.unsubscribe())
 
-  const session = !canUseEventBridge()
-    ? startRumSessionManager(configuration, lifeCycle, trackingConsentState)
-    : startRumSessionManagerStub()
+  let session: RumSessionManager
+  if (!canUseEventBridge()) {
+    session = startRumSessionManager(configuration, lifeCycle, trackingConsentState)
+  } else {
+    // FLASHCAT FORK - the stub watches the host application's session, so it owns a timer to stop.
+    const sessionStub = startRumSessionManagerStub(configuration, lifeCycle)
+    cleanupTasks.push(sessionStub.stop)
+    session = sessionStub
+  }
 
   if (!canUseEventBridge()) {
     const batch = startRumBatch(

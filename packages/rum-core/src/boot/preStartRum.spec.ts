@@ -158,6 +158,26 @@ describe('preStartRum', () => {
         strategy.init(DEFAULT_INIT_CONFIGURATION, PUBLIC_API)
         expect(doStartRumSpy).toHaveBeenCalled()
       })
+
+      // FLASHCAT FORK (4/4) - see `sessionReplayDirectUpload` in RumInitConfiguration.
+      it('should replace the intake credentials with placeholders by default', () => {
+        mockEventBridge()
+        strategy.init({ applicationId: 'real-app-id', clientToken: 'real-client-token' }, PUBLIC_API)
+
+        expect(strategy.initConfiguration?.applicationId).toBe('00000000-aaaa-0000-aaaa-000000000000')
+        expect(strategy.initConfiguration?.clientToken).toBe('empty')
+      })
+
+      it('should keep the intake credentials when sessionReplayDirectUpload is set', () => {
+        mockEventBridge()
+        strategy.init(
+          { applicationId: 'real-app-id', clientToken: 'real-client-token', sessionReplayDirectUpload: true },
+          PUBLIC_API
+        )
+
+        expect(strategy.initConfiguration?.applicationId).toBe('real-app-id')
+        expect(strategy.initConfiguration?.clientToken).toBe('real-client-token')
+      })
     })
   })
 
