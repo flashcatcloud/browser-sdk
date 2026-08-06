@@ -56,6 +56,36 @@ describe('event bridge send', () => {
   })
 })
 
+// FLASHCAT FORK: identifiers owned by the host application. `undefined` (the host does not
+// implement the getter) and `''` (the host implements it and has no session right now) mean
+// different things and must not be collapsed into one another — see `DatadogEventBridge`.
+describe('event bridge getSessionId', () => {
+  it('should return the session id the host reports', () => {
+    mockEventBridge({ sessionId: 'host-session-id' })
+
+    expect(getEventBridge()!.getSessionId()).toBe('host-session-id')
+  })
+
+  it('should return undefined when the host does not implement the getter', () => {
+    mockEventBridge()
+
+    expect(getEventBridge()!.getSessionId()).toBeUndefined()
+  })
+
+  it('should return an empty string, not undefined, when the host has no session right now', () => {
+    mockEventBridge({ sessionId: '' })
+
+    expect(getEventBridge()!.getSessionId()).toBe('')
+  })
+
+  it('should normalise any other falsy answer from an implementing host to an empty string', () => {
+    const eventBridge = mockEventBridge({ sessionId: '' })
+    eventBridge.getSessionId = () => undefined as unknown as string
+
+    expect(getEventBridge()!.getSessionId()).toBe('')
+  })
+})
+
 describe('event bridge getPrivacyLevel', () => {
   const bridgePrivacyLevel = DefaultPrivacyLevel.MASK
 

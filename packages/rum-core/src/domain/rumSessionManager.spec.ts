@@ -226,18 +226,26 @@ describe('rum session manager', () => {
 })
 
 describe('rum session manager stub', () => {
+  let lifeCycle: LifeCycle
+
+  beforeEach(() => {
+    lifeCycle = new LifeCycle()
+  })
+
+  function startStub(configuration: RumConfiguration = mockRumConfiguration()) {
+    const sessionManager = startRumSessionManagerStub(configuration, lifeCycle)
+    registerCleanupTask(sessionManager.stop)
+    return sessionManager
+  }
+
   it('should return a tracked session with replay allowed when the event bridge support records', () => {
     mockEventBridge({ capabilities: [BridgeCapability.RECORDS] })
-    expect(startRumSessionManagerStub(mockRumConfiguration()).findTrackedSession()!.sessionReplay).toEqual(
-      SessionReplayState.SAMPLED
-    )
+    expect(startStub().findTrackedSession()!.sessionReplay).toEqual(SessionReplayState.SAMPLED)
   })
 
   it('should return a tracked session without replay allowed when the event bridge support records', () => {
     mockEventBridge({ capabilities: [] })
-    expect(startRumSessionManagerStub(mockRumConfiguration()).findTrackedSession()!.sessionReplay).toEqual(
-      SessionReplayState.OFF
-    )
+    expect(startStub().findTrackedSession()!.sessionReplay).toEqual(SessionReplayState.OFF)
   })
 
   // FLASHCAT FORK - see `sessionReplayDirectUpload` in RumInitConfiguration.
@@ -245,17 +253,13 @@ describe('rum session manager stub', () => {
     it('should return a tracked session with replay allowed even when the bridge does not support records', () => {
       mockEventBridge({ capabilities: [] })
       const configuration = mockRumConfiguration({ sessionReplayDirectUpload: true, sessionReplaySampleRate: 100 })
-      expect(startRumSessionManagerStub(configuration).findTrackedSession()!.sessionReplay).toEqual(
-        SessionReplayState.SAMPLED
-      )
+      expect(startStub(configuration).findTrackedSession()!.sessionReplay).toEqual(SessionReplayState.SAMPLED)
     })
 
     it('should honor sessionReplaySampleRate', () => {
       mockEventBridge({ capabilities: [] })
       const configuration = mockRumConfiguration({ sessionReplayDirectUpload: true, sessionReplaySampleRate: 0 })
-      expect(startRumSessionManagerStub(configuration).findTrackedSession()!.sessionReplay).toEqual(
-        SessionReplayState.OFF
-      )
+      expect(startStub(configuration).findTrackedSession()!.sessionReplay).toEqual(SessionReplayState.OFF)
     })
   })
 
@@ -263,21 +267,14 @@ describe('rum session manager stub', () => {
   describe('host provided identifiers', () => {
     it('should use the session id and the anonymous id provided by the bridge', () => {
       mockEventBridge({ sessionId: 'host-session-id', anonymousId: 'host-anonymous-id' })
-      const session = startRumSessionManagerStub(mockRumConfiguration()).findTrackedSession()!
+      const session = startStub().findTrackedSession()!
       expect(session.id).toBe('host-session-id')
       expect(session.anonymousId).toBe('host-anonymous-id')
     })
 
     it('should fall back to the placeholder session id when the bridge does not implement the methods', () => {
       mockEventBridge()
-      const session = startRumSessionManagerStub(mockRumConfiguration()).findTrackedSession()!
-      expect(session.id).toBe(STUB_SESSION_ID)
-      expect(session.anonymousId).toBeUndefined()
-    })
-
-    it('should fall back to the placeholder session id when the bridge returns an empty session id', () => {
-      mockEventBridge({ sessionId: '', anonymousId: '' })
-      const session = startRumSessionManagerStub(mockRumConfiguration()).findTrackedSession()!
+      const session = startStub().findTrackedSession()!
       expect(session.id).toBe(STUB_SESSION_ID)
       expect(session.anonymousId).toBeUndefined()
     })
@@ -287,11 +284,146 @@ describe('rum session manager stub', () => {
       const eventBridge = mockEventBridge({ sessionId: '' })
       eventBridge.getSessionId = () => sessionId
 
-      const sessionManager = startRumSessionManagerStub(mockRumConfiguration())
+      const sessionManager = startStub()
       expect(sessionManager.findTrackedSession()!.id).toBe('first-session-id')
 
       sessionId = 'renewed-session-id'
       expect(sessionManager.findTrackedSession()!.id).toBe('renewed-session-id')
+    })
+  })
+
+  // FLASHCAT FORK - a host that answers for the session id and reports none has no session at all
+  // right now. Falling back to the placeholder here would attribute this page's Session Replay
+  // segments — which it uploads itself, bypassing the host — to a fake session shared by every
+  // application, and reusing the previous id would attribute them to a session that has ended.
+  describe('when the host reports no session', () => {
+    it('should report no tracked session', () => {
+      mockEventBridge({ sessionId: '', anonymousId: '' })
+
+      expect(startStub().findTrackedSession()).toBeUndefined()
+    })
+
+    it('should not fall back to the placeholder session id', () => {
+      mockEventBridge({ sessionId: '' })
+
+      expect(startStub().findTrackedSession()?.id).not.toBe(STUB_SESSION_ID)
+    })
+
+    it('should report a tracked session again once the host renews it', () => {
+      let sessionId = ''
+      const eventBridge = mockEventBridge({ sessionId: '' })
+      eventBridge.getSessionId = () => sessionId
+      const sessionManager = startStub()
+
+      expect(sessionManager.findTrackedSession()).toBeUndefined()
+
+      sessionId = 'renewed-session-id'
+      expect(sessionManager.findTrackedSession()!.id).toBe('renewed-session-id')
+    })
+  })
+
+  // FLASHCAT FORK - the bridge is pull-only, so the stub polls it the way the regular session
+  // manager polls its own store, and turns what it sees into the same lifecycle events. Without
+  // them the recorder would keep a segment open across the end of the host session.
+  describe('watching the host session', () => {
+    let clock: Clock
+    let expireSessionSpy: jasmine.Spy
+    let renewSessionSpy: jasmine.Spy
+    let hostSessionId: string
+
+    beforeEach(() => {
+      clock = mockClock()
+      registerCleanupTask(clock.cleanup)
+      expireSessionSpy = jasmine.createSpy('expireSessionSpy')
+      renewSessionSpy = jasmine.createSpy('renewSessionSpy')
+      lifeCycle.subscribe(LifeCycleEventType.SESSION_EXPIRED, expireSessionSpy)
+      lifeCycle.subscribe(LifeCycleEventType.SESSION_RENEWED, renewSessionSpy)
+    })
+
+    function mockHostSession(initialSessionId: string) {
+      hostSessionId = initialSessionId
+      const eventBridge = mockEventBridge({ sessionId: initialSessionId })
+      eventBridge.getSessionId = () => hostSessionId
+    }
+
+    it('should notify SESSION_EXPIRED when the host session expires', () => {
+      mockHostSession('host-session-id')
+      startStub()
+
+      hostSessionId = ''
+      clock.tick(STORAGE_POLL_DELAY)
+
+      expect(expireSessionSpy).toHaveBeenCalledTimes(1)
+      expect(renewSessionSpy).not.toHaveBeenCalled()
+    })
+
+    it('should notify SESSION_RENEWED when the host starts a new session', () => {
+      mockHostSession('')
+      startStub()
+
+      hostSessionId = 'renewed-session-id'
+      clock.tick(STORAGE_POLL_DELAY)
+
+      expect(renewSessionSpy).toHaveBeenCalledTimes(1)
+      expect(expireSessionSpy).not.toHaveBeenCalled()
+    })
+
+    it('should notify both when the host swaps one session for another without reporting a gap', () => {
+      mockHostSession('first-session-id')
+      startStub()
+
+      hostSessionId = 'second-session-id'
+      clock.tick(STORAGE_POLL_DELAY)
+
+      expect(expireSessionSpy).toHaveBeenCalledTimes(1)
+      expect(renewSessionSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('should already answer with the new session when it notifies', () => {
+      mockHostSession('first-session-id')
+      const sessionManager = startStub()
+      const idsSeenBySubscribers: Array<string | undefined> = []
+      lifeCycle.subscribe(LifeCycleEventType.SESSION_EXPIRED, () => {
+        idsSeenBySubscribers.push(sessionManager.findTrackedSession()?.id)
+      })
+      lifeCycle.subscribe(LifeCycleEventType.SESSION_RENEWED, () => {
+        idsSeenBySubscribers.push(sessionManager.findTrackedSession()?.id)
+      })
+
+      hostSessionId = 'second-session-id'
+      clock.tick(STORAGE_POLL_DELAY)
+
+      expect(idsSeenBySubscribers).toEqual(['second-session-id', 'second-session-id'])
+    })
+
+    it('should not notify anything while the host session does not change', () => {
+      mockHostSession('host-session-id')
+      startStub()
+
+      clock.tick(10 * STORAGE_POLL_DELAY)
+
+      expect(expireSessionSpy).not.toHaveBeenCalled()
+      expect(renewSessionSpy).not.toHaveBeenCalled()
+    })
+
+    it('should not watch a host that does not answer for the session id', () => {
+      mockEventBridge()
+      startStub()
+
+      clock.tick(10 * STORAGE_POLL_DELAY)
+
+      expect(expireSessionSpy).not.toHaveBeenCalled()
+      expect(renewSessionSpy).not.toHaveBeenCalled()
+    })
+
+    it('should stop watching once stopped', () => {
+      mockHostSession('host-session-id')
+      startRumSessionManagerStub(mockRumConfiguration(), lifeCycle).stop()
+
+      hostSessionId = ''
+      clock.tick(10 * STORAGE_POLL_DELAY)
+
+      expect(expireSessionSpy).not.toHaveBeenCalled()
     })
   })
 })
