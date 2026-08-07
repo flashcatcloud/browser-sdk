@@ -25,3 +25,5 @@ package.tgz
 .VSCodeCounter
 .env
 .vscode
+# Written by yarn itself when it installs the test apps, not by anything here.
+/test/apps/*/.yarnrc.yml

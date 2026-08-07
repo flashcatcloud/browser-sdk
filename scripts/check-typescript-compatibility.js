@@ -19,6 +19,18 @@ runMain(() => {
   command`yarn install --no-immutable`.withCurrentWorkingDirectory(TEST_APP_DIR).run()
   const testAppSnapshot = snapshotFiles(TEST_APP_MUTATED_FILES)
 
+  // TypeScript 7 removed `target: es5` and `moduleResolution: node10`, the two options the test
+  // app's tsconfig is built on. A consumer on a current TypeScript cannot express that
+  // configuration at all, so checking our type definitions against it there would be checking a
+  // setup nobody can have. These are what such a consumer uses instead, and what this app already
+  // is — a bundler-resolved web app — at the oldest target still available, which keeps the point
+  // of the older checks: that the definitions survive a low target.
+  const currentTypeScriptOptions = {
+    target: 'es2015',
+    module: 'preserve',
+    moduleResolution: 'bundler',
+  }
+
   const checks = [
     {
       title: 'TypeScript 3.8.2 compatibility',
@@ -35,18 +47,18 @@ runMain(() => {
     },
     {
       title: 'TypeScript latest compatibility',
-      compilerOptions: { ignoreDeprecations: '6.0' },
+      compilerOptions: currentTypeScriptOptions,
       version: 'latest',
     },
     {
       title: 'exactOptionalPropertyTypes compatibility',
       version: 'latest', // Not available in 3.8.2
-      compilerOptions: { exactOptionalPropertyTypes: true, ignoreDeprecations: '6.0' },
+      compilerOptions: { ...currentTypeScriptOptions, exactOptionalPropertyTypes: true },
     },
     {
       title: 'ESNext compatibility',
       version: 'latest',
-      compilerOptions: { ignoreDeprecations: '6.0', lib: ['ESNext', 'DOM'] },
+      compilerOptions: { ...currentTypeScriptOptions, lib: ['ESNext', 'DOM'] },
     },
   ]
 
