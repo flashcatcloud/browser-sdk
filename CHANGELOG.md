@@ -18,6 +18,22 @@
 
 ---
 
+## v0.0.7
+
+**Internal Changes:**
+
+- Merge pull request #19 from flashcatcloud/fix/ts7-compat-toolchain
+- fix(ci): let package install scripts run again
+- fix(ci): keep the yarn upgrade to the yarn path
+- fix(ci): migrate the lockfile to the format the new yarn writes
+- fix(ci): unblock releases from TypeScript 7
+- Merge pull request #18 from flashcatcloud/feat/renderer-replay-direct-upload-publish
+- fix(rum): stop collecting for the host while it has no session [FLAGGING] [LOGS] [RUM] [RUM-REACT] [RUM-SLIM] [WORKER]
+- docs: state what an empty host identifier means on the bridge [FLAGGING] [LOGS] [RUM] [RUM-REACT] [RUM-SLIM] [WORKER]
+- docs: make the FLASHCAT FORK markers name the right change [RUM] [RUM-REACT] [RUM-SLIM]
+- fix(rum): keep intake credentials and stop backfilling usr.id under a host bridge [RUM] [RUM-REACT] [RUM-SLIM]
+- feat(rum): keep collecting Session Replay in the page when a host bridge is present [FLAGGING] [LOGS] [RUM] [RUM-REACT] [RUM-SLIM] [WORKER]
+
 ## v0.0.6
 
 **Public Changes:**
