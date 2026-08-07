@@ -100,13 +100,15 @@ export function startRumSessionManager(
 }
 
 /**
- * Session id used when the host application does not answer for one, because it was built against
- * an SDK that predates `getSessionId()`. Such a host is expected to override the session id of the
- * events it forwards, so the placeholder never reaches the intake for RUM events.
+ * Session id used whenever the host application cannot name the session this page is in — either
+ * because it was built against an SDK that predates `getSessionId()`, or because it has no session
+ * at this moment. The host overrides the session id of every event it forwards, so this never
+ * reaches the intake through the bridge.
  *
- * It would reach the intake for Session Replay segments, which this page uploads directly, and the
- * placeholder is a constant shared by every application — so a host that DOES answer for the
- * session id must never end up on it. See `startRumSessionManagerStub`.
+ * It would reach the intake for Session Replay segments, which this page uploads directly, and it
+ * is a constant shared by every application built on this SDK. Nothing may therefore be recorded
+ * while this is the session id — see `startRumSessionManagerStub`, which pairs it with
+ * `SessionReplayState.OFF`.
  */
 export const STUB_SESSION_ID = '00000000-aaaa-0000-aaaa-000000000000'
 
@@ -182,18 +184,28 @@ export function startRumSessionManagerStub(
     // Read from the bridge on each call rather than from `lastSeenSessionId`: the poll above only
     // exists to spot transitions, and an event assembled between two polls must still carry the id
     // the host holds right now.
-    findTrackedSession: (): RumSession | undefined => {
-      const sessionId = readHostSessionId()
-      if (sessionId === NO_HOST_SESSION) {
-        // The host owns the session and currently has none. There is nothing to attribute this
-        // page's data to, so it has no tracked session either — falling back to the placeholder
-        // would pile Session Replay segments onto a fake session shared across applications, and
-        // reusing the id the host had a moment ago would pile them onto a session that ended.
-        return
-      }
+    findTrackedSession: (): RumSession => {
+      const hostSessionId = readHostSessionId()
+      const hasHostSession = hostSessionId !== NO_HOST_SESSION
+
+      // While the host has no session, the two kinds of data this page produces carry very
+      // different risk, so they are treated differently rather than both being dropped.
+      //
+      // Events go to the host, which overrides their session id before forwarding them — the
+      // placeholder never reaches the intake through the bridge, so they keep flowing. They have
+      // to: a host may well depend on them to know the user is still there. `fc-sdk-electron`
+      // renews its session from the click actions this page reports, so a page that stops
+      // reporting during the gap leaves the host with nothing to renew from, and the session that
+      // was only paused never comes back.
+      //
+      // Session Replay segments are uploaded by this page directly, so nothing overrides them.
+      // There is no session to attribute them to, and the placeholder is a constant every
+      // application built on this SDK shares — so recording stops instead, and `SESSION_EXPIRED`
+      // (notified by the poll above) makes the recorder flush what it holds rather than keep a
+      // segment open across the gap.
       return {
-        id: sessionId ?? STUB_SESSION_ID,
-        sessionReplay,
+        id: hasHostSession && hostSessionId ? hostSessionId : STUB_SESSION_ID,
+        sessionReplay: hasHostSession ? sessionReplay : SessionReplayState.OFF,
         anonymousId: bridge?.getAnonymousId(),
       }
     },

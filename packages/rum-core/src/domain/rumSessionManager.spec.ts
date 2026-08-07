@@ -292,33 +292,54 @@ describe('rum session manager stub', () => {
     })
   })
 
-  // FLASHCAT FORK - a host that answers for the session id and reports none has no session at all
-  // right now. Falling back to the placeholder here would attribute this page's Session Replay
-  // segments — which it uploads itself, bypassing the host — to a fake session shared by every
-  // application, and reusing the previous id would attribute them to a session that has ended.
+  // FLASHCAT FORK - a host that answers for the session id and reports none has no session right
+  // now. What this page produces has to be split: events reach the intake through the host, which
+  // overrides their session id, so they keep flowing — a host may depend on them to know the user
+  // is still around, and `fc-sdk-electron` renews its session from the click actions reported
+  // here. Session Replay segments bypass the host entirely, so nothing overrides the placeholder
+  // they would carry, and it is a constant shared by every application; recording stops instead.
   describe('when the host reports no session', () => {
-    it('should report no tracked session', () => {
+    it('should keep reporting a tracked session, so events still reach the host', () => {
       mockEventBridge({ sessionId: '', anonymousId: '' })
 
-      expect(startStub().findTrackedSession()).toBeUndefined()
+      expect(startStub().findTrackedSession()).toBeDefined()
     })
 
-    it('should not fall back to the placeholder session id', () => {
+    it('should stop Session Replay, which the host does not get a chance to attribute', () => {
       mockEventBridge({ sessionId: '' })
 
-      expect(startStub().findTrackedSession()?.id).not.toBe(STUB_SESSION_ID)
+      expect(startStub().findTrackedSession()!.sessionReplay).toBe(SessionReplayState.OFF)
     })
 
-    it('should report a tracked session again once the host renews it', () => {
+    it('should name the session with the placeholder the host overrides', () => {
+      mockEventBridge({ sessionId: '' })
+
+      expect(startStub().findTrackedSession()!.id).toBe(STUB_SESSION_ID)
+    })
+
+    it('should never report the id the host held before, which belongs to a session that ended', () => {
+      let sessionId = 'ended-session-id'
+      const eventBridge = mockEventBridge({ sessionId: '' })
+      eventBridge.getSessionId = () => sessionId
+      const sessionManager = startStub()
+      expect(sessionManager.findTrackedSession()!.id).toBe('ended-session-id')
+
+      sessionId = ''
+
+      expect(sessionManager.findTrackedSession()!.id).not.toBe('ended-session-id')
+    })
+
+    it('should record again once the host renews its session', () => {
       let sessionId = ''
       const eventBridge = mockEventBridge({ sessionId: '' })
       eventBridge.getSessionId = () => sessionId
       const sessionManager = startStub()
-
-      expect(sessionManager.findTrackedSession()).toBeUndefined()
+      expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.OFF)
 
       sessionId = 'renewed-session-id'
+
       expect(sessionManager.findTrackedSession()!.id).toBe('renewed-session-id')
+      expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.SAMPLED)
     })
   })
 
