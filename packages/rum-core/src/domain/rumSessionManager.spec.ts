@@ -210,6 +210,71 @@ describe('rum session manager', () => {
     )
   })
 
+  // FLASHCAT FORK - sampling rates set in the console.
+  describe('remote sampling', () => {
+    const STORE_KEY = 'test-remote-sampling'
+
+    function storeRemoteSampling(rates: { sessionSampleRate?: number; sessionReplaySampleRate?: number }) {
+      localStorage.setItem(STORE_KEY, JSON.stringify(rates))
+      registerCleanupTask(() => localStorage.removeItem(STORE_KEY))
+    }
+
+    it('draws a new session on the remote rate rather than the one passed to init', () => {
+      storeRemoteSampling({ sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteSamplingStoreKey: STORE_KEY },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
+    it('draws replay on the remote replay rate', () => {
+      storeRemoteSampling({ sessionReplaySampleRate: 100 })
+
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, remoteSamplingStoreKey: STORE_KEY },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
+    it('falls back to the rate passed to init for a knob the console did not set', () => {
+      storeRemoteSampling({ sessionReplaySampleRate: 100 })
+
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteSamplingStoreKey: STORE_KEY },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+    })
+
+    it('leaves a session already under way on the decision it was created with', () => {
+      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      storeRemoteSampling({ sessionSampleRate: 0, sessionReplaySampleRate: 0 })
+
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, remoteSamplingStoreKey: STORE_KEY },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY).id).toBe('abcdef')
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
+    it('ignores anything in storage when the site did not opt in', () => {
+      storeRemoteSampling({ sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+      startRumSessionManagerWithDefaults({ configuration: { sessionSampleRate: 0 } })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+    })
+  })
+
   function startRumSessionManagerWithDefaults({ configuration }: { configuration?: Partial<RumConfiguration> } = {}) {
     return startRumSessionManager(
       mockRumConfiguration({

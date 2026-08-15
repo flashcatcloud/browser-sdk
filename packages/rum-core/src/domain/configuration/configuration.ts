@@ -23,6 +23,7 @@ import type { RumEvent } from '../../rumEvent.types'
 import type { RumPlugin } from '../plugins'
 import { isTracingOption } from '../tracing/tracer'
 import type { PropagatorType, TracingOption } from '../tracing/tracer.types'
+import { buildRemoteSamplingStoreKey } from './remoteConfiguration'
 
 export const DEFAULT_PROPAGATOR_TYPES: PropagatorType[] = ['tracecontext']
 
@@ -62,7 +63,24 @@ export interface RumInitConfiguration extends InitConfiguration {
    * See [Content Security Policy guidelines](https://docs.datadoghq.com/integrations/content_security_policy_logs/?tab=firefox#use-csp-with-real-user-monitoring-and-session-replay) for further information.
    */
   compressIntakeRequests?: boolean | undefined
-  remoteConfigurationId?: string | undefined
+  /**
+   * Take the sampling rates from the application's settings in the console instead of only from the
+   * values passed here, so they can be changed without releasing a new version of this site.
+   *
+   * A change applies to sessions started after it arrives; a session already under way keeps the
+   * decision it was created with. The values below stay in use until the first settings arrive, and
+   * whenever the settings cannot be reached.
+   *
+   * @default false
+   */
+  remoteConfiguration?: boolean | undefined
+  /**
+   * How long to wait for the sampling settings before giving up on that attempt, in milliseconds.
+   * Giving up is harmless: the SDK keeps collecting with the settings it already has.
+   *
+   * @default 3000
+   */
+  remoteConfigurationFetchTimeout?: number | undefined
 
   // tracing options
   /**
@@ -216,6 +234,12 @@ export interface RumConfiguration extends Configuration {
   trackFeatureFlagsForEvents: FeatureFlagsForEvents[]
   profilingSampleRate: number
   propagateTraceBaggage: boolean
+  /**
+   * Where the sampling rates fetched from the console are kept, or undefined when the site did not
+   * opt into remote configuration. Computed once here because the sampling draw needs it, and the
+   * draw only has the built configuration to work from.
+   */
+  remoteSamplingStoreKey: string | undefined
 }
 
 export function validateAndBuildRumConfiguration(
@@ -293,6 +317,7 @@ export function validateAndBuildRumConfiguration(
     trackFeatureFlagsForEvents: initConfiguration.trackFeatureFlagsForEvents || [],
     profilingSampleRate: profilingEnabled ? (initConfiguration.profilingSampleRate ?? 0) : 0, // Enforce 0 if profiling is not enabled, and set 0 as default when not set.
     propagateTraceBaggage: !!initConfiguration.propagateTraceBaggage,
+    remoteSamplingStoreKey: buildRemoteSamplingStoreKey(initConfiguration),
     ...baseConfiguration,
   }
 }

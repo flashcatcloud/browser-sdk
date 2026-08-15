@@ -12,6 +12,7 @@ import {
   startSessionManager,
 } from '@flashcatcloud/browser-core'
 import type { RumConfiguration } from './configuration'
+import { readRemoteSampling } from './configuration'
 import type { LifeCycle } from './lifeCycle'
 import { LifeCycleEventType } from './lifeCycle'
 
@@ -208,12 +209,20 @@ function computeSessionState(configuration: RumConfiguration, rawTrackingType?: 
   let trackingType: RumTrackingType
   if (hasValidRumSession(rawTrackingType)) {
     trackingType = rawTrackingType
-  } else if (!performDraw(configuration.sessionSampleRate)) {
-    trackingType = RumTrackingType.NOT_TRACKED
-  } else if (!performDraw(configuration.sessionReplaySampleRate)) {
-    trackingType = RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY
   } else {
-    trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
+    // FLASHCAT FORK - rates set in the console take precedence over the ones passed to init. They
+    // are read here, inside the only branch that draws, so a session restored from the store keeps
+    // the decision it was created with: settings arriving mid-session never start or stop
+    // collecting for a visitor already on the site.
+    const remote = readRemoteSampling(configuration.remoteSamplingStoreKey)
+
+    if (!performDraw(remote.sessionSampleRate ?? configuration.sessionSampleRate)) {
+      trackingType = RumTrackingType.NOT_TRACKED
+    } else if (!performDraw(remote.sessionReplaySampleRate ?? configuration.sessionReplaySampleRate)) {
+      trackingType = RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY
+    } else {
+      trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
+    }
   }
   return {
     trackingType,

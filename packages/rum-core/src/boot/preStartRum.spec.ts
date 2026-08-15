@@ -455,12 +455,10 @@ describe('preStartRum', () => {
         interceptor = interceptRequests()
       })
 
-      it('should start with the remote configuration when a remoteConfigurationId is provided', (done) => {
+      it('starts collecting without waiting for the sampling settings', () => {
+        let requestedUrl: string | undefined
         interceptor.withMockXhr((xhr) => {
-          xhr.complete(200, '{"rum":{"sessionSampleRate":50}}')
-
-          expect(doStartRumSpy.calls.mostRecent().args[0].sessionSampleRate).toEqual(50)
-          done()
+          requestedUrl = xhr.url
         })
 
         const strategy = createPreStartStrategy(
@@ -469,13 +467,28 @@ describe('preStartRum', () => {
           createCustomVitalsState(),
           doStartRumSpy
         )
-        strategy.init(
-          {
-            ...DEFAULT_INIT_CONFIGURATION,
-            remoteConfigurationId: '123',
-          },
-          PUBLIC_API
+        strategy.init({ ...DEFAULT_INIT_CONFIGURATION, remoteConfiguration: true }, PUBLIC_API)
+
+        // RUM is already running by the time init() returns, before any response could arrive.
+        expect(doStartRumSpy).toHaveBeenCalled()
+        expect(requestedUrl).toContain('/api/v2/rum/config?')
+      })
+
+      it('asks for nothing when the site did not opt in', () => {
+        let requested = false
+        interceptor.withMockXhr(() => {
+          requested = true
+        })
+
+        const strategy = createPreStartStrategy(
+          {},
+          createTrackingConsentState(),
+          createCustomVitalsState(),
+          doStartRumSpy
         )
+        strategy.init(DEFAULT_INIT_CONFIGURATION, PUBLIC_API)
+
+        expect(requested).toBeFalse()
       })
     })
 
@@ -606,11 +619,14 @@ describe('preStartRum', () => {
       expect(strategy.initConfiguration).toEqual(initConfiguration)
     })
 
-    it('returns the initConfiguration with the remote configuration when a remoteConfigurationId is provided', (done) => {
+    it('keeps reporting what the site passed, not what the console sent', (done) => {
+      // Remote settings only ever move the sampling rates. Letting them rewrite the reported init
+      // configuration would mean anything in it — the client token, the site — could be changed
+      // from the far end of a request.
       interceptor.withMockXhr((xhr) => {
-        xhr.complete(200, '{"rum":{"sessionSampleRate":50}}')
+        xhr.complete(200, '{"version":1,"ttl":300,"enabled":true,"rum":{"sessionSampleRate":50}}')
 
-        expect(strategy.initConfiguration?.sessionSampleRate).toEqual(50)
+        expect(strategy.initConfiguration?.sessionSampleRate).toBeUndefined()
         done()
       })
 
@@ -623,7 +639,7 @@ describe('preStartRum', () => {
       strategy.init(
         {
           ...DEFAULT_INIT_CONFIGURATION,
-          remoteConfigurationId: '123',
+          remoteConfiguration: true,
         },
         PUBLIC_API
       )
