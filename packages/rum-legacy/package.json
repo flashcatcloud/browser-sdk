@@ -1,0 +1,24 @@
+{
+  "name": "@flashcatcloud/browser-rum-legacy",
+  "version": "0.0.2",
+  "license": "Apache-2.0",
+  "private": true,
+  "description": "RUM Browser SDK build for browsers without ES2015 support. Distributed through the CDN only.",
+  "scripts": {
+    "build": "yarn build:bundle",
+    "build:bundle": "rm -rf bundle && SDK_SETUP=cdn webpack --mode=production",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "terser-webpack-plugin": "5.3.14",
+    "webpack": "5.99.8"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/flashcatcloud/browser-sdk",
+    "directory": "packages/rum-legacy"
+  },
+  "volta": {
+    "extends": "../../package.json"
+  }
+}
