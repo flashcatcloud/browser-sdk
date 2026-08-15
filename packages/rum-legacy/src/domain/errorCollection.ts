@@ -22,7 +22,7 @@ export interface CollectedError {
  * silently disable the customer's own error reporting, which is exactly the kind of interference
  * this build must not cause.
  */
-export function startErrorCollection(onError: (error: CollectedError) => void) {
+export function startErrorCollection(onError: (error: CollectedError, context?: { [key: string]: any }) => void) {
   const previousOnError = window.onerror
 
   function handleError(message: Event | string, url?: string, line?: number, column?: number, error?: Error): boolean {
@@ -48,8 +48,8 @@ export function startErrorCollection(onError: (error: CollectedError) => void) {
   window.onerror = handleError
 
   return {
-    addError(value: unknown): void {
-      onError(computeManualError(value))
+    addError(value: unknown, context?: { [key: string]: any }): void {
+      onError(computeManualError(value), context)
     },
 
     stop(): void {

@@ -20,7 +20,10 @@ interface CurrentView extends ViewContext {
 }
 
 export function startViewManager(
-  onViewUpdate: (properties: { [key: string]: any }) => void,
+  // The view context is handed to the callback rather than looked up from the manager: the first
+  // update is emitted while this function is still running, so the caller cannot yet hold a
+  // reference to the manager it is constructing.
+  onViewUpdate: (properties: { [key: string]: any }, view: ViewContext) => void,
   options?: Partial<ViewManagerOptions>
 ) {
   const isDocumentLoaded = options?.isDocumentLoaded ?? (() => document.readyState === 'complete')
@@ -66,10 +69,13 @@ export function startViewManager(
       addNavigationTimings(view)
     }
 
-    onViewUpdate({
-      view,
-      _dd: { document_version: currentView.documentVersion },
-    })
+    onViewUpdate(
+      {
+        view,
+        _dd: { document_version: currentView.documentVersion },
+      },
+      { id: currentView.id, url: currentView.url, referrer: currentView.referrer }
+    )
   }
 
   function endCurrentView(): void {
