@@ -214,7 +214,7 @@ function computeSessionState(configuration: RumConfiguration, rawTrackingType?: 
     // are read here, inside the only branch that draws, so a session restored from the store keeps
     // the decision it was created with: settings arriving mid-session never start or stop
     // collecting for a visitor already on the site.
-    const remote = readRemoteSampling(configuration.remoteSamplingStoreKey)
+    const remote = readRemoteSampling(configuration.remoteSampling)
 
     if (!performDraw(remote.sessionSampleRate ?? configuration.sessionSampleRate)) {
       trackingType = RumTrackingType.NOT_TRACKED

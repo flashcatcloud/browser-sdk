@@ -28,7 +28,7 @@ import {
 import type { ViewOptions } from '../domain/view/trackViews'
 import type { DurationVital, CustomVitalsState } from '../domain/vital/vitalCollection'
 import { startDurationVital, stopDurationVital } from '../domain/vital/vitalCollection'
-import { serializeRumConfiguration, startRemoteConfiguration } from '../domain/configuration'
+import { serializeRumConfiguration } from '../domain/configuration'
 import { callPluginsMethod } from '../domain/plugins'
 import { buildGlobalContextManager } from '../domain/contexts/globalContext'
 import { buildUserContextManager } from '../domain/contexts/userContext'
@@ -139,16 +139,6 @@ export function createPreStartStrategy(
     }
 
     cachedConfiguration = configuration
-
-    // FLASHCAT FORK - start polling for the sampling rates set in the console. Nothing waits on the
-    // first response: the rates already in storage, or the ones passed to init, carry this page
-    // either way, so an endpoint having a bad minute never costs a visit. Placed after the guards
-    // above so a rejected second init() does not leave a second poller running, and skipped under
-    // an event bridge, where the host application owns the sampling decision.
-    if (!eventBridgeAvailable) {
-      startRemoteConfiguration(initConfiguration)
-    }
-
     // Instrument fetch to track network requests
     // This is needed in case the consent is not granted and some customer
     // library (Apollo Client) is storing uninstrumented fetch to be used later

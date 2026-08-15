@@ -23,7 +23,8 @@ import type { RumEvent } from '../../rumEvent.types'
 import type { RumPlugin } from '../plugins'
 import { isTracingOption } from '../tracing/tracer'
 import type { PropagatorType, TracingOption } from '../tracing/tracer.types'
-import { buildRemoteSamplingStoreKey } from './remoteConfiguration'
+import type { RemoteSamplingSetup } from './remoteConfiguration'
+import { buildRemoteSamplingSetup } from './remoteConfiguration'
 
 export const DEFAULT_PROPAGATOR_TYPES: PropagatorType[] = ['tracecontext']
 
@@ -235,11 +236,11 @@ export interface RumConfiguration extends Configuration {
   profilingSampleRate: number
   propagateTraceBaggage: boolean
   /**
-   * Where the sampling rates fetched from the console are kept, or undefined when the site did not
-   * opt into remote configuration. Computed once here because the sampling draw needs it, and the
-   * draw only has the built configuration to work from.
+   * Where to fetch the console's sampling rates and where to keep them, or undefined when the site
+   * did not opt into remote configuration. Resolved once here because the sampling draw needs it,
+   * and the draw only has the built configuration to work from.
    */
-  remoteSamplingStoreKey: string | undefined
+  remoteSampling: RemoteSamplingSetup | undefined
 }
 
 export function validateAndBuildRumConfiguration(
@@ -317,7 +318,7 @@ export function validateAndBuildRumConfiguration(
     trackFeatureFlagsForEvents: initConfiguration.trackFeatureFlagsForEvents || [],
     profilingSampleRate: profilingEnabled ? (initConfiguration.profilingSampleRate ?? 0) : 0, // Enforce 0 if profiling is not enabled, and set 0 as default when not set.
     propagateTraceBaggage: !!initConfiguration.propagateTraceBaggage,
-    remoteSamplingStoreKey: buildRemoteSamplingStoreKey(initConfiguration),
+    remoteSampling: buildRemoteSamplingSetup(initConfiguration),
     ...baseConfiguration,
   }
 }

@@ -213,6 +213,7 @@ describe('rum session manager', () => {
   // FLASHCAT FORK - sampling rates set in the console.
   describe('remote sampling', () => {
     const STORE_KEY = 'test-remote-sampling'
+    const REMOTE_SAMPLING_SETUP = { url: 'https://example.com/config', storeKey: STORE_KEY, fetchTimeout: 3000 }
 
     function storeRemoteSampling(rates: { sessionSampleRate?: number; sessionReplaySampleRate?: number }) {
       localStorage.setItem(STORE_KEY, JSON.stringify(rates))
@@ -223,7 +224,7 @@ describe('rum session manager', () => {
       storeRemoteSampling({ sessionSampleRate: 100, sessionReplaySampleRate: 100 })
 
       startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 0, remoteSamplingStoreKey: STORE_KEY },
+        configuration: { sessionSampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 
@@ -234,7 +235,7 @@ describe('rum session manager', () => {
       storeRemoteSampling({ sessionReplaySampleRate: 100 })
 
       startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, remoteSamplingStoreKey: STORE_KEY },
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 
@@ -245,7 +246,7 @@ describe('rum session manager', () => {
       storeRemoteSampling({ sessionReplaySampleRate: 100 })
 
       startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 0, remoteSamplingStoreKey: STORE_KEY },
+        configuration: { sessionSampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 
@@ -257,7 +258,7 @@ describe('rum session manager', () => {
       storeRemoteSampling({ sessionSampleRate: 0, sessionReplaySampleRate: 0 })
 
       startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 100, remoteSamplingStoreKey: STORE_KEY },
+        configuration: { sessionSampleRate: 100, remoteSampling: REMOTE_SAMPLING_SETUP },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 

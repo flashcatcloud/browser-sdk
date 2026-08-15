@@ -14,7 +14,6 @@ import {
 import type { Clock } from '@flashcatcloud/browser-core/test'
 import {
   callbackAddsInstrumentation,
-  interceptRequests,
   mockClock,
   mockEventBridge,
   mockSyntheticsWorkerValues,
@@ -449,18 +448,9 @@ describe('preStartRum', () => {
     })
 
     describe('remote configuration', () => {
-      let interceptor: ReturnType<typeof interceptRequests>
-
-      beforeEach(() => {
-        interceptor = interceptRequests()
-      })
-
-      it('starts collecting without waiting for the sampling settings', () => {
-        let requestedUrl: string | undefined
-        interceptor.withMockXhr((xhr) => {
-          requestedUrl = xhr.url
-        })
-
+      it('starts collecting straight away, whatever the sampling settings do', () => {
+        // Fetching them belongs to startRum, next to the session manager. What matters here is
+        // that opting in never delays or blocks initialisation.
         const strategy = createPreStartStrategy(
           {},
           createTrackingConsentState(),
@@ -469,17 +459,11 @@ describe('preStartRum', () => {
         )
         strategy.init({ ...DEFAULT_INIT_CONFIGURATION, remoteConfiguration: true }, PUBLIC_API)
 
-        // RUM is already running by the time init() returns, before any response could arrive.
         expect(doStartRumSpy).toHaveBeenCalled()
-        expect(requestedUrl).toContain('/api/v2/rum/config?')
+        expect(doStartRumSpy.calls.mostRecent().args[0].remoteSampling).toBeDefined()
       })
 
-      it('asks for nothing when the site did not opt in', () => {
-        let requested = false
-        interceptor.withMockXhr(() => {
-          requested = true
-        })
-
+      it('resolves no remote sampling setup at all when the site did not opt in', () => {
         const strategy = createPreStartStrategy(
           {},
           createTrackingConsentState(),
@@ -488,7 +472,7 @@ describe('preStartRum', () => {
         )
         strategy.init(DEFAULT_INIT_CONFIGURATION, PUBLIC_API)
 
-        expect(requested).toBeFalse()
+        expect(doStartRumSpy.calls.mostRecent().args[0].remoteSampling).toBeUndefined()
       })
     })
 
@@ -581,10 +565,8 @@ describe('preStartRum', () => {
   describe('initConfiguration', () => {
     let strategy: Strategy
     let initConfiguration: RumInitConfiguration
-    let interceptor: ReturnType<typeof interceptRequests>
 
     beforeEach(() => {
-      interceptor = interceptRequests()
       strategy = createPreStartStrategy({}, createTrackingConsentState(), createCustomVitalsState(), doStartRumSpy)
       initConfiguration = { ...DEFAULT_INIT_CONFIGURATION, service: 'my-service', version: '1.4.2', env: 'dev' }
     })
@@ -619,30 +601,20 @@ describe('preStartRum', () => {
       expect(strategy.initConfiguration).toEqual(initConfiguration)
     })
 
-    it('keeps reporting what the site passed, not what the console sent', (done) => {
-      // Remote settings only ever move the sampling rates. Letting them rewrite the reported init
-      // configuration would mean anything in it — the client token, the site — could be changed
-      // from the far end of a request.
-      interceptor.withMockXhr((xhr) => {
-        xhr.complete(200, '{"version":1,"ttl":300,"enabled":true,"rum":{"sessionSampleRate":50}}')
-
-        expect(strategy.initConfiguration?.sessionSampleRate).toBeUndefined()
-        done()
-      })
-
+    it('reports exactly what the site passed, with nothing merged in from the console', () => {
+      // Remote settings only ever move the sampling rates, and only inside the session manager.
+      // If they were merged into the init configuration instead, anything in it — the client
+      // token, the site — could be rewritten from the far end of a request.
+      const initConfiguration = { ...DEFAULT_INIT_CONFIGURATION, remoteConfiguration: true }
       const strategy = createPreStartStrategy(
         {},
         createTrackingConsentState(),
         createCustomVitalsState(),
         doStartRumSpy
       )
-      strategy.init(
-        {
-          ...DEFAULT_INIT_CONFIGURATION,
-          remoteConfiguration: true,
-        },
-        PUBLIC_API
-      )
+      strategy.init(initConfiguration, PUBLIC_API)
+
+      expect(strategy.initConfiguration).toEqual(initConfiguration)
     })
   })
 

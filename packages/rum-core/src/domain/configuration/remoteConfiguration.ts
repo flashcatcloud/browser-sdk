@@ -2,19 +2,21 @@ import {
   addEventListener,
   clearTimeout,
   createEndpointUrlBuilder,
+  noop,
   setTimeout,
   ONE_SECOND,
 } from '@flashcatcloud/browser-core'
 import type { TimeoutId } from '@flashcatcloud/browser-core'
-import type { RumInitConfiguration } from './configuration'
+import type { RumConfiguration, RumInitConfiguration } from './configuration'
 
 /**
  * Sampling rates the application owner can change from the console, without the customer shipping a
  * new release of their site.
  *
- * The rates are only read when a session is created, so a change never disturbs a session already
- * running: a visitor is never dropped halfway through, and never starts being recorded halfway
- * through either. It applies from the next session onwards.
+ * By default a change only affects sessions created after it arrives, so a visitor is never dropped
+ * halfway through and never starts being recorded halfway through. The console can also ask for the
+ * change to land immediately, which ends the running session so a new one starts under the new
+ * rates — see `ACTIVATION_IMMEDIATE`.
  *
  * Nothing here runs unless `remoteConfiguration: true`. Left off — the default — the SDK makes no
  * extra request and behaves exactly as it did before this existed.
@@ -25,15 +27,40 @@ const STORE_KEY_PREFIX = '_fc_rc_'
 const DEFAULT_FETCH_TIMEOUT = 3 * ONE_SECOND
 const DEFAULT_TTL = 300 * ONE_SECOND
 
+/**
+ * End the running session as soon as rates that change this client arrive, so a new session starts
+ * under them. Chosen in the console, per application.
+ *
+ * Ending and restarting is deliberate: it is not the same as flipping the running session's decision
+ * in place. A session that was not being collected has no id and no history, so "flipping" it would
+ * invent a session that appears to begin mid-visit; and a collected session flipped off would simply
+ * stop, looking like it ended early. Restarting keeps every session a complete record of itself, and
+ * reuses the expiry path the SDK already has — the recorder flushes and starts again from a fresh
+ * full snapshot, exactly as it does when a session times out.
+ */
+const ACTIVATION_IMMEDIATE = 'immediate'
+
 export interface RemoteSampling {
   sessionSampleRate?: number
   sessionReplaySampleRate?: number
+}
+
+/**
+ * Everything needed to fetch and store the rates, resolved once at init. Undefined on the
+ * configuration means the site did not opt in, and is what switches every read, write and request
+ * off in one place.
+ */
+export interface RemoteSamplingSetup {
+  url: string
+  storeKey: string
+  fetchTimeout: number
 }
 
 interface RemoteConfigurationResponse {
   version: number
   ttl: number
   enabled: boolean
+  activation: string
   rum: RemoteSampling
 }
 
@@ -42,13 +69,13 @@ interface RemoteConfigurationResponse {
  * in memory is what lets a rate fetched by one page load apply to the very first session of the
  * next one, instead of every visit starting on the local settings until a request comes back.
  */
-export function readRemoteSampling(storeKey: string | undefined): RemoteSampling {
-  if (!storeKey) {
+export function readRemoteSampling(setup: RemoteSamplingSetup | undefined): RemoteSampling {
+  if (!setup) {
     return {}
   }
 
   try {
-    const stored = localStorage.getItem(storeKey)
+    const stored = localStorage.getItem(setup.storeKey)
     return stored ? (JSON.parse(stored) as RemoteSampling) : {}
   } catch {
     // Storage unavailable or holding something we did not write: fall back to the local settings.
@@ -58,22 +85,23 @@ export function readRemoteSampling(storeKey: string | undefined): RemoteSampling
 
 /**
  * Start keeping the stored rates fresh for the life of the page.
+ *
  * The first fetch is issued immediately but nothing waits for it — initialisation is never delayed
  * and collection never pauses, whatever the endpoint does. Later fetches follow the ttl the server
  * asks for, which is what keeps a long-lived single-page application from running on the rates it
  * happened to load with.
+ *
+ * `endCurrentSession` is called only when the server asked for immediate activation AND the rates
+ * this client will now draw with actually differ from the ones its running session was drawn with.
+ * Both halves matter: without the first, a routine poll would cut sessions in half; without the
+ * second, every poll would.
  */
-export function startRemoteConfiguration(initConfiguration: RumInitConfiguration) {
-  const storeKey = buildRemoteSamplingStoreKey(initConfiguration)
-  if (storeKey) {
-    keepSamplingFresh(initConfiguration, storeKey)
-  }
+export function startRemoteConfiguration(configuration: RumConfiguration, endCurrentSession: () => void) {
+  const setup = configuration.remoteSampling
+  return setup ? keepSamplingFresh(configuration, setup, endCurrentSession) : noop
 }
 
-function keepSamplingFresh(initConfiguration: RumInitConfiguration, storeKey: string) {
-  const buildUrl = createEndpointUrlBuilder(initConfiguration, 'rum', CONFIG_PATH)
-  const url = buildUrl(buildParameters(initConfiguration))
-
+function keepSamplingFresh(configuration: RumConfiguration, setup: RemoteSamplingSetup, endCurrentSession: () => void) {
   let timeoutId: TimeoutId | undefined
 
   function scheduleNext(delay: number) {
@@ -86,8 +114,14 @@ function keepSamplingFresh(initConfiguration: RumInitConfiguration, storeKey: st
     // attempt rather than leaving the page on whatever it last knew, forever.
     scheduleNext(DEFAULT_TTL)
 
-    fetchRemoteConfiguration(initConfiguration, url, (response) => {
-      store(storeKey, response)
+    fetchRemoteConfiguration(configuration, setup, (response) => {
+      const before = effectiveRates(configuration, readRemoteSampling(setup))
+      store(setup, response)
+      const after = effectiveRates(configuration, readRemoteSampling(setup))
+
+      if (response.activation === ACTIVATION_IMMEDIATE && !sameRates(before, after)) {
+        endCurrentSession()
+      }
 
       // Follow the server's ttl rather than a constant of ours, so how fast a change propagates
       // stays a server-side decision.
@@ -96,6 +130,25 @@ function keepSamplingFresh(initConfiguration: RumInitConfiguration, storeKey: st
   }
 
   fetchOnce()
+
+  return () => clearTimeout(timeoutId)
+}
+
+/**
+ * The rates this client would draw with: whatever the console sent, falling back per knob to what
+ * the site passed to init. Comparing these rather than the raw stored values is what makes "did
+ * anything change for me?" exact — a console that sends the same number the site already used has
+ * changed nothing, and must not cost anyone a session.
+ */
+function effectiveRates(configuration: RumConfiguration, remote: RemoteSampling) {
+  return {
+    session: remote.sessionSampleRate ?? configuration.sessionSampleRate,
+    replay: remote.sessionReplaySampleRate ?? configuration.sessionReplaySampleRate,
+  }
+}
+
+function sameRates(a: { session: number; replay: number }, b: { session: number; replay: number }) {
+  return a.session === b.session && a.replay === b.replay
 }
 
 /**
@@ -105,13 +158,13 @@ function keepSamplingFresh(initConfiguration: RumInitConfiguration, storeKey: st
  * they turned deliberately.
  */
 function fetchRemoteConfiguration(
-  initConfiguration: RumInitConfiguration,
-  url: string,
+  configuration: RumConfiguration,
+  setup: RemoteSamplingSetup,
   callback: (response: RemoteConfigurationResponse) => void
 ) {
   const xhr = new XMLHttpRequest()
 
-  addEventListener(initConfiguration, xhr, 'load', () => {
+  addEventListener(configuration, xhr, 'load', () => {
     if (xhr.status !== 200) {
       return
     }
@@ -122,12 +175,12 @@ function fetchRemoteConfiguration(
     }
   })
 
-  xhr.open('GET', url)
-  xhr.timeout = initConfiguration.remoteConfigurationFetchTimeout ?? DEFAULT_FETCH_TIMEOUT
+  xhr.open('GET', setup.url)
+  xhr.timeout = setup.fetchTimeout
   xhr.send()
 }
 
-function store(storeKey: string, response: RemoteConfigurationResponse) {
+function store(setup: RemoteSamplingSetup, response: RemoteConfigurationResponse) {
   const rates: RemoteSampling = {}
   if (response.enabled && response.rum) {
     // Each rate is copied only when the server actually sent it. A rate nobody configured must stay
@@ -145,12 +198,26 @@ function store(storeKey: string, response: RemoteConfigurationResponse) {
     if (rates.sessionSampleRate === undefined && rates.sessionReplaySampleRate === undefined) {
       // Remote configuration was turned off, or never turned on. Forget what we knew so the next
       // session goes back to the site's own settings.
-      localStorage.removeItem(storeKey)
+      localStorage.removeItem(setup.storeKey)
     } else {
-      localStorage.setItem(storeKey, JSON.stringify(rates))
+      localStorage.setItem(setup.storeKey, JSON.stringify(rates))
     }
   } catch {
     // Storage unavailable: the rates simply do not survive this page load.
+  }
+}
+
+export function buildRemoteSamplingSetup(initConfiguration: RumInitConfiguration): RemoteSamplingSetup | undefined {
+  if (!initConfiguration.remoteConfiguration) {
+    return undefined
+  }
+
+  const buildUrl = createEndpointUrlBuilder(initConfiguration, 'rum', CONFIG_PATH)
+
+  return {
+    url: buildUrl(buildParameters(initConfiguration)),
+    storeKey: buildStoreKey(initConfiguration),
+    fetchTimeout: initConfiguration.remoteConfigurationFetchTimeout ?? DEFAULT_FETCH_TIMEOUT,
   }
 }
 
@@ -159,14 +226,8 @@ function store(storeKey: string, response: RemoteConfigurationResponse) {
  * environment, at which version — so a visitor moving between two of them does not read the other's
  * rates. It deliberately leaves out the SDK version: including it would throw the stored rates away
  * on every SDK upgrade and put the first session after an upgrade back on the local settings.
- *
- * Undefined when the site did not opt in, which is what switches every read and write off.
  */
-export function buildRemoteSamplingStoreKey(initConfiguration: RumInitConfiguration): string | undefined {
-  if (!initConfiguration.remoteConfiguration) {
-    return undefined
-  }
-
+function buildStoreKey(initConfiguration: RumInitConfiguration) {
   const parts = [
     initConfiguration.site ?? '',
     initConfiguration.applicationId,

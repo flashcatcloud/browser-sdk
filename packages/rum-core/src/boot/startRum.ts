@@ -35,6 +35,7 @@ import { startRumEventBridge } from '../transport/startRumEventBridge'
 import { startUrlContexts } from '../domain/contexts/urlContexts'
 import { createLocationChangeObservable } from '../browser/locationChangeObservable'
 import type { RumConfiguration } from '../domain/configuration'
+import { startRemoteConfiguration } from '../domain/configuration'
 import type { ViewOptions } from '../domain/view/trackViews'
 import { startFeatureFlagContexts } from '../domain/contexts/featureFlagContext'
 import { startCustomerDataTelemetry } from '../domain/startCustomerDataTelemetry'
@@ -125,6 +126,13 @@ export function startRum(
   }
 
   if (!canUseEventBridge()) {
+    // FLASHCAT FORK - keep the console's sampling rates fresh. It lives here, next to the session
+    // manager, because immediate activation has to be able to end the running session; and it is
+    // skipped under an event bridge, where the host application owns the sampling decision.
+    // Nothing waits on the first response: the rates already in storage, or the ones passed to
+    // init, carry this page either way, so an endpoint having a bad minute never costs a visit.
+    cleanupTasks.push(startRemoteConfiguration(configuration, session.expire))
+
     const batch = startRumBatch(
       configuration,
       lifeCycle,
