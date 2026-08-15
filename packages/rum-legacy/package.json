@@ -6,7 +6,8 @@
   "description": "RUM Browser SDK build for browsers without ES2015 support. Distributed through the CDN only.",
   "scripts": {
     "build": "yarn build:bundle",
-    "build:bundle": "rm -rf bundle && SDK_SETUP=cdn webpack --mode=production",
+    "build:bundle": "rm -rf bundle && yarn typecheck && SDK_SETUP=cdn webpack --mode=production && yarn check:es5",
+    "check:es5": "node ../../scripts/check-es5-compatibility.js",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {

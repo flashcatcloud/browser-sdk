@@ -38,6 +38,9 @@ jobs:
       - name: Build bundle
         run: yarn build:bundle
 
+      - name: Verify ES5 compatibility of the legacy bundle
+        run: yarn test:compat:es5
+
       - name: Deploy to staging
         run: node ./scripts/deploy/deploy-oss.js staging v${VERSION}
         env:

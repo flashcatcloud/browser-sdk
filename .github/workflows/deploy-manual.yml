@@ -38,6 +38,9 @@ jobs:
       - name: Build bundle
         run: yarn build:bundle
 
+      - name: Verify ES5 compatibility of the legacy bundle
+        run: yarn test:compat:es5
+
       - name: Deploy to prod
         run: node ./scripts/deploy/deploy-oss.js prod v${VERSION}
         env:
@@ -67,7 +70,7 @@ jobs:
         run: node ./scripts/deploy/publish-npm.js
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        
+
   notify-success:
     needs: publish-npm
     runs-on: ubuntu-latest
