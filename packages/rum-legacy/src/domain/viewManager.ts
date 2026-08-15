@@ -1,0 +1,178 @@
+import { dateNow } from '../tools/timeUtils'
+import { getZoneJsOriginalValue } from '../tools/zoneJs'
+import { generateUUID } from '../transport/intakeUrl'
+import type { ViewContext } from './eventAssembly'
+
+const INITIAL_LOAD = 'initial_load'
+const ROUTE_CHANGE = 'route_change'
+
+export interface ViewManagerOptions {
+  isDocumentLoaded: () => boolean
+}
+
+interface CurrentView extends ViewContext {
+  name?: string
+  loadingType: string
+  startTime: number
+  errorCount: number
+  actionCount: number
+  documentVersion: number
+}
+
+export function startViewManager(
+  onViewUpdate: (properties: { [key: string]: any }) => void,
+  options?: Partial<ViewManagerOptions>
+) {
+  const isDocumentLoaded = options?.isDocumentLoaded ?? (() => document.readyState === 'complete')
+
+  let currentView = createView(INITIAL_LOAD)
+  let stopped = false
+
+  function createView(loadingType: string, name?: string): CurrentView {
+    return {
+      id: generateUUID(),
+      url: location.href,
+      referrer: document.referrer,
+      name,
+      loadingType,
+      startTime: dateNow(),
+      errorCount: 0,
+      actionCount: 0,
+      documentVersion: 0,
+    }
+  }
+
+  function emit(isActive: boolean): void {
+    currentView.documentVersion++
+
+    const view: { [key: string]: any } = {
+      loading_type: currentView.loadingType,
+      time_spent: toServerDuration(dateNow() - currentView.startTime),
+      is_active: isActive,
+      // These counts are always zero on these browsers, but they are part of the event format.
+      // Leaving them out would read downstream as missing data rather than as a real zero.
+      error: { count: currentView.errorCount },
+      action: { count: currentView.actionCount },
+      resource: { count: 0 },
+      long_task: { count: 0 },
+      frustration: { count: 0 },
+    }
+
+    if (currentView.name) {
+      view.name = currentView.name
+    }
+
+    if (currentView.loadingType === INITIAL_LOAD) {
+      addNavigationTimings(view)
+    }
+
+    onViewUpdate({
+      view,
+      _dd: { document_version: currentView.documentVersion },
+    })
+  }
+
+  function endCurrentView(): void {
+    emit(false)
+  }
+
+  function startNewView(loadingType: string, name?: string): void {
+    endCurrentView()
+    currentView = createView(loadingType, name)
+    emit(true)
+  }
+
+  function onHashChange(): void {
+    if (!stopped) {
+      // The only route change these browsers can report: there is no History API to hook into.
+      startNewView(ROUTE_CHANGE)
+    }
+  }
+
+  function onLoad(): void {
+    if (!stopped) {
+      // Re-emit once the load event has landed so the page load timings are complete.
+      emit(true)
+    }
+  }
+
+  const addEventListener = getZoneJsOriginalValue(window, 'addEventListener')
+  addEventListener.call(window, 'hashchange', onHashChange)
+  if (!isDocumentLoaded()) {
+    addEventListener.call(window, 'load', onLoad)
+  }
+
+  emit(true)
+
+  return {
+    getCurrentView(): ViewContext {
+      return { id: currentView.id, url: currentView.url, referrer: currentView.referrer }
+    },
+
+    startView(name?: string): void {
+      if (!stopped) {
+        startNewView(ROUTE_CHANGE, name)
+      }
+    },
+
+    addErrorCount(): void {
+      currentView.errorCount++
+    },
+
+    addActionCount(): void {
+      currentView.actionCount++
+    },
+
+    flush(): void {
+      if (!stopped) {
+        emit(true)
+      }
+    },
+
+    stop(): void {
+      if (stopped) {
+        return
+      }
+      endCurrentView()
+      stopped = true
+      const removeEventListener = getZoneJsOriginalValue(window, 'removeEventListener')
+      removeEventListener.call(window, 'hashchange', onHashChange)
+      removeEventListener.call(window, 'load', onLoad)
+    },
+  }
+}
+
+/*
+ * performance.timing holds absolute epoch timestamps. The event format wants durations relative to
+ * the navigation start, expressed in nanoseconds.
+ *
+ * A zero means the browser has not reached that milestone, not that it took no time, so those are
+ * left out rather than reported as 0.
+ */
+function addNavigationTimings(view: { [key: string]: any }): void {
+  const timing = performance && performance.timing
+  if (!timing || !timing.navigationStart) {
+    return
+  }
+
+  const navigationStart = timing.navigationStart
+  const timings: Array<[string, number]> = [
+    ['first_byte', timing.responseStart],
+    ['dom_interactive', timing.domInteractive],
+    ['dom_content_loaded', timing.domContentLoadedEventEnd],
+    ['dom_complete', timing.domComplete],
+    ['load_event', timing.loadEventEnd],
+  ]
+
+  for (let i = 0; i < timings.length; i++) {
+    const name = timings[i][0]
+    const timestamp = timings[i][1]
+    if (timestamp > 0 && timestamp >= navigationStart) {
+      view[name] = toServerDuration(timestamp - navigationStart)
+    }
+  }
+}
+
+function toServerDuration(durationInMilliseconds: number): number {
+  return Math.round(durationInMilliseconds * 1e6)
+}
