@@ -20,8 +20,48 @@ const EXPECTED_ES5 = ['packages/rum-legacy/bundle/fc-rum-legacy.js']
 
 const EXPECTED_NOT_ES5 = ['packages/rum/bundle/flashcat-rum.js', 'packages/rum-slim/bundle/flashcat-rum-slim.js']
 
+/**
+ * Runtime APIs the target browsers do not provide. Parsing as ES5 says nothing about these: a
+ * bundle full of `Promise` and `fetch` parses perfectly well and then fails on the first line that
+ * runs.
+ *
+ * The degraded environment specs cover the same ground from the other side, but only for the code
+ * paths they exercise. This covers the whole emitted bundle.
+ *
+ * Terser mangles local names to short identifiers, so a match on any of these is a reference to the
+ * real global rather than a coincidence.
+ */
+const FORBIDDEN_GLOBALS = [
+  'Promise',
+  'fetch',
+  'sendBeacon',
+  'MutationObserver',
+  'PerformanceObserver',
+  'TextEncoder',
+  'WeakMap',
+  'WeakSet',
+  'Symbol',
+  'Map',
+  'Set',
+  'requestIdleCallback',
+]
+
+const FORBIDDEN_MEMBERS = ['Object.assign', 'Array.from', 'Object.entries', 'Object.values']
+
 runMain(() => {
   const failures = []
+
+  for (const relativePath of EXPECTED_ES5) {
+    const found = findForbiddenApis(relativePath)
+    if (found === undefined) {
+      continue
+    }
+    if (found.length > 0) {
+      failures.push(`${relativePath}: references APIs missing from the target browsers: ${found.join(', ')}`)
+    } else {
+      printLog(`✅ ${relativePath} references no API the target browsers lack`)
+    }
+  }
 
   for (const relativePath of EXPECTED_ES5) {
     const result = parseAsEs5(relativePath)
@@ -72,4 +112,28 @@ function parseAsEs5(relativePath) {
 
 function formatError(error) {
   return typeof error.loc?.line === 'number' ? `line ${error.loc.line}: ${error.message}` : error.message
+}
+
+function findForbiddenApis(relativePath) {
+  const absolutePath = path.join(ROOT_DIR, relativePath)
+  if (!fs.existsSync(absolutePath)) {
+    return undefined
+  }
+
+  const content = fs.readFileSync(absolutePath, 'utf-8')
+  const found = []
+
+  for (const global of FORBIDDEN_GLOBALS) {
+    if (new RegExp(`\\b${global}\\b`).test(content)) {
+      found.push(global)
+    }
+  }
+
+  for (const member of FORBIDDEN_MEMBERS) {
+    if (content.includes(member)) {
+      found.push(member)
+    }
+  }
+
+  return found
 }
