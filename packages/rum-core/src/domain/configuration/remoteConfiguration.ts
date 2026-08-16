@@ -44,6 +44,13 @@ const ACTIVATION_IMMEDIATE = 'immediate'
 export interface RemoteSampling {
   sessionSampleRate?: number
   sessionReplaySampleRate?: number
+  /**
+   * Which version of the settings these rates came from. Reported back on the next request so the
+   * console can say how far a change has actually reached — a question the events cannot answer,
+   * because a session that was not kept sends none, and the miss rate is set by the very rate being
+   * changed.
+   */
+  version?: number
 }
 
 /**
@@ -127,7 +134,7 @@ function keepSamplingFresh(
     lastFetchTime = timeStampNow()
     scheduleNext(DEFAULT_TTL)
 
-    fetchRemoteConfiguration(configuration, setup, (response) => {
+    fetchRemoteConfiguration(configuration, setup, readRemoteSampling(setup).version, (response) => {
       const before = effectiveRates(configuration, readRemoteSampling(setup))
       store(setup, response)
       const after = effectiveRates(configuration, readRemoteSampling(setup))
@@ -189,6 +196,7 @@ function sameRates(a: { session: number; replay: number }, b: { session: number;
 function fetchRemoteConfiguration(
   configuration: RumConfiguration,
   setup: RemoteSamplingSetup,
+  appliedVersion: number | undefined,
   callback: (response: RemoteConfigurationResponse) => void
 ) {
   const xhr = new XMLHttpRequest()
@@ -204,13 +212,15 @@ function fetchRemoteConfiguration(
     }
   })
 
-  xhr.open('GET', setup.url)
+  // Telling the server which version this client is running is what lets the console answer "has
+  // my change reached everyone yet". It is sent on the request every client makes, kept or not.
+  xhr.open('GET', appliedVersion ? `${setup.url}&applied_version=${appliedVersion}` : setup.url)
   xhr.timeout = setup.fetchTimeout
   xhr.send()
 }
 
 function store(setup: RemoteSamplingSetup, response: RemoteConfigurationResponse) {
-  const rates: RemoteSampling = {}
+  const rates: RemoteSampling = { version: response.version }
   if (response.enabled && response.rum) {
     // Each rate is copied only when the server actually sent it. A rate nobody configured must stay
     // with whatever the site passed to init: writing a 0 in its place would silently switch off
@@ -224,13 +234,10 @@ function store(setup: RemoteSamplingSetup, response: RemoteConfigurationResponse
   }
 
   try {
-    if (rates.sessionSampleRate === undefined && rates.sessionReplaySampleRate === undefined) {
-      // Remote configuration was turned off, or never turned on. Forget what we knew so the next
-      // session goes back to the site's own settings.
-      localStorage.removeItem(setup.storeKey)
-    } else {
-      localStorage.setItem(setup.storeKey, JSON.stringify(rates))
-    }
+    // Written even with no rates in it — that is what "remote configuration is off, use your own
+    // settings" looks like — so that the version is kept either way and the console can still see
+    // that this client is up to date with the change that turned it off.
+    localStorage.setItem(setup.storeKey, JSON.stringify(rates))
   } catch {
     // Storage unavailable: the rates simply do not survive this page load.
   }

@@ -62,7 +62,7 @@ describe('remoteConfiguration', () => {
       interceptor.withMockXhr((xhr) => {
         xhr.complete(200, body({ rum: { sessionSampleRate: 42, sessionReplaySampleRate: 7 } }))
 
-        expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 42, sessionReplaySampleRate: 7 })
+        expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 42, sessionReplaySampleRate: 7, version: 3 })
         done()
       })
       start(configurationWith(), noop)
@@ -72,7 +72,7 @@ describe('remoteConfiguration', () => {
       interceptor.withMockXhr((xhr) => {
         xhr.complete(200, body({ rum: { sessionSampleRate: 0 } }))
 
-        expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 0 })
+        expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 0, version: 3 })
         done()
       })
       start(configurationWith(), noop)
@@ -94,7 +94,9 @@ describe('remoteConfiguration', () => {
       interceptor.withMockXhr((xhr) => {
         xhr.complete(200, body({ enabled: false }))
 
-        expect(readRemoteSampling(setup)).toEqual({})
+        // The rates are gone, but the version is kept: the console still needs to see that this
+        // client is up to date with the change that turned them off.
+        expect(readRemoteSampling(setup)).toEqual({ version: 3 })
         done()
       })
       start(configurationWith(), noop)
@@ -286,6 +288,28 @@ describe('remoteConfiguration', () => {
         }),
         noop
       )
+    })
+  })
+
+  describe('telling the server what it is running', () => {
+    it('sends nothing the first time, when it is running nothing yet', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        expect(xhr.url).not.toContain('applied_version')
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('sends the stored version once it has one', (done) => {
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 42, version: 17 }))
+
+      interceptor.withMockXhr((xhr) => {
+        // Sent on the request every client makes, kept or not, which is why it can answer "has my
+        // change reached everyone" when the events cannot.
+        expect(xhr.url).toContain('applied_version=17')
+        done()
+      })
+      start(configurationWith())
     })
   })
 
