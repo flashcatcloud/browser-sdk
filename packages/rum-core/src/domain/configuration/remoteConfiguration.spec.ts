@@ -1,5 +1,5 @@
-import { INTAKE_SITE_US1, noop } from '@flashcatcloud/browser-core'
-import { interceptRequests, registerCleanupTask } from '@flashcatcloud/browser-core/test'
+import { INTAKE_SITE_US1, noop, Observable, ONE_SECOND } from '@flashcatcloud/browser-core'
+import { interceptRequests, mockClock, registerCleanupTask } from '@flashcatcloud/browser-core/test'
 import { mockRumConfiguration } from '../../../test'
 import type { RumConfiguration, RumInitConfiguration } from './configuration'
 import { buildRemoteSamplingSetup, readRemoteSampling, startRemoteConfiguration } from './remoteConfiguration'
@@ -22,19 +22,25 @@ function configurationWith(partial: Partial<RumConfiguration> = {}) {
   })
 }
 
-function body({ activation = 'next_session', rum = {} as Record<string, number>, enabled = true } = {}) {
-  return JSON.stringify({ version: 3, ttl: 300, enabled, activation, rum })
+function body({ activation = 'next_session', rum = {} as Record<string, number>, enabled = true, ttl = 300 } = {}) {
+  return JSON.stringify({ version: 3, ttl, enabled, activation, rum })
 }
 
 describe('remoteConfiguration', () => {
   let interceptor: ReturnType<typeof interceptRequests>
   let setup: ReturnType<typeof buildRemoteSamplingSetup>
+  let pageActivationObservable: Observable<void>
 
   beforeEach(() => {
     interceptor = interceptRequests()
     setup = buildRemoteSamplingSetup(INIT_CONFIGURATION)
+    pageActivationObservable = new Observable<void>()
     registerCleanupTask(() => localStorage.removeItem(setup!.storeKey))
   })
+
+  function start(configuration: RumConfiguration, endCurrentSession: () => void = noop) {
+    return startRemoteConfiguration(configuration, endCurrentSession, pageActivationObservable)
+  }
 
   describe('opting in', () => {
     it('does nothing at all when the site did not opt in', () => {
@@ -43,7 +49,7 @@ describe('remoteConfiguration', () => {
         requested = true
       })
 
-      startRemoteConfiguration(mockRumConfiguration({ remoteSampling: undefined }), noop)
+      start(mockRumConfiguration({ remoteSampling: undefined }), noop)
 
       expect(requested).toBeFalse()
       expect(buildRemoteSamplingSetup({ ...INIT_CONFIGURATION, remoteConfiguration: false })).toBeUndefined()
@@ -59,7 +65,7 @@ describe('remoteConfiguration', () => {
         expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 42, sessionReplaySampleRate: 7 })
         done()
       })
-      startRemoteConfiguration(configurationWith(), noop)
+      start(configurationWith(), noop)
     })
 
     it('keeps a zero rate, which is a deliberate setting and not a missing one', (done) => {
@@ -69,7 +75,7 @@ describe('remoteConfiguration', () => {
         expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 0 })
         done()
       })
-      startRemoteConfiguration(configurationWith(), noop)
+      start(configurationWith(), noop)
     })
 
     it('leaves out a rate the server did not report, so it stays with the value passed to init', (done) => {
@@ -79,7 +85,7 @@ describe('remoteConfiguration', () => {
         expect(readRemoteSampling(setup).sessionReplaySampleRate).toBeUndefined()
         done()
       })
-      startRemoteConfiguration(configurationWith(), noop)
+      start(configurationWith(), noop)
     })
 
     it('forgets the rates once remote configuration is switched off', (done) => {
@@ -91,7 +97,7 @@ describe('remoteConfiguration', () => {
         expect(readRemoteSampling(setup)).toEqual({})
         done()
       })
-      startRemoteConfiguration(configurationWith(), noop)
+      start(configurationWith(), noop)
     })
   })
 
@@ -105,7 +111,7 @@ describe('remoteConfiguration', () => {
         expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 42 })
         done()
       })
-      startRemoteConfiguration(configurationWith(), noop)
+      start(configurationWith(), noop)
     })
 
     it('leaves the rates alone when the body makes no sense', (done) => {
@@ -117,7 +123,7 @@ describe('remoteConfiguration', () => {
         expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 42 })
         done()
       })
-      startRemoteConfiguration(configurationWith(), noop)
+      start(configurationWith(), noop)
     })
   })
 
@@ -130,7 +136,7 @@ describe('remoteConfiguration', () => {
         expect(ended).toBeFalse()
         done()
       })
-      startRemoteConfiguration(configurationWith(), () => {
+      start(configurationWith(), () => {
         ended = true
       })
     })
@@ -143,7 +149,7 @@ describe('remoteConfiguration', () => {
         expect(ended).toBeTrue()
         done()
       })
-      startRemoteConfiguration(configurationWith(), () => {
+      start(configurationWith(), () => {
         ended = true
       })
     })
@@ -161,7 +167,7 @@ describe('remoteConfiguration', () => {
         expect(ended).toBeFalse()
         done()
       })
-      startRemoteConfiguration(configurationWith(), () => {
+      start(configurationWith(), () => {
         ended = true
       })
     })
@@ -177,7 +183,7 @@ describe('remoteConfiguration', () => {
         expect(ended).toBeTrue()
         done()
       })
-      startRemoteConfiguration(configurationWith(), () => {
+      start(configurationWith(), () => {
         ended = true
       })
     })
@@ -194,7 +200,7 @@ describe('remoteConfiguration', () => {
         expect(ended).toBeTrue()
         done()
       })
-      startRemoteConfiguration(configurationWith(), () => {
+      start(configurationWith(), () => {
         ended = true
       })
     })
@@ -207,9 +213,48 @@ describe('remoteConfiguration', () => {
         expect(ended).toBeFalse()
         done()
       })
-      startRemoteConfiguration(configurationWith(), () => {
+      start(configurationWith(), () => {
         ended = true
       })
+    })
+  })
+
+  describe('coming back to the page', () => {
+    it('asks again when the page is reactivated after the settings went stale', () => {
+      const clock = mockClock()
+      let requests = 0
+      interceptor.withMockXhr((xhr) => {
+        requests++
+        xhr.complete(200, body({ ttl: 60 }))
+      })
+
+      start(configurationWith())
+      expect(requests).toBe(1)
+
+      clock.tick(61 * ONE_SECOND)
+      pageActivationObservable.notify()
+
+      // A hidden tab has its timers throttled and a page restored from the back-forward cache may
+      // not have run one at all, so coming back is its own reason to ask.
+      expect(requests).toBe(2)
+      clock.cleanup()
+    })
+
+    it('does not ask again when the settings are still fresh', () => {
+      const clock = mockClock()
+      let requests = 0
+      interceptor.withMockXhr((xhr) => {
+        requests++
+        xhr.complete(200, body({ ttl: 300 }))
+      })
+
+      start(configurationWith())
+      clock.tick(10 * ONE_SECOND)
+      pageActivationObservable.notify()
+
+      // Switching tabs back and forth must not turn into a request each time.
+      expect(requests).toBe(1)
+      clock.cleanup()
     })
   })
 
@@ -223,7 +268,7 @@ describe('remoteConfiguration', () => {
         expect(xhr.url).toContain('app_version=1.2.3')
         done()
       })
-      startRemoteConfiguration(configurationWith(), noop)
+      start(configurationWith(), noop)
     })
 
     it('goes through the customer proxy when there is one, like every other request', (done) => {
@@ -232,7 +277,7 @@ describe('remoteConfiguration', () => {
         expect(decodeURIComponent(xhr.url!)).toContain('/api/v2/rum/config?')
         done()
       })
-      startRemoteConfiguration(
+      start(
         configurationWith({
           remoteSampling: buildRemoteSamplingSetup({
             ...INIT_CONFIGURATION,

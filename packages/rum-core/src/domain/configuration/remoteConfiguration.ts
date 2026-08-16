@@ -4,9 +4,10 @@ import {
   createEndpointUrlBuilder,
   noop,
   setTimeout,
+  timeStampNow,
   ONE_SECOND,
 } from '@flashcatcloud/browser-core'
-import type { TimeoutId } from '@flashcatcloud/browser-core'
+import type { Observable, TimeoutId } from '@flashcatcloud/browser-core'
 import type { RumConfiguration, RumInitConfiguration } from './configuration'
 
 /**
@@ -96,13 +97,24 @@ export function readRemoteSampling(setup: RemoteSamplingSetup | undefined): Remo
  * Both halves matter: without the first, a routine poll would cut sessions in half; without the
  * second, every poll would.
  */
-export function startRemoteConfiguration(configuration: RumConfiguration, endCurrentSession: () => void) {
+export function startRemoteConfiguration(
+  configuration: RumConfiguration,
+  endCurrentSession: () => void,
+  pageActivationObservable: Observable<void>
+) {
   const setup = configuration.remoteSampling
-  return setup ? keepSamplingFresh(configuration, setup, endCurrentSession) : noop
+  return setup ? keepSamplingFresh(configuration, setup, endCurrentSession, pageActivationObservable) : noop
 }
 
-function keepSamplingFresh(configuration: RumConfiguration, setup: RemoteSamplingSetup, endCurrentSession: () => void) {
+function keepSamplingFresh(
+  configuration: RumConfiguration,
+  setup: RemoteSamplingSetup,
+  endCurrentSession: () => void,
+  pageActivationObservable: Observable<void>
+) {
   let timeoutId: TimeoutId | undefined
+  let lastFetchTime = 0
+  let currentTtl = DEFAULT_TTL
 
   function scheduleNext(delay: number) {
     clearTimeout(timeoutId)
@@ -112,6 +124,7 @@ function keepSamplingFresh(configuration: RumConfiguration, setup: RemoteSamplin
   function fetchOnce() {
     // Armed before the request goes out, so a request that never comes back still leads to another
     // attempt rather than leaving the page on whatever it last knew, forever.
+    lastFetchTime = timeStampNow()
     scheduleNext(DEFAULT_TTL)
 
     fetchRemoteConfiguration(configuration, setup, (response) => {
@@ -125,13 +138,29 @@ function keepSamplingFresh(configuration: RumConfiguration, setup: RemoteSamplin
 
       // Follow the server's ttl rather than a constant of ours, so how fast a change propagates
       // stays a server-side decision.
-      scheduleNext(response.ttl > 0 ? response.ttl * ONE_SECOND : DEFAULT_TTL)
+      currentTtl = response.ttl > 0 ? response.ttl * ONE_SECOND : DEFAULT_TTL
+      scheduleNext(currentTtl)
     })
   }
 
+  // A page the visitor left and came back to has usually missed its refresh: browsers throttle
+  // timers hard in hidden tabs, and a page restored from the back-forward cache may not have run
+  // one for hours. Asking again on the way back is what stops someone returning to a tab and
+  // carrying on under settings that were changed while they were away — and it costs the site no
+  // code of its own, which is the point: needing the customer to call a refresh method means the
+  // ones who never read that far never get fresh settings.
+  const activationSubscription = pageActivationObservable.subscribe(() => {
+    if (timeStampNow() - lastFetchTime >= currentTtl) {
+      fetchOnce()
+    }
+  })
+
   fetchOnce()
 
-  return () => clearTimeout(timeoutId)
+  return () => {
+    activationSubscription.unsubscribe()
+    clearTimeout(timeoutId)
+  }
 }
 
 /**

@@ -131,7 +131,7 @@ export function startRum(
     // skipped under an event bridge, where the host application owns the sampling decision.
     // Nothing waits on the first response: the rates already in storage, or the ones passed to
     // init, carry this page either way, so an endpoint having a bad minute never costs a visit.
-    cleanupTasks.push(startRemoteConfiguration(configuration, session.expire))
+    cleanupTasks.push(startRemoteConfiguration(configuration, session.expire, pageActivationObservable))
 
     const batch = startRumBatch(
       configuration,
