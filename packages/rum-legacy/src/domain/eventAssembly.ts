@@ -1,3 +1,4 @@
+import { isEmptyObject, shallowMerge } from '../tools/objectUtils'
 import { dateNow } from '../tools/timeUtils'
 
 export interface AssemblyConfiguration {
@@ -80,30 +81,6 @@ export function assembleEvent(options: AssembleOptions): object {
   return event
 }
 
-function shallowMerge(base: { [key: string]: any }, extra: { [key: string]: any }): { [key: string]: any } {
-  const result: { [key: string]: any } = {}
-  for (const key in base) {
-    if (Object.prototype.hasOwnProperty.call(base, key)) {
-      result[key] = base[key]
-    }
-  }
-  for (const key in extra) {
-    if (Object.prototype.hasOwnProperty.call(extra, key)) {
-      result[key] = extra[key]
-    }
-  }
-  return result
-}
-
 function isPlainObject(value: unknown): value is { [key: string]: any } {
   return typeof value === 'object' && value !== null && !(value instanceof Array)
-}
-
-function isEmptyObject(value: { [key: string]: any }): boolean {
-  for (const key in value) {
-    if (Object.prototype.hasOwnProperty.call(value, key)) {
-      return false
-    }
-  }
-  return true
 }

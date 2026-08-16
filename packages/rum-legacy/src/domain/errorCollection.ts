@@ -70,13 +70,7 @@ function computeError(message: Event | string, url?: string, line?: number, erro
   }
 
   if (error) {
-    collected.message = error.message || collected.message
-    if (error.name) {
-      collected.type = error.name
-    }
-    if (error.stack) {
-      collected.stack = error.stack
-    }
+    fillFromError(collected, error)
     return collected
   }
 
@@ -98,16 +92,21 @@ function computeManualError(value: unknown): CollectedError {
   }
 
   if (value instanceof Error) {
-    collected.message = value.message
-    if (value.name) {
-      collected.type = value.name
-    }
-    if (value.stack) {
-      collected.stack = value.stack
-    }
+    fillFromError(collected, value)
   } else {
     collected.message = String(value)
   }
 
   return collected
+}
+
+/** Everything an Error instance can contribute. Anonymous errors keep the message already set. */
+function fillFromError(collected: CollectedError, error: Error): void {
+  collected.message = error.message || collected.message
+  if (error.name) {
+    collected.type = error.name
+  }
+  if (error.stack) {
+    collected.stack = error.stack
+  }
 }
