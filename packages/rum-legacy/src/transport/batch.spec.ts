@@ -121,62 +121,47 @@ describe('batch', () => {
     batch.stop()
   })
 
-  /**
-   * The page exit events are captured rather than dispatched. The test runner installs its own
-   * beforeunload/unload handlers to detect navigation, so firing real ones on window makes it
-   * believe the page reloaded and abandons the run.
-   */
-  function captureExitHandlers() {
-    const handlers: { [eventName: string]: Array<() => void> } = {}
-    spyOn(window, 'addEventListener').and.callFake((eventName: string, handler: any) => {
-      handlers[eventName] = handlers[eventName] || []
-      handlers[eventName].push(handler)
-    })
-    return handlers
-  }
-
-  it('uses the exit transport when the page is unloading', () => {
-    const handlers = captureExitHandlers()
+  it('uses the exit transport when asked to flush on exit', () => {
     const batch = startBatch(request)
 
     batch.add({ type: 'view' })
-    handlers.beforeunload[0]()
+    batch.flushOnExit()
 
     expect(request.exitPayloads).toEqual(['{"type":"view"}'])
     expect(request.sentPayloads).toEqual([])
     batch.stop()
   })
 
-  it('listens to both page exit events available before IE10', () => {
-    const handlers = captureExitHandlers()
+  it('does not register its own page exit listener', () => {
+    // Page exit is owned by the caller, which has to close the current view before the buffer is
+    // sent. A listener here would run first and flush an empty buffer.
+    const addEventListenerSpy = spyOn(window, 'addEventListener').and.callThrough()
 
     const batch = startBatch(request)
 
-    expect(handlers.beforeunload).toBeDefined()
-    expect(handlers.unload).toBeDefined()
+    const registered = addEventListenerSpy.calls.allArgs().map(([eventName]) => eventName)
+    expect(registered).not.toContain('beforeunload')
+    expect(registered).not.toContain('unload')
     batch.stop()
   })
 
-  it('does not send the same events twice when both exit events fire', () => {
-    const handlers = captureExitHandlers()
+  it('sends nothing on exit when the buffer is empty', () => {
     const batch = startBatch(request)
 
-    batch.add({ type: 'view' })
-    handlers.beforeunload[0]()
-    handlers.unload[0]()
+    batch.flushOnExit()
 
-    expect(request.exitPayloads).toEqual(['{"type":"view"}'])
+    expect(request.exitPayloads).toEqual([])
     batch.stop()
   })
 
-  it('stops listening and stops flushing once stopped', () => {
-    const handlers = captureExitHandlers()
+  it('stops buffering and stops flushing once stopped', () => {
     const batch = startBatch(request)
     batch.stop()
 
     batch.add({ type: 'view' })
     jasmine.clock().tick(FLUSH_TIMEOUT * 2)
-    handlers.beforeunload[0]()
+    batch.flush()
+    batch.flushOnExit()
 
     expect(request.sentPayloads).toEqual([])
     expect(request.exitPayloads).toEqual([])

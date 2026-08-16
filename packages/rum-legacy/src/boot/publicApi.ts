@@ -4,6 +4,8 @@ import { startErrorCollection } from '../domain/errorCollection'
 import { createSessionStore } from '../domain/sessionStore'
 import { startViewManager } from '../domain/viewManager'
 import { displayError, displayWarn } from '../tools/display'
+import { isEmptyObject, shallowMerge } from '../tools/objectUtils'
+import { getZoneJsOriginalValue } from '../tools/zoneJs'
 import { startBatch } from '../transport/batch'
 import { createHttpRequest } from '../transport/httpRequest'
 import { createIntakeUrlBuilder, generateUUID } from '../transport/intakeUrl'
@@ -82,7 +84,7 @@ export function makeRumLegacyPublicApi() {
         sessionId: session.id,
         view,
         properties: withIdentityContexts(properties),
-        context: mergeContext(globalContext, context),
+        context: context && !isEmptyObject(context) ? shallowMerge(globalContext, context) : globalContext,
       })
       batch.add(event)
     }
@@ -98,12 +100,39 @@ export function makeRumLegacyPublicApi() {
       sendEvent('error', { error }, viewManager.getCurrentView(), context)
     })
 
+    /*
+     * Page exit is owned here rather than by the batch, because the order matters: the closing view
+     * update carries the time spent and the error and action counts, and it has to be in the buffer
+     * before the buffer is sent. A listener inside startBatch would always run first and flush an
+     * empty buffer.
+     *
+     * beforeunload and unload are the only signals available before IE10. The exit runs once: the
+     * synchronous request it makes blocks the browser, and doing that twice while a page is closing
+     * is worse than missing a second closing update on the rare cancelled navigation.
+     */
+    let exited = false
+    function onPageExit(): void {
+      if (exited) {
+        return
+      }
+      exited = true
+      viewManager.endView()
+      batch.flushOnExit()
+    }
+
+    const addEventListener = getZoneJsOriginalValue(window, 'addEventListener')
+    addEventListener.call(window, 'beforeunload', onPageExit)
+    addEventListener.call(window, 'unload', onPageExit)
+
     return {
       stop() {
         viewManager.stop()
         errorCollection.stop()
         batch.flush()
         batch.stop()
+        const removeEventListener = getZoneJsOriginalValue(window, 'removeEventListener')
+        removeEventListener.call(window, 'beforeunload', onPageExit)
+        removeEventListener.call(window, 'unload', onPageExit)
       },
       addError(value: unknown, context?: Context) {
         errorCollection.addError(value, context)
@@ -130,21 +159,16 @@ export function makeRumLegacyPublicApi() {
   }
 
   function withIdentityContexts(properties: Context): Context {
-    const result: Context = {}
-    for (const key in properties) {
-      if (Object.prototype.hasOwnProperty.call(properties, key)) {
-        result[key] = properties[key]
-      }
-    }
-    if (!isEmpty(userContext)) {
-      result.usr = userContext
+    const identity: Context = {}
+    if (!isEmptyObject(userContext)) {
+      identity.usr = userContext
     }
     // The schema requires an id on account, so an account without one is left out rather than
     // making every event invalid.
-    if (!isEmpty(accountContext) && accountContext.id !== undefined) {
-      result.account = accountContext
+    if (!isEmptyObject(accountContext) && accountContext.id !== undefined) {
+      identity.account = accountContext
     }
-    return result
+    return shallowMerge(properties, identity)
   }
 
   const api = {
@@ -300,33 +324,6 @@ function validate(configuration: LegacyInitConfiguration | undefined): boolean {
   ) {
     displayError('Session Sample Rate should be a number between 0 and 100')
     return false
-  }
-  return true
-}
-
-function mergeContext(base: Context, extra?: Context): Context {
-  if (!extra || isEmpty(extra)) {
-    return base
-  }
-  const result: Context = {}
-  for (const key in base) {
-    if (Object.prototype.hasOwnProperty.call(base, key)) {
-      result[key] = base[key]
-    }
-  }
-  for (const key in extra) {
-    if (Object.prototype.hasOwnProperty.call(extra, key)) {
-      result[key] = extra[key]
-    }
-  }
-  return result
-}
-
-function isEmpty(value: Context): boolean {
-  for (const key in value) {
-    if (Object.prototype.hasOwnProperty.call(value, key)) {
-      return false
-    }
   }
   return true
 }

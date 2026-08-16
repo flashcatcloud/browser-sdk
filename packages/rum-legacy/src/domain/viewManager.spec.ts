@@ -55,7 +55,7 @@ describe('view manager', () => {
     manager.addErrorCount()
     manager.addErrorCount()
     manager.addActionCount()
-    manager.flush()
+    manager.endView()
 
     const last = updates[updates.length - 1].view
     expect(last.error.count).toBe(2)
@@ -65,8 +65,8 @@ describe('view manager', () => {
   it('increments the document version on every update so the intake can order them', () => {
     const manager = start()
 
-    manager.flush()
-    manager.flush()
+    manager.endView()
+    manager.endView()
 
     const versions = updates.map((update) => update._dd.document_version as number)
     expect(versions).toEqual([1, 2, 3])
@@ -85,7 +85,7 @@ describe('view manager', () => {
     jasmine.clock().install()
     const manager = start()
     jasmine.clock().mockDate(new Date(Date.now() + 2000))
-    manager.flush()
+    manager.endView()
     jasmine.clock().uninstall()
 
     // The event format uses nanoseconds, so two seconds is 2e9 and not 2000.

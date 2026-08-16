@@ -217,6 +217,80 @@ describe('public api', () => {
       expect(payloads).toEqual([])
     })
 
+    /*
+     * Page exit handlers are captured rather than dispatched: the test runner installs its own
+     * beforeunload/unload handlers to detect navigation, and firing real ones makes it believe the
+     * page reloaded and abandon the run.
+     */
+    function captureExitHandlers() {
+      const handlers: { [eventName: string]: Array<() => void> } = {}
+      spyOn(window, 'addEventListener').and.callFake((eventName: string, handler: any) => {
+        handlers[eventName] = handlers[eventName] || []
+        handlers[eventName].push(handler)
+      })
+      return handlers
+    }
+
+    it('sends a closing view update when the page unloads', () => {
+      const handlers = captureExitHandlers()
+      const freshApi = makeRumLegacyPublicApi()
+      freshApi.init(VALID_CONFIGURATION)
+      payloads = []
+
+      handlers.beforeunload[0]()
+
+      const closing = eventsOfType('view').filter((event) => event.view.is_active === false)
+      expect(closing.length).toBe(1)
+      ;(freshApi as unknown as { _stop: () => void })._stop()
+    })
+
+    it('carries the time spent and the counts collected during the view into that update', () => {
+      const handlers = captureExitHandlers()
+      const freshApi = makeRumLegacyPublicApi()
+      freshApi.init(VALID_CONFIGURATION)
+      freshApi.addError(new Error('boom'))
+      freshApi.addAction('checkout')
+      // mockDate, not tick: the jasmine clock advances timers but leaves Date alone, and time spent
+      // is measured from the wall clock.
+      jasmine.clock().mockDate(new Date(Date.now() + 2000))
+      payloads = []
+
+      handlers.beforeunload[0]()
+
+      const closing = eventsOfType('view').filter((event) => event.view.is_active === false)[0]
+      expect(closing.view.error.count).toBe(1)
+      expect(closing.view.action.count).toBe(1)
+      expect(closing.view.time_spent).toBeGreaterThan(0)
+      ;(freshApi as unknown as { _stop: () => void })._stop()
+    })
+
+    it('closes the view before sending, so the closing update is in the same request', () => {
+      const handlers = captureExitHandlers()
+      const freshApi = makeRumLegacyPublicApi()
+      freshApi.init(VALID_CONFIGURATION)
+      payloads = []
+
+      handlers.beforeunload[0]()
+
+      // A single request carrying the closing update. Flushing before closing the view would send
+      // an empty buffer and lose it entirely.
+      expect(payloads.length).toBe(1)
+      ;(freshApi as unknown as { _stop: () => void })._stop()
+    })
+
+    it('does not block the closing page with a second synchronous request', () => {
+      const handlers = captureExitHandlers()
+      const freshApi = makeRumLegacyPublicApi()
+      freshApi.init(VALID_CONFIGURATION)
+      payloads = []
+
+      handlers.beforeunload[0]()
+      handlers.unload[0]()
+
+      expect(payloads.length).toBe(1)
+      ;(freshApi as unknown as { _stop: () => void })._stop()
+    })
+
     it('sends to the configured proxy path', () => {
       let url = ''
       ;(window as any).XMLHttpRequest = function () {

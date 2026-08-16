@@ -129,9 +129,16 @@ export function startViewManager(
       currentView.actionCount++
     },
 
-    flush(): void {
+    /**
+     * Sends the closing update for the current view without shutting collection down.
+     *
+     * Used on page exit, where tearing down would be wrong: beforeunload can fire for a navigation
+     * the user then cancels, and the page would be left with a dead SDK. A later exit sends another
+     * update with a higher document version, which the intake treats as the newer state.
+     */
+    endView(): void {
       if (!stopped) {
-        emit(true)
+        endCurrentView()
       }
     },
 

@@ -12,6 +12,8 @@ export const FLUSH_TIMEOUT = 30 * 1000
 export interface Batch {
   add: (event: object) => void
   flush: () => void
+  /** Sends synchronously, for use while the page is unloading. */
+  flushOnExit: () => void
   stop: () => void
 }
 
@@ -55,19 +57,9 @@ export function startBatch(request: HttpRequest): Batch {
     }
   }
 
-  function onPageExit(): void {
-    if (!stopped) {
-      flush(true)
-    }
-  }
-
-  // No visibilitychange here: it does not exist before IE10, and the prefixed IE10 variant would
-  // only cover part of the range this build targets. beforeunload plus unload is what is available
-  // everywhere. Flushing empties the buffer, so the second event is a no-op rather than a resend.
-  const addEventListener = getZoneJsOriginalValue(window, 'addEventListener')
-  addEventListener.call(window, 'beforeunload', onPageExit)
-  addEventListener.call(window, 'unload', onPageExit)
-
+  // Page exit is not handled here on purpose. The caller has to close the current view before the
+  // buffer is sent, and a listener registered in this function would run before one registered by
+  // the caller afterwards, flushing an empty buffer and losing the closing view event.
   return {
     add(event: object) {
       if (stopped) {
@@ -105,12 +97,15 @@ export function startBatch(request: HttpRequest): Batch {
       }
     },
 
+    flushOnExit() {
+      if (!stopped) {
+        flush(true)
+      }
+    },
+
     stop() {
       stopped = true
       cancelScheduledFlush()
-      const removeEventListener = getZoneJsOriginalValue(window, 'removeEventListener')
-      removeEventListener.call(window, 'beforeunload', onPageExit)
-      removeEventListener.call(window, 'unload', onPageExit)
     },
   }
 }
