@@ -200,6 +200,19 @@ describe('session store', () => {
   })
 
   describe('hostile input', () => {
+    it('preserves fields it does not understand instead of destroying them', () => {
+      // The standard bundles store the anonymous user id as `aid` in this same cookie, and track it
+      // by default. Rewriting the cookie without it would reset anonymous user continuity for them.
+      document.cookie = `${SESSION_COOKIE_NAME}=${encodeURIComponent(
+        `id=00000000-aaaa-0000-aaaa-000000000000&created=${Date.now()}&expire=${Date.now() + 60000}&rum=2&aid=11111111-bbbb-0000-bbbb-000000000000`
+      )};path=/`
+
+      createSessionStore(100).getOrCreateSession()
+
+      // The standard parser maps `aid` back to anonymousId, so this asserts what it will actually see.
+      expect(toSessionState(readRawCookie()).anonymousId).toBe('11111111-bbbb-0000-bbbb-000000000000')
+    })
+
     it('ignores unknown fields injected into the session cookie', () => {
       document.cookie = `${SESSION_COOKIE_NAME}=${encodeURIComponent(
         `id=00000000-aaaa-0000-aaaa-000000000000&created=${Date.now()}&expire=${Date.now() + 60000}&rum=2&evil=payload`
@@ -207,8 +220,10 @@ describe('session store', () => {
 
       const session = createSessionStore(100).getOrCreateSession()
 
+      // Unknown entries are carried through rather than acted on: they cannot reach the session
+      // identity or the tracking decision, which are read from named fields only.
       expect(session.id).toBe('00000000-aaaa-0000-aaaa-000000000000')
-      expect(readRawCookie()).not.toContain('evil')
+      expect(session.isTracked).toBe(true)
     })
 
     it('is not confused by a polluted Object prototype', () => {

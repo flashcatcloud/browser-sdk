@@ -150,6 +150,18 @@ describe('public api', () => {
       expect(sentEvents()[0]._dd.configuration.session_sample_rate).toBe(100)
     })
 
+    it('refuses a sample rate that is not a real number', () => {
+      // A page computing the rate from a string can land on NaN. The negated form of the range
+      // check lets it through, and NaN then fails every sampling comparison, so the SDK looks
+      // configured and silently reports nothing. The standard bundles check the range positively.
+      api.init({ ...VALID_CONFIGURATION, sessionSampleRate: Number('not a number') })
+      api.addError(new Error('boom'))
+      flush()
+
+      expect(payloads).toEqual([])
+      expect(api.getInitConfiguration()).toBeUndefined()
+    })
+
     it('refuses a sample rate outside 0 to 100', () => {
       api.init({ ...VALID_CONFIGURATION, sessionSampleRate: 500 })
       flush()

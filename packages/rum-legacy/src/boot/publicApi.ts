@@ -334,6 +334,10 @@ export function makeRumLegacyPublicApi() {
   return api
 }
 
+function isPercentage(value: unknown): value is number {
+  return typeof value === 'number' && value >= 0 && value <= 100
+}
+
 function validate(configuration: LegacyInitConfiguration | undefined): boolean {
   if (!configuration) {
     displayError('Missing configuration')
@@ -353,12 +357,10 @@ function validate(configuration: LegacyInitConfiguration | undefined): boolean {
     displayError('proxy is not configured, we will not send any data.')
     return false
   }
-  if (
-    configuration.sessionSampleRate !== undefined &&
-    (typeof configuration.sessionSampleRate !== 'number' ||
-      configuration.sessionSampleRate < 0 ||
-      configuration.sessionSampleRate > 100)
-  ) {
+  // Checked positively rather than by negating the range: NaN fails every comparison, so the
+  // negated form would accept it, and NaN then fails the sampling comparison too. The SDK would
+  // look configured and silently report nothing, which is the worst way for this to go wrong.
+  if (configuration.sessionSampleRate !== undefined && !isPercentage(configuration.sessionSampleRate)) {
     displayError('Session Sample Rate should be a number between 0 and 100')
     return false
   }

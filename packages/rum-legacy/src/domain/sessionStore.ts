@@ -40,6 +40,8 @@ interface SessionState {
   created?: string
   expire?: string
   rum?: string
+  // The standard bundles keep their own entries in this cookie, the anonymous user id among them.
+  [key: string]: string | undefined
 }
 
 export function createSessionStore(sessionSampleRate: number) {
@@ -110,20 +112,27 @@ function isExpired(state: SessionState, now: number): boolean {
  * /^([a-zA-Z]+)=([a-z0-9-]+)$/. Uppercase characters or padding would make it discard the whole
  * cookie, silently restarting the session on every page load.
  */
+const KNOWN_FIELDS = ['id', 'created', 'expire', 'rum']
+
 function serialize(state: SessionState): string {
   const entries: string[] = []
-  if (state.id) {
-    entries.push(`id=${state.id}`)
+
+  for (let i = 0; i < KNOWN_FIELDS.length; i++) {
+    const value = state[KNOWN_FIELDS[i]]
+    if (value) {
+      entries.push(`${KNOWN_FIELDS[i]}=${value}`)
+    }
   }
-  if (state.created) {
-    entries.push(`created=${state.created}`)
+
+  // Anything else found in the cookie is written back untouched. The standard bundles keep their
+  // own entries here, the anonymous user id among them, and dropping one would reset it for them.
+  // Values reaching this point already passed the entry pattern when they were parsed.
+  for (const key in state) {
+    if (Object.prototype.hasOwnProperty.call(state, key) && KNOWN_FIELDS.indexOf(key) === -1 && state[key]) {
+      entries.push(`${key}=${state[key]}`)
+    }
   }
-  if (state.expire) {
-    entries.push(`expire=${state.expire}`)
-  }
-  if (state.rum) {
-    entries.push(`rum=${state.rum}`)
-  }
+
   return entries.join('&')
 }
 
@@ -133,7 +142,7 @@ function deserialize(value: string): SessionState | undefined {
   for (let i = 0; i < entries.length; i++) {
     const match = /^([a-zA-Z]+)=([a-z0-9-]+)$/.exec(entries[i])
     if (match) {
-      state[match[1] as keyof SessionState] = match[2]
+      state[match[1]] = match[2]
     }
   }
   return state.id ? state : undefined
