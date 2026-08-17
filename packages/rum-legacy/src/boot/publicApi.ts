@@ -189,7 +189,9 @@ export function makeRumLegacyPublicApi() {
       if (!validate(configuration)) {
         return
       }
-      initConfiguration = configuration
+      // Copied on the way in: pages commonly keep the object they passed, and this one is what a
+      // later consent grant starts from.
+      initConfiguration = shallowMerge(configuration, {}) as LegacyInitConfiguration
       trackingConsent = configuration.trackingConsent ?? TRACKING_CONSENT_GRANTED
       if (trackingConsent === TRACKING_CONSENT_GRANTED) {
         running = start(configuration)
@@ -197,11 +199,11 @@ export function makeRumLegacyPublicApi() {
     }),
 
     /*
-     * The getters below hand out copies. The stored configuration is what a later consent grant
-     * starts from, and the contexts are attached to every event, so returning the live objects
-     * would let a caller change SDK behaviour by mutating what it read. The standard bundles clone
-     * for the same reason. Nested objects are still shared: the configuration holds only scalars,
-     * and cloning arbitrarily deep customer data is not worth the code here.
+     * Data is copied at both boundaries, in and out. Storing the caller's object would let an
+     * unrelated later mutation change what every event carries, and returning it would let a caller
+     * change SDK behaviour by mutating what it read. The standard bundles clone for the same
+     * reason. Nested objects are still shared: the configuration holds only scalars, and cloning
+     * arbitrarily deep customer data is not worth the code here.
      */
     getInitConfiguration: monitor(() => (initConfiguration ? shallowMerge(initConfiguration, {}) : undefined)),
 
@@ -227,7 +229,7 @@ export function makeRumLegacyPublicApi() {
     }),
 
     setGlobalContext: monitor((context: Context) => {
-      globalContext = context ?? {}
+      globalContext = context ? shallowMerge(context, {}) : {}
     }),
     getGlobalContext: monitor(() => shallowMerge(globalContext, {})),
     setGlobalContextProperty: monitor((key: string, value: any) => {
@@ -241,7 +243,7 @@ export function makeRumLegacyPublicApi() {
     }),
 
     setUser: monitor((user: Context) => {
-      userContext = user ?? {}
+      userContext = user ? shallowMerge(user, {}) : {}
     }),
     getUser: monitor(() => shallowMerge(userContext, {})),
     setUserProperty: monitor((key: string, value: any) => {
@@ -255,7 +257,7 @@ export function makeRumLegacyPublicApi() {
     }),
 
     setAccount: monitor((account: Context) => {
-      accountContext = account ?? {}
+      accountContext = account ? shallowMerge(account, {}) : {}
     }),
     getAccount: monitor(() => shallowMerge(accountContext, {})),
     setAccountProperty: monitor((key: string, value: any) => {
