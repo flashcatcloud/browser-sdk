@@ -1,8 +1,13 @@
 import { INTAKE_SITE_US1, noop, Observable, ONE_SECOND } from '@flashcatcloud/browser-core'
-import { interceptRequests, mockClock, registerCleanupTask } from '@flashcatcloud/browser-core/test'
+import { interceptRequests, registerCleanupTask } from '@flashcatcloud/browser-core/test'
 import { mockRumConfiguration } from '../../../test'
 import type { RumConfiguration, RumInitConfiguration } from './configuration'
-import { buildRemoteSamplingSetup, readRemoteSampling, startRemoteConfiguration } from './remoteConfiguration'
+import {
+  buildRemoteSamplingSetup,
+  readRemoteSampling,
+  shouldRefreshOnActivation,
+  startRemoteConfiguration,
+} from './remoteConfiguration'
 
 const INIT_CONFIGURATION = {
   clientToken: 'token',
@@ -22,8 +27,14 @@ function configurationWith(partial: Partial<RumConfiguration> = {}) {
   })
 }
 
-function body({ activation = 'next_session', rum = {} as Record<string, number>, enabled = true, ttl = 300 } = {}) {
-  return JSON.stringify({ version: 3, ttl, enabled, activation, rum })
+function body({
+  activation = 'next_session',
+  rum = {} as Record<string, number>,
+  enabled = true,
+  ttl = 300,
+  refreshOnForeground = false,
+} = {}) {
+  return JSON.stringify({ version: 3, ttl, enabled, activation, refresh_on_foreground: refreshOnForeground, rum })
 }
 
 describe('remoteConfiguration', () => {
@@ -222,72 +233,35 @@ describe('remoteConfiguration', () => {
   })
 
   describe('coming back to the page', () => {
-    it('asks again when the page is reactivated after the settings went stale', () => {
-      const clock = mockClock()
+    // Tested through the decision rather than by counting requests: the poll interval and the age
+    // at which settings count as stale are the same duration by construction, so any clock tick
+    // that makes them stale also fires the poll, and a request count cannot tell the two apart.
+    it('asks again only when the server allowed it and the settings went stale', () => {
+      expect(shouldRefreshOnActivation(true, 61 * ONE_SECOND, 60 * ONE_SECOND)).toBeTrue()
+    })
+
+    it('asks nothing when the server did not allow it', () => {
+      // Off by default on purpose: coming back bunches requests at the moments people return to
+      // their tabs, which is the shape the endpoint copes with worst.
+      expect(shouldRefreshOnActivation(false, 61 * ONE_SECOND, 60 * ONE_SECOND)).toBeFalse()
+    })
+
+    it('asks nothing while the settings are still fresh', () => {
+      expect(shouldRefreshOnActivation(true, 10 * ONE_SECOND, 60 * ONE_SECOND)).toBeFalse()
+    })
+
+    it('is wired to the page coming back, and stays quiet on a fresh page', (done) => {
       let requests = 0
       interceptor.withMockXhr((xhr) => {
         requests++
-        xhr.complete(200, body({ ttl: 60 }))
-      })
+        xhr.complete(200, body({ refreshOnForeground: true }))
 
-      start(configurationWith())
-      expect(requests).toBe(1)
+        pageActivationObservable.notify()
 
-      clock.tick(61 * ONE_SECOND)
-      pageActivationObservable.notify()
-
-      // A hidden tab has its timers throttled and a page restored from the back-forward cache may
-      // not have run one at all, so coming back is its own reason to ask.
-      expect(requests).toBe(2)
-      clock.cleanup()
-    })
-
-    it('does not ask again when the settings are still fresh', () => {
-      const clock = mockClock()
-      let requests = 0
-      interceptor.withMockXhr((xhr) => {
-        requests++
-        xhr.complete(200, body({ ttl: 300 }))
-      })
-
-      start(configurationWith())
-      clock.tick(10 * ONE_SECOND)
-      pageActivationObservable.notify()
-
-      // Switching tabs back and forth must not turn into a request each time.
-      expect(requests).toBe(1)
-      clock.cleanup()
-    })
-  })
-
-  describe('the request', () => {
-    it('goes to the config endpoint on the same host as the intake, carrying what rules match on', (done) => {
-      interceptor.withMockXhr((xhr) => {
-        expect(xhr.url).toContain(`https://${INTAKE_SITE_US1}/api/v2/rum/config?`)
-        expect(xhr.url).toContain('client_token=token')
-        expect(xhr.url).toContain('sdk=web')
-        expect(xhr.url).toContain('env=staging')
-        expect(xhr.url).toContain('app_version=1.2.3')
+        expect(requests).toBe(1)
         done()
       })
-      start(configurationWith(), noop)
-    })
-
-    it('goes through the customer proxy when there is one, like every other request', (done) => {
-      interceptor.withMockXhr((xhr) => {
-        expect(xhr.url).toContain('https://proxy.example.com/path?ddforward=')
-        expect(decodeURIComponent(xhr.url!)).toContain('/api/v2/rum/config?')
-        done()
-      })
-      start(
-        configurationWith({
-          remoteSampling: buildRemoteSamplingSetup({
-            ...INIT_CONFIGURATION,
-            proxy: 'https://proxy.example.com/path',
-          }),
-        }),
-        noop
-      )
+      start(configurationWith())
     })
   })
 

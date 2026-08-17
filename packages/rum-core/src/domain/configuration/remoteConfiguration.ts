@@ -69,6 +69,12 @@ interface RemoteConfigurationResponse {
   ttl: number
   enabled: boolean
   activation: string
+  /**
+   * Whether this application may ask again when the page comes back into view. Off unless an
+   * operator turned it on: unlike the poll, which spreads requests out, coming back concentrates
+   * them at the moment everyone opens their tabs again.
+   */
+  refresh_on_foreground: boolean
   rum: RemoteSampling
 }
 
@@ -122,6 +128,7 @@ function keepSamplingFresh(
   let timeoutId: TimeoutId | undefined
   let lastFetchTime = 0
   let currentTtl = DEFAULT_TTL
+  let refreshOnForeground = false
 
   function scheduleNext(delay: number) {
     clearTimeout(timeoutId)
@@ -146,18 +153,23 @@ function keepSamplingFresh(
       // Follow the server's ttl rather than a constant of ours, so how fast a change propagates
       // stays a server-side decision.
       currentTtl = response.ttl > 0 ? response.ttl * ONE_SECOND : DEFAULT_TTL
+      refreshOnForeground = !!response.refresh_on_foreground
       scheduleNext(currentTtl)
     })
   }
 
   // A page the visitor left and came back to has usually missed its refresh: browsers throttle
   // timers hard in hidden tabs, and a page restored from the back-forward cache may not have run
-  // one for hours. Asking again on the way back is what stops someone returning to a tab and
-  // carrying on under settings that were changed while they were away — and it costs the site no
-  // code of its own, which is the point: needing the customer to call a refresh method means the
-  // ones who never read that far never get fresh settings.
+  // one for hours, so someone can come back and carry on under settings that changed while they
+  // were away.
+  //
+  // Asking on the way back fixes that, and is off unless the server says otherwise. The poll
+  // spreads requests out across the ttl; coming back does the opposite, bunching them at the
+  // moments people return to their tabs, which is the shape the endpoint copes with worst. It is
+  // worth that for an application whose owner needs a change to land within minutes, and not worth
+  // it for everyone else, so it is theirs to turn on rather than ours to assume.
   const activationSubscription = pageActivationObservable.subscribe(() => {
-    if (timeStampNow() - lastFetchTime >= currentTtl) {
+    if (shouldRefreshOnActivation(refreshOnForeground, timeStampNow() - lastFetchTime, currentTtl)) {
       fetchOnce()
     }
   })
@@ -168,6 +180,17 @@ function keepSamplingFresh(
     activationSubscription.unsubscribe()
     clearTimeout(timeoutId)
   }
+}
+
+/**
+ * Whether coming back to the page is a reason to ask again.
+ *
+ * Both halves matter and they guard different things: the permission keeps the request pattern —
+ * a burst as people return to their tabs — off unless someone chose it, and the age keeps
+ * switching tabs back and forth from becoming a request each time.
+ */
+export function shouldRefreshOnActivation(allowed: boolean, ageOfSettings: number, ttl: number) {
+  return allowed && ageOfSettings >= ttl
 }
 
 /**
