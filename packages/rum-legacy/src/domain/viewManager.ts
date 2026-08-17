@@ -53,7 +53,7 @@ export function startViewManager(
 
     const view: { [key: string]: any } = {
       loading_type: currentView.loadingType,
-      time_spent: toServerDuration(dateNow() - currentView.startTime),
+      time_spent: toServerDuration(elapsedSince(currentView.startTime)),
       is_active: isActive,
       // These counts are always zero on these browsers, but they are part of the event format.
       // Leaving them out would read downstream as missing data rather than as a real zero.
@@ -196,4 +196,13 @@ function addNavigationTimings(view: { [key: string]: any }): void {
 
 function toServerDuration(durationInMilliseconds: number): number {
   return Math.round(durationInMilliseconds * 1e6)
+}
+
+/**
+ * Durations here come from the wall clock, because these browsers have no monotonic
+ * performance.now(). A clock correction can therefore move time backwards mid-view, and a negative
+ * duration is not a measurement, it is a broken one. Report no elapsed time instead.
+ */
+function elapsedSince(startTime: number): number {
+  return Math.max(0, dateNow() - startTime)
 }

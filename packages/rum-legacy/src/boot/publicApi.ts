@@ -113,8 +113,9 @@ export function makeRumLegacyPublicApi() {
         return
       }
       exited = true
-      viewManager.endView()
-      batch.flushOnExit()
+      // Closing the view inside the exit flush keeps the whole sequence on the synchronous
+      // transport, including a buffer limit the closing update happens to cross.
+      batch.flushOnExit(() => viewManager.endView())
     }
 
     // Wrapped: the browser calls this one, so an internal failure here would become an uncaught

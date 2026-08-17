@@ -92,6 +92,18 @@ describe('view manager', () => {
     expect(updates[updates.length - 1].view.time_spent).toBe(2_000_000_000)
   })
 
+  it('never reports a negative time spent when the clock jumps backwards', () => {
+    jasmine.clock().install()
+    const manager = start()
+    // These browsers have no performance.now(), so durations come from the wall clock, which an
+    // NTP correction can move backwards.
+    jasmine.clock().mockDate(new Date(Date.now() - 5000))
+    manager.endView()
+    jasmine.clock().uninstall()
+
+    expect(updates[updates.length - 1].view.time_spent).toBe(0)
+  })
+
   it('starts a new view on a hash change and closes the previous one', () => {
     const manager = start()
     const firstViewId = manager.getCurrentView().id

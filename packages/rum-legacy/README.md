@@ -149,8 +149,18 @@ rejected, so a broken check cannot pass silently.
 ## Testing, and what it does not cover
 
 The specs run in a modern headless browser. `src/boot/degradedEnvironment.spec.ts` removes `fetch`,
-`Promise`, `Map`, `Set`, `Symbol`, `URL`, `TextEncoder` and `sendBeacon`, and drives the package end
-to end through an `XMLHttpRequest` that offers only `onreadystatechange`, as IE9 does.
+`Promise`, `MutationObserver`, `PerformanceObserver`, `TextEncoder`, `URL` and `sendBeacon`, and
+drives the package end to end through an `XMLHttpRequest` that offers only `onreadystatechange`, as
+IE9 does.
+
+The ES2015 collections are deliberately left in place there. `lib: ES5` already makes using them a
+compile error, which is stronger than a runtime spec, and the bundle scan covers the emitted output.
+Removing them at runtime would only break the test harness, which builds a `Map` of its own around
+every listener.
+
+Guarantees that could be asserted vacuously are checked by removing the implementation and
+confirming a spec fails: the ES5 gate, the event schema validation, the page exit ordering, the
+sampling and consent gates, and the listener guards.
 
 That covers missing runtime APIs and unsupported syntax. It does not cover the behaviour of an
 actual old browser engine. **This package has not been verified on real hardware**, and that

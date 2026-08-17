@@ -1,6 +1,6 @@
 import type { BuildEnvWindow } from '../../../core/test'
 import { COOKIE_ACCESS_DELAY, deleteSessionCookie } from '../domain/sessionStore'
-import { FLUSH_TIMEOUT } from '../transport/batch'
+import { BATCH_BYTES_LIMIT, FLUSH_TIMEOUT } from '../transport/batch'
 import { makeRumLegacyPublicApi } from './publicApi'
 
 /**
@@ -367,6 +367,34 @@ describe('public api', () => {
       // A single request carrying the closing update. Flushing before closing the view would send
       // an empty buffer and lose it entirely.
       expect(payloads.length).toBe(1)
+      ;(freshApi as unknown as { _stop: () => void })._stop()
+    })
+
+    it('sends everything through the exit transport, even a batch that fills up while closing', () => {
+      const handlers = captureExitHandlers()
+      const asyncPayloads: string[] = []
+      const exitPayloads: string[] = []
+      ;(window as any).XMLHttpRequest = function () {
+        let isAsync = true
+        return {
+          open: (_m: string, _u: string, a: boolean) => (isAsync = a),
+          setRequestHeader: () => undefined,
+          send: (body: string) => (isAsync ? asyncPayloads : exitPayloads).push(body),
+        }
+      }
+      const freshApi = makeRumLegacyPublicApi()
+      freshApi.init(VALID_CONFIGURATION)
+      // Every event now carries most of the byte budget, so the closing view update is the one that
+      // tips the buffer over the limit while the page is already unloading.
+      freshApi.setGlobalContext({ padding: new Array(Math.floor(BATCH_BYTES_LIMIT * 0.7)).join('a') })
+      freshApi.addAction('checkout')
+      asyncPayloads.length = 0
+
+      handlers.beforeunload[0]()
+
+      // An async request started while the page is unloading is not going to arrive.
+      expect(asyncPayloads).toEqual([])
+      expect(exitPayloads.length).toBeGreaterThan(0)
       ;(freshApi as unknown as { _stop: () => void })._stop()
     })
 

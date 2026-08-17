@@ -121,6 +121,25 @@ describe('session store', () => {
       expect(createSessionStore(100).getOrCreateSession().isTracked).toBe(false)
     })
 
+    it('honours a session the modern bundle marked as tracked with replay', () => {
+      // Both builds share one cookie jar per domain, and IE enterprise site lists routinely put
+      // some urls of a site in compatibility mode and others not. Reading '1' as untracked would
+      // silence the whole session, for up to its four hour lifetime.
+      document.cookie = `${SESSION_COOKIE_NAME}=${encodeURIComponent(
+        `id=00000000-aaaa-0000-aaaa-000000000000&created=${Date.now()}&expire=${Date.now() + 60000}&rum=1`
+      )};path=/`
+
+      expect(createSessionStore(100).getOrCreateSession().isTracked).toBe(true)
+    })
+
+    it('honours a session marked as not tracked', () => {
+      document.cookie = `${SESSION_COOKIE_NAME}=${encodeURIComponent(
+        `id=00000000-aaaa-0000-aaaa-000000000000&created=${Date.now()}&expire=${Date.now() + 60000}&rum=0`
+      )};path=/`
+
+      expect(createSessionStore(100).getOrCreateSession().isTracked).toBe(false)
+    })
+
     it('applies the configured rate', () => {
       spyOn(Math, 'random').and.returnValue(0.5)
 
@@ -158,10 +177,57 @@ describe('session store', () => {
       expect(setSpy).toHaveBeenCalled()
     })
 
+    it('does not stay throttled forever when the clock jumps backwards', () => {
+      const store = createSessionStore(100)
+      store.getOrCreateSession()
+
+      jasmine.clock().install()
+      jasmine.clock().mockDate(new Date(Date.now() - 60 * 60 * 1000))
+      const setSpy = spyOnProperty(document, 'cookie', 'set')
+      store.getOrCreateSession()
+      jasmine.clock().uninstall()
+
+      // A backwards jump makes the elapsed time negative, which would otherwise read as "still
+      // inside the window" and keep the session frozen until the clock caught up.
+      expect(setSpy).toHaveBeenCalled()
+    })
+
     it('still returns the same session while throttled', () => {
       const store = createSessionStore(100)
 
       expect(store.getOrCreateSession().id).toBe(store.getOrCreateSession().id)
+    })
+  })
+
+  describe('hostile input', () => {
+    it('ignores unknown fields injected into the session cookie', () => {
+      document.cookie = `${SESSION_COOKIE_NAME}=${encodeURIComponent(
+        `id=00000000-aaaa-0000-aaaa-000000000000&created=${Date.now()}&expire=${Date.now() + 60000}&rum=2&evil=payload`
+      )};path=/`
+
+      const session = createSessionStore(100).getOrCreateSession()
+
+      expect(session.id).toBe('00000000-aaaa-0000-aaaa-000000000000')
+      expect(readRawCookie()).not.toContain('evil')
+    })
+
+    it('is not confused by a polluted Object prototype', () => {
+      // A page that has extended Object.prototype must not end up with those keys in the session.
+      ;(Object.prototype as any).injected = 'value'
+      try {
+        const session = createSessionStore(100).getOrCreateSession()
+
+        expect(session.id).toMatch(/^[0-9a-f-]{36}$/)
+        expect(readRawCookie()).not.toContain('injected')
+      } finally {
+        delete (Object.prototype as any).injected
+      }
+    })
+
+    it('starts a fresh session rather than trusting a malformed cookie', () => {
+      document.cookie = `${SESSION_COOKIE_NAME}=${encodeURIComponent('not a session at all')};path=/`
+
+      expect(createSessionStore(100).getOrCreateSession().id).toMatch(/^[0-9a-f-]{36}$/)
     })
   })
 

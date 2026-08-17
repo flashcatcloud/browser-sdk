@@ -18,6 +18,7 @@ const SESSION_TIME_OUT_DELAY = 4 * ONE_HOUR
 
 /** Tracking decision, stored in the cookie using the same values as the modern bundle. */
 const NOT_TRACKED = '0'
+const TRACKED_WITH_SESSION_REPLAY = '1'
 const TRACKED_WITHOUT_SESSION_REPLAY = '2'
 
 /**
@@ -51,7 +52,15 @@ export function createSessionStore(sessionSampleRate: number) {
     getOrCreateSession(): LegacySession {
       const now = dateNow()
 
-      if (inMemoryState && lastCookieAccess !== undefined && now - lastCookieAccess < COOKIE_ACCESS_DELAY) {
+      // A backwards clock correction makes the elapsed time negative, which would otherwise read as
+      // "still inside the window" and freeze the session until the clock caught up.
+      const sinceLastAccess = lastCookieAccess === undefined ? undefined : now - lastCookieAccess
+      if (
+        inMemoryState &&
+        sinceLastAccess !== undefined &&
+        sinceLastAccess >= 0 &&
+        sinceLastAccess < COOKIE_ACCESS_DELAY
+      ) {
         return toSession(inMemoryState)
       }
 
@@ -79,7 +88,15 @@ export function createSessionStore(sessionSampleRate: number) {
 }
 
 function toSession(state: SessionState): LegacySession {
-  return { id: state.id!, isTracked: state.rum === TRACKED_WITHOUT_SESSION_REPLAY }
+  // Both tracked values count. This build never writes '1' itself, but both builds share one cookie
+  // jar per domain, and IE enterprise site lists routinely put some urls of a site in compatibility
+  // mode and others not. Reading a session the modern bundle started as untracked would silence
+  // this one for the rest of that session's lifetime.
+  const trackingType = state.rum
+  return {
+    id: state.id!,
+    isTracked: trackingType === TRACKED_WITHOUT_SESSION_REPLAY || trackingType === TRACKED_WITH_SESSION_REPLAY,
+  }
 }
 
 function isExpired(state: SessionState, now: number): boolean {

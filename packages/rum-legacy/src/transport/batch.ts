@@ -12,8 +12,14 @@ export const FLUSH_TIMEOUT = 30 * 1000
 export interface Batch {
   add: (event: object) => void
   flush: () => void
-  /** Sends synchronously, for use while the page is unloading. */
-  flushOnExit: () => void
+  /**
+   * Sends synchronously, for use while the page is unloading.
+   *
+   * `prepare` runs inside the exit: anything it adds is flushed by the same synchronous request,
+   * and a buffer limit it happens to cross does not start an async one that the closing page would
+   * never complete.
+   */
+  flushOnExit: (prepare?: () => void) => void
   stop: () => void
 }
 
@@ -21,6 +27,7 @@ export function startBatch(request: HttpRequest): Batch {
   let messages: string[] = []
   let bytesCount = 0
   let stopped = false
+  let exiting = false
   let flushTimeoutId: number | undefined
 
   function flush(useExitTransport?: boolean): void {
@@ -34,7 +41,7 @@ export function startBatch(request: HttpRequest): Batch {
     messages = []
     bytesCount = 0
 
-    if (useExitTransport) {
+    if (useExitTransport || exiting) {
       request.sendOnExit(payload)
     } else {
       request.send(payload)
@@ -97,9 +104,20 @@ export function startBatch(request: HttpRequest): Batch {
       }
     },
 
-    flushOnExit() {
-      if (!stopped) {
+    flushOnExit(prepare?: () => void) {
+      if (stopped) {
+        return
+      }
+      exiting = true
+      try {
+        if (prepare) {
+          prepare()
+        }
         flush(true)
+      } finally {
+        // Reset, because beforeunload also fires for a navigation the user then cancels, and the
+        // page would otherwise keep sending synchronously for the rest of its life.
+        exiting = false
       }
     },
 

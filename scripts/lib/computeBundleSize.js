@@ -3,7 +3,7 @@ const fs = require('fs')
 const zlib = require('zlib')
 const { glob } = require('glob')
 
-const packages = ['rum', 'logs', 'flagging', 'rum-slim', 'worker']
+const packages = ['rum', 'logs', 'flagging', 'rum-slim', 'rum-legacy', 'worker']
 
 function getPackageName(file) {
   if (file.includes('chunk')) {
