@@ -104,6 +104,23 @@ describe('view manager', () => {
     expect(closing.length).toBe(1)
   })
 
+  it('reports the previous view as the referrer of a view started in-page', () => {
+    const manager = start()
+    const firstViewUrl = manager.getCurrentView().url
+
+    manager.startView('checkout')
+
+    // document.referrer describes how the document was reached, not how this view was, so using it
+    // here would attribute every in-page navigation to whatever site linked to the page.
+    expect(manager.getCurrentView().referrer).toBe(firstViewUrl)
+  })
+
+  it('keeps the document referrer for the first view', () => {
+    const manager = start()
+
+    expect(manager.getCurrentView().referrer).toBe(document.referrer)
+  })
+
   it('reports a view started by navigation as a route change, not an initial load', () => {
     const manager = start()
 
@@ -127,6 +144,31 @@ describe('view manager', () => {
     manager.startView('checkout')
 
     expect(updates[updates.length - 1].view.name).toBe('checkout')
+  })
+
+  describe('safety net', () => {
+    it('does not let a failure escape into the page through a browser callback', () => {
+      // The browser invokes the hashchange listener directly, so anything thrown inside it would
+      // become an uncaught error on the page rather than staying inside the SDK.
+      const handlers: { [eventName: string]: Array<() => void> } = {}
+      spyOn(window, 'addEventListener').and.callFake((eventName: string, handler: any) => {
+        handlers[eventName] = handlers[eventName] || []
+        handlers[eventName].push(handler)
+      })
+      // Failing is switched on only around the assertion: the first update is emitted while the
+      // manager is being constructed, which init already guards, and teardown emits one more.
+      let failing = false
+      const manager = startViewManager(() => {
+        if (failing) {
+          throw new Error('collection is broken')
+        }
+      })
+      stopManager = () => manager.stop()
+
+      failing = true
+      expect(() => handlers.hashchange[0]()).not.toThrow()
+      failing = false
+    })
   })
 
   describe('navigation timings', () => {

@@ -44,6 +44,13 @@ compatibility document mode is classified by what it can actually do.
       onReady: function (c) {
         this.q.push(c)
       },
+      // Stub so that calling init before the script has landed queues the call instead of throwing
+      // "undefined is not a function" and taking the page down with it.
+      init: function (o) {
+        this.q.push(function () {
+          w.FC_RUM.init(o)
+        })
+      },
     }
     var s = d.createElement('script')
     s.async = true
@@ -63,7 +70,9 @@ compatibility document mode is classified by what it can actually do.
 ```
 
 Calls made before the bundle arrives are queued on `q` and run once it loads. This is the same
-mechanism the standard bundles already use.
+mechanism the standard bundles already use. `init` is stubbed on the placeholder for the same
+reason: a page that calls it outside `onReady`, before the script has landed, would otherwise hit
+`undefined is not a function` — the failure this build exists to prevent.
 
 ### `proxy` is required
 
@@ -93,18 +102,33 @@ required.
 
 ## Configuration
 
-| Option              | Required | Notes                                    |
-| ------------------- | :------: | ---------------------------------------- |
-| `applicationId`     |    ✅    |                                          |
-| `clientToken`       |    ✅    |                                          |
-| `proxy`             |    ✅    | Same-origin path forwarded to the intake |
-| `service`           |          |                                          |
-| `version`           |          |                                          |
-| `env`               |          |                                          |
-| `sessionSampleRate` |          | 0 to 100, defaults to 100                |
+| Option              | Required | Notes                                                                         |
+| ------------------- | :------: | ----------------------------------------------------------------------------- |
+| `applicationId`     |    ✅    |                                                                               |
+| `clientToken`       |    ✅    |                                                                               |
+| `proxy`             |    ✅    | Same-origin path forwarded to the intake                                      |
+| `service`           |          |                                                                               |
+| `version`           |          |                                                                               |
+| `env`               |          |                                                                               |
+| `sessionSampleRate` |          | 0 to 100, defaults to 100. Decided once per session and carried in the cookie |
+| `trackingConsent`   |          | `granted` (default) or `not-granted`; any other value counts as not granted   |
 
 Options that only apply to the standard bundles are accepted and ignored, so one configuration
 object can be shared between the two.
+
+## Differences from the standard bundles
+
+Beyond the capability table above, two behaviours differ and are worth knowing before porting a
+page:
+
+- `stopSession()` shuts collection down for the rest of the page. In the standard bundles it ends
+  the current session and a new one starts on the next interaction. Use `setTrackingConsent` if you
+  want collection to be resumable.
+- `setViewName()` starts a new view rather than renaming the current one. A view event has already
+  been sent under the old name and there is no way to retract it.
+
+Consent is honoured: with `trackingConsent: 'not-granted'` nothing is collected or sent, and
+withdrawing consent later drops whatever is buffered and clears the session cookie.
 
 ## Development
 

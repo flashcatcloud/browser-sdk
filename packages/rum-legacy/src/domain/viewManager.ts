@@ -1,3 +1,4 @@
+import { monitor } from '../tools/monitor'
 import { dateNow } from '../tools/timeUtils'
 import { getZoneJsOriginalValue } from '../tools/zoneJs'
 import { generateUUID } from '../transport/intakeUrl'
@@ -31,11 +32,13 @@ export function startViewManager(
   let currentView = createView(INITIAL_LOAD)
   let stopped = false
 
-  function createView(loadingType: string, name?: string): CurrentView {
+  function createView(loadingType: string, name?: string, previousViewUrl?: string): CurrentView {
     return {
       id: generateUUID(),
       url: location.href,
-      referrer: document.referrer,
+      // Where this view was reached from. For a view started in-page that is the previous view's
+      // url; only the first view of the document comes from outside it.
+      referrer: previousViewUrl ?? document.referrer,
       name,
       loadingType,
       startTime: dateNow(),
@@ -83,8 +86,9 @@ export function startViewManager(
   }
 
   function startNewView(loadingType: string, name?: string): void {
+    const previousViewUrl = currentView.url
     endCurrentView()
-    currentView = createView(loadingType, name)
+    currentView = createView(loadingType, name, previousViewUrl)
     emit(true)
   }
 
@@ -102,10 +106,14 @@ export function startViewManager(
     }
   }
 
+  // Wrapped: the browser calls these, so an internal failure would leave the SDK and surface as an
+  // uncaught error in the page.
+  const guardedOnHashChange = monitor(onHashChange)
+  const guardedOnLoad = monitor(onLoad)
   const addEventListener = getZoneJsOriginalValue(window, 'addEventListener')
-  addEventListener.call(window, 'hashchange', onHashChange)
+  addEventListener.call(window, 'hashchange', guardedOnHashChange)
   if (!isDocumentLoaded()) {
-    addEventListener.call(window, 'load', onLoad)
+    addEventListener.call(window, 'load', guardedOnLoad)
   }
 
   emit(true)
@@ -149,8 +157,8 @@ export function startViewManager(
       endCurrentView()
       stopped = true
       const removeEventListener = getZoneJsOriginalValue(window, 'removeEventListener')
-      removeEventListener.call(window, 'hashchange', onHashChange)
-      removeEventListener.call(window, 'load', onLoad)
+      removeEventListener.call(window, 'hashchange', guardedOnHashChange)
+      removeEventListener.call(window, 'load', guardedOnLoad)
     },
   }
 }
