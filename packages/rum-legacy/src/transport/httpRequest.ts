@@ -13,8 +13,11 @@ export interface HttpRequest {
  *     to the browser and let the document go, so the last batch is sent inline while the page is
  *     unloading.
  *
- * No request header is set, keeping the request a "simple request" and matching what the modern
- * bundle sends: the intake reads newline separated json without relying on a content type.
+ * The content type is declared explicitly. The intake rejects anything that is not text/plain, and
+ * while fetch and sendBeacon set it implicitly for a string body — which is why the standard
+ * bundles never declare it — XMLHttpRequest on these browsers cannot be relied on to do the same.
+ * Declaring it costs nothing: this request is same origin, and text/plain is a safelisted value
+ * that does not trigger a preflight even when it is not.
  */
 export function createHttpRequest(buildUrl: () => string, onResponse?: (status: number) => void): HttpRequest {
   function request(data: string, isAsync: boolean): void {
@@ -24,6 +27,7 @@ export function createHttpRequest(buildUrl: () => string, onResponse?: (status: 
     try {
       const xhr = new XMLHttpRequest()
       xhr.open('POST', buildUrl(), isAsync)
+      xhr.setRequestHeader('Content-Type', 'text/plain;charset=UTF-8')
 
       if (onResponse) {
         xhr.onreadystatechange = function () {

@@ -106,10 +106,19 @@ describe('http request', () => {
     expect(sent[0].async).toBe(true)
   })
 
-  it('does not set a content type, so the request stays a simple request', () => {
+  it('declares the content type the intake requires', () => {
     createHttpRequest(buildUrl).send('{}')
 
-    expect(sent[0].headers).toEqual([])
+    // The intake rejects anything that is not text/plain. fetch and sendBeacon set it implicitly
+    // for a string body, which is why the standard bundles never declare it, but XMLHttpRequest on
+    // these browsers cannot be relied on to do the same.
+    expect(sent[0].headers).toEqual([['Content-Type', 'text/plain;charset=UTF-8']])
+  })
+
+  it('sets it on the exit request too', () => {
+    createHttpRequest(buildUrl).sendOnExit('{}')
+
+    expect(sent[0].headers).toEqual([['Content-Type', 'text/plain;charset=UTF-8']])
   })
 
   it('completes through onreadystatechange, which is the only handler IE9 fires', () => {

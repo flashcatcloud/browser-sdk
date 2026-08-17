@@ -84,6 +84,11 @@ runMain(() => {
     if (request.async !== false) {
       failures.push('the exit request was not synchronous')
     }
+    // The intake rejects anything that is not text/plain, and these browsers do not set it for us.
+    const contentType = request.headers.filter((header) => header[0] === 'Content-Type')[0]
+    if (!contentType || contentType[1].indexOf('text/plain') !== 0) {
+      failures.push(`missing or wrong content type: ${contentType ? contentType[1] : 'none'}`)
+    }
     const events = request.body.split('\n').map((line) => JSON.parse(line))
     const types = events.map((event) => event.type)
     for (const expected of ['view', 'error']) {
@@ -116,11 +121,14 @@ function createBrowserLikeContext(requests) {
   let cookie = ''
 
   function XMLHttpRequestStub() {
-    const request = { async: true }
+    const request = { async: true, headers: [] }
     this.open = function (method, url, isAsync) {
       request.method = method
       request.url = url
       request.async = isAsync
+    }
+    this.setRequestHeader = function (name, value) {
+      request.headers.push([name, value])
     }
     this.send = function (body) {
       request.body = body

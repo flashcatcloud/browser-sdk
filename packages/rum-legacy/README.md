@@ -96,9 +96,14 @@ location /rum-intake/ {
 }
 ```
 
-No request header is set, keeping it a simple request. If a Content Security Policy is in force it
-needs to allow the static host and `connect-src` to the page's own origin. `unsafe-eval` is not
-required.
+The request declares `Content-Type: text/plain;charset=UTF-8`, which the intake requires. The
+standard bundles never declare it because `fetch` and `sendBeacon` set it implicitly for a string
+body; `XMLHttpRequest` on these browsers cannot be relied on to do the same. It costs nothing: the
+request is same-origin, and `text/plain` is a safelisted value that does not trigger a preflight
+even when it is not.
+
+If a Content Security Policy is in force it needs to allow the static host and `connect-src` to the
+page's own origin. `unsafe-eval` is not required.
 
 ## Configuration
 

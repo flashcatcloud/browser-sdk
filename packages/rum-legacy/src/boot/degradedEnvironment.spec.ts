@@ -69,6 +69,7 @@ describe('degraded environment', () => {
   }
 
   let payloads: string[]
+  let headers: Array<[string, string]>
   let requests: Array<{ method?: string; url?: string; async?: boolean }>
   let originalXhr: typeof XMLHttpRequest
   let api: ReturnType<typeof makeRumLegacyPublicApi> | undefined
@@ -76,6 +77,7 @@ describe('degraded environment', () => {
   beforeEach(() => {
     ;(window as unknown as BuildEnvWindow).__BUILD_ENV__SDK_VERSION__ = 'test-version'
     payloads = []
+    headers = []
     requests = []
     jasmine.clock().install()
     originalXhr = window.XMLHttpRequest
@@ -90,8 +92,8 @@ describe('degraded environment', () => {
         send(body: string) {
           payloads.push(body)
         },
-        setRequestHeader() {
-          throw new Error('setting a request header would make this a preflighted request')
+        setRequestHeader(name: string, value: string) {
+          headers.push([name, value])
         },
       }
       return request
@@ -139,7 +141,7 @@ describe('degraded environment', () => {
     expect(types).toContain('view')
   })
 
-  it('sends over XMLHttpRequest without setting any request header', () => {
+  it('sends over XMLHttpRequest with the content type the intake requires', () => {
     withIE9Environment(() => {
       api = makeRumLegacyPublicApi()
       api.init(VALID_CONFIGURATION)
@@ -147,10 +149,10 @@ describe('degraded environment', () => {
     })
     jasmine.clock().tick(FLUSH_TIMEOUT)
 
-    // The fake throws if a header is set, so reaching here means the request stayed a simple one.
     expect(requests.length).toBeGreaterThan(0)
     expect(requests[0].method).toBe('POST')
     expect(requests[0].async).toBe(true)
+    expect(headers).toEqual([['Content-Type', 'text/plain;charset=UTF-8']])
   })
 
   it('still produces a valid session cookie', () => {
