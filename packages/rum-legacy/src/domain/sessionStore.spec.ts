@@ -1,6 +1,6 @@
 import { isValidSessionString } from '../../../core/src/domain/session/sessionStateValidation'
 import { toSessionState } from '../../../core/src/domain/session/sessionState'
-import { SESSION_COOKIE_NAME, createSessionStore, deleteSessionCookie } from './sessionStore'
+import { COOKIE_ACCESS_DELAY, SESSION_COOKIE_NAME, createSessionStore, deleteSessionCookie } from './sessionStore'
 
 /**
  * The cookie written here is the same one the modern bundle reads, so its format is not ours to
@@ -15,24 +15,30 @@ describe('session store', () => {
     return match ? decodeURIComponent(match[1]) : undefined
   }
 
+  // Cleared before rather than only after: a spec elsewhere may have left a session cookie behind,
+  // and a stale one would be reused instead of a fresh session being created.
+  beforeEach(() => {
+    deleteSessionCookie()
+  })
+
   afterEach(() => {
     deleteSessionCookie()
   })
 
   it('creates a session with a lowercase uuid', () => {
-    const session = createSessionStore().getOrCreateSession()
+    const session = createSessionStore(100).getOrCreateSession()
 
     expect(session.id).toMatch(/^[0-9a-f-]{36}$/)
   })
 
   it('writes a cookie the modern bundle considers valid', () => {
-    createSessionStore().getOrCreateSession()
+    createSessionStore(100).getOrCreateSession()
 
     expect(isValidSessionString(readRawCookie())).toBe(true)
   })
 
   it('writes the fields the modern bundle expects to find', () => {
-    const session = createSessionStore().getOrCreateSession()
+    const session = createSessionStore(100).getOrCreateSession()
 
     const state = toSessionState(readRawCookie())
     expect(state.id).toBe(session.id)
@@ -43,19 +49,19 @@ describe('session store', () => {
   })
 
   it('reuses the session across calls', () => {
-    const store = createSessionStore()
+    const store = createSessionStore(100)
 
     expect(store.getOrCreateSession().id).toBe(store.getOrCreateSession().id)
   })
 
   it('reuses a session written by a previous page load', () => {
-    const first = createSessionStore().getOrCreateSession()
+    const first = createSessionStore(100).getOrCreateSession()
 
-    expect(createSessionStore().getOrCreateSession().id).toBe(first.id)
+    expect(createSessionStore(100).getOrCreateSession().id).toBe(first.id)
   })
 
   it('pushes the expiration forward on activity', () => {
-    const store = createSessionStore()
+    const store = createSessionStore(100)
     store.getOrCreateSession()
     const firstExpire = Number(toSessionState(readRawCookie()).expire)
 
@@ -69,34 +75,101 @@ describe('session store', () => {
   })
 
   it('starts a new session once the inactivity window has passed', () => {
-    const first = createSessionStore().getOrCreateSession()
+    const first = createSessionStore(100).getOrCreateSession()
 
     jasmine.clock().install()
     jasmine.clock().mockDate(new Date(Date.now() + 16 * ONE_MINUTE))
-    const second = createSessionStore().getOrCreateSession()
+    const second = createSessionStore(100).getOrCreateSession()
     jasmine.clock().uninstall()
 
     expect(second.id).not.toBe(first.id)
   })
 
   it('starts a new session once the maximum duration has passed', () => {
-    const first = createSessionStore().getOrCreateSession()
+    const first = createSessionStore(100).getOrCreateSession()
 
     jasmine.clock().install()
     // Still inside the inactivity window, but past the 4 hour cap.
     jasmine.clock().mockDate(new Date(Date.now() + 4 * 60 * ONE_MINUTE + ONE_MINUTE))
-    const store = createSessionStore()
+    const store = createSessionStore(100)
     const second = store.getOrCreateSession()
     jasmine.clock().uninstall()
 
     expect(second.id).not.toBe(first.id)
   })
 
+  describe('sampling', () => {
+    it('tracks the session when the sample rate is 100', () => {
+      expect(createSessionStore(100).getOrCreateSession().isTracked).toBe(true)
+    })
+
+    it('does not track the session when the sample rate is 0', () => {
+      expect(createSessionStore(0).getOrCreateSession().isTracked).toBe(false)
+    })
+
+    it('records the decision in the cookie so the whole session is consistent', () => {
+      createSessionStore(0).getOrCreateSession()
+
+      // '0' is what the modern bundle writes for a session it decided not to track.
+      expect(toSessionState(readRawCookie()).rum).toBe('0')
+    })
+
+    it('keeps the decision across page loads rather than re-rolling it', () => {
+      createSessionStore(0).getOrCreateSession()
+
+      // A second store with a rate that would always sample must still honour the stored decision.
+      expect(createSessionStore(100).getOrCreateSession().isTracked).toBe(false)
+    })
+
+    it('applies the configured rate', () => {
+      spyOn(Math, 'random').and.returnValue(0.5)
+
+      expect(createSessionStore(60).getOrCreateSession().isTracked).toBe(true)
+      deleteSessionCookie()
+      expect(createSessionStore(40).getOrCreateSession().isTracked).toBe(false)
+    })
+  })
+
+  describe('cookie access', () => {
+    it('does not touch the cookie again within the throttling window', () => {
+      const store = createSessionStore(100)
+      store.getOrCreateSession()
+      const setSpy = spyOnProperty(document, 'cookie', 'set')
+
+      store.getOrCreateSession()
+      store.getOrCreateSession()
+
+      // Every event asks for the session. Writing the cookie each time is a measurable cost on the
+      // browsers this build targets, so reads and writes are throttled the way the modern bundle
+      // throttles them.
+      expect(setSpy).not.toHaveBeenCalled()
+    })
+
+    it('refreshes the cookie once the window has passed', () => {
+      const store = createSessionStore(100)
+      store.getOrCreateSession()
+
+      jasmine.clock().install()
+      jasmine.clock().mockDate(new Date(Date.now() + COOKIE_ACCESS_DELAY + 1))
+      const setSpy = spyOnProperty(document, 'cookie', 'set')
+      store.getOrCreateSession()
+      jasmine.clock().uninstall()
+
+      expect(setSpy).toHaveBeenCalled()
+    })
+
+    it('still returns the same session while throttled', () => {
+      const store = createSessionStore(100)
+
+      expect(store.getOrCreateSession().id).toBe(store.getOrCreateSession().id)
+    })
+  })
+
   it('keeps working when the cookie cannot be persisted', () => {
     const descriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie')!
     Object.defineProperty(document, 'cookie', { get: () => '', set: () => undefined, configurable: true })
 
-    const session = createSessionStore().getOrCreateSession()
+    const session = createSessionStore(100).getOrCreateSession()
 
     Object.defineProperty(document, 'cookie', descriptor)
 

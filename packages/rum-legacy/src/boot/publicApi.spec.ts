@@ -1,6 +1,6 @@
 import type { BuildEnvWindow } from '../../../core/test'
+import { COOKIE_ACCESS_DELAY, deleteSessionCookie } from '../domain/sessionStore'
 import { FLUSH_TIMEOUT } from '../transport/batch'
-import { deleteSessionCookie } from '../domain/sessionStore'
 import { makeRumLegacyPublicApi } from './publicApi'
 
 /**
@@ -46,6 +46,7 @@ describe('public api', () => {
     // Unit builds keep this placeholder unreplaced, so each spec file has to provide it. Relying on
     // another spec file to set it makes the suite order dependent, and karma randomises the order.
     ;(window as unknown as BuildEnvWindow).__BUILD_ENV__SDK_VERSION__ = 'test-version'
+    deleteSessionCookie()
     payloads = []
     jasmine.clock().install()
     originalXhr = window.XMLHttpRequest
@@ -111,6 +112,21 @@ describe('public api', () => {
       })
     }
 
+    it('sends nothing for a session the sample rate excluded', () => {
+      api.init({ ...VALID_CONFIGURATION, sessionSampleRate: 0 })
+      api.addError(new Error('boom'))
+      flush()
+
+      expect(payloads).toEqual([])
+    })
+
+    it('reports the sample rate it was actually configured with', () => {
+      api.init({ ...VALID_CONFIGURATION, sessionSampleRate: 100 })
+      flush()
+
+      expect(sentEvents()[0]._dd.configuration.session_sample_rate).toBe(100)
+    })
+
     it('refuses a sample rate outside 0 to 100', () => {
       api.init({ ...VALID_CONFIGURATION, sessionSampleRate: 500 })
       flush()
@@ -120,6 +136,82 @@ describe('public api', () => {
 
     it('does not throw when called with nothing at all', () => {
       expect(() => anyApi().init()).not.toThrow()
+    })
+  })
+
+  describe('tracking consent', () => {
+    it('collects nothing when consent is withheld at init', () => {
+      api.init({ ...VALID_CONFIGURATION, trackingConsent: 'not-granted' })
+      api.addError(new Error('boom'))
+      flush()
+
+      expect(payloads).toEqual([])
+    })
+
+    it('collects when consent is granted at init', () => {
+      api.init({ ...VALID_CONFIGURATION, trackingConsent: 'granted' })
+      flush()
+
+      expect(payloads.length).toBeGreaterThan(0)
+    })
+
+    it('defaults to granted when the option is absent', () => {
+      api.init(VALID_CONFIGURATION)
+      flush()
+
+      expect(payloads.length).toBeGreaterThan(0)
+    })
+
+    it('starts collecting once consent is granted afterwards', () => {
+      api.init({ ...VALID_CONFIGURATION, trackingConsent: 'not-granted' })
+
+      api.setTrackingConsent('granted')
+      api.addError(new Error('boom'))
+      flush()
+
+      const types = sentEvents().map((event) => event.type as string)
+      expect(types).toContain('error')
+    })
+
+    it('stops collecting when consent is withdrawn', () => {
+      api.init(VALID_CONFIGURATION)
+      api.setTrackingConsent('not-granted')
+      payloads = []
+
+      api.addError(new Error('boom'))
+      flush()
+
+      expect(payloads).toEqual([])
+    })
+
+    it('does not send what was buffered before consent was withdrawn', () => {
+      api.init(VALID_CONFIGURATION)
+      api.addError(new Error('boom'))
+
+      api.setTrackingConsent('not-granted')
+      flush()
+
+      expect(payloads).toEqual([])
+    })
+
+    it('clears the session when consent is withdrawn', () => {
+      api.init(VALID_CONFIGURATION)
+      expect(document.cookie).toContain('_dd_s=')
+
+      api.setTrackingConsent('not-granted')
+
+      expect(document.cookie).not.toContain('_dd_s=id')
+    })
+
+    it('treats an unrecognised value as consent not given, like the modern bundle does', () => {
+      api.init({ ...VALID_CONFIGURATION, trackingConsent: 'granted' })
+      payloads = []
+
+      api.setTrackingConsent('yes-please' as any)
+      api.addError(new Error('boom'))
+      flush()
+
+      expect(payloads).toEqual([])
     })
   })
 
@@ -309,6 +401,27 @@ describe('public api', () => {
   })
 
   describe('safety net', () => {
+    /**
+     * Replaces cookie access with a throwing one and puts the real descriptor back afterwards. A
+     * jasmine spy would still be installed while this spec's teardown runs, which needs to write
+     * the cookie.
+     */
+    function withThrowingCookieAccess(operation: () => void) {
+      const descriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie')!
+      Object.defineProperty(document, 'cookie', {
+        get: () => '',
+        set: () => {
+          throw new Error('cookie access denied')
+        },
+        configurable: true,
+      })
+      try {
+        operation()
+      } finally {
+        Object.defineProperty(document, 'cookie', descriptor)
+      }
+    }
+
     const NO_OP_METHODS = [
       'setTrackingConsent',
       'setViewContext',
@@ -405,6 +518,34 @@ describe('public api', () => {
         api.addError(new Error('boom'))
         flush()
       }).not.toThrow()
+    })
+
+    it('does not let a failure escape through the page exit listener', () => {
+      const handlers: { [eventName: string]: Array<() => void> } = {}
+      spyOn(window, 'addEventListener').and.callFake((eventName: string, handler: any) => {
+        handlers[eventName] = handlers[eventName] || []
+        handlers[eventName].push(handler)
+      })
+      const freshApi = makeRumLegacyPublicApi()
+      freshApi.init(VALID_CONFIGURATION)
+      // Past the session cookie throttling window, so the exit really does touch the cookie.
+      jasmine.clock().mockDate(new Date(Date.now() + COOKIE_ACCESS_DELAY + 1))
+
+      // Some privacy modes throw on cookie access. The browser calls the exit listener directly, so
+      // without a guard that failure would surface as an uncaught error while the page unloads.
+      withThrowingCookieAccess(() => {
+        expect(() => handlers.beforeunload[0]()).not.toThrow()
+      })
+      ;(freshApi as unknown as { _stop: () => void })._stop()
+    })
+
+    it('does not let a failure escape through a public method either', () => {
+      api.init(VALID_CONFIGURATION)
+      jasmine.clock().mockDate(new Date(Date.now() + COOKIE_ACCESS_DELAY + 1))
+
+      withThrowingCookieAccess(() => {
+        expect(() => api.addError(new Error('boom'))).not.toThrow()
+      })
     })
 
     it('does not let a circular context break reporting', () => {

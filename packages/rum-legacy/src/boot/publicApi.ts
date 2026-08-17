@@ -1,9 +1,10 @@
 import { assembleEvent } from '../domain/eventAssembly'
 import type { AssemblyConfiguration, ViewContext } from '../domain/eventAssembly'
 import { startErrorCollection } from '../domain/errorCollection'
-import { createSessionStore } from '../domain/sessionStore'
+import { createSessionStore, deleteSessionCookie } from '../domain/sessionStore'
 import { startViewManager } from '../domain/viewManager'
 import { displayError, displayWarn } from '../tools/display'
+import { monitor } from '../tools/monitor'
 import { isEmptyObject, shallowMerge } from '../tools/objectUtils'
 import { getZoneJsOriginalValue } from '../tools/zoneJs'
 import { startBatch } from '../transport/batch'
@@ -25,6 +26,8 @@ export interface LegacyInitConfiguration {
   version?: string
   env?: string
   sessionSampleRate?: number
+  /** 'granted' or 'not-granted'. Anything else counts as not granted. Defaults to 'granted'. */
+  trackingConsent?: string
   // Options that only apply to the modern bundle are accepted and ignored, so a page can share one
   // configuration object between both builds.
   [key: string]: unknown
@@ -32,26 +35,16 @@ export interface LegacyInitConfiguration {
 
 type Context = { [key: string]: any }
 
-/*
- * Every public method is wrapped: a failure inside the SDK must never surface as an exception in
- * the host page. This is the last line of the safety net, after the individual try/catch blocks in
- * the transport and collection layers.
- */
-function monitor<Args extends any[], Result>(fn: (...args: Args) => Result): (...args: Args) => Result | undefined {
-  return function (...args: Args): Result | undefined {
-    try {
-      return fn(...args)
-    } catch (error) {
-      displayError('internal error', error)
-      return undefined
-    }
-  }
-}
+const TRACKING_CONSENT_GRANTED = 'granted'
+const TRACKING_CONSENT_NOT_GRANTED = 'not-granted'
 
 export function makeRumLegacyPublicApi() {
   let running: ReturnType<typeof start> | undefined
   let initConfiguration: LegacyInitConfiguration | undefined
 
+  // Collection only runs while this is exactly 'granted', matching the modern bundle. An
+  // unrecognised value therefore withholds collection rather than silently enabling it.
+  let trackingConsent: string = TRACKING_CONSENT_GRANTED
   let globalContext: Context = {}
   let userContext: Context = {}
   let accountContext: Context = {}
@@ -64,7 +57,7 @@ export function makeRumLegacyPublicApi() {
       version: configuration.version,
     }
 
-    const sessionStore = createSessionStore()
+    const sessionStore = createSessionStore(assemblyConfiguration.sessionSampleRate)
     const buildUrl = createIntakeUrlBuilder({
       clientToken: configuration.clientToken,
       proxy: configuration.proxy,
@@ -78,6 +71,10 @@ export function makeRumLegacyPublicApi() {
     // emitted while startViewManager is still running, before the binding below exists.
     function sendEvent(type: string, properties: Context, view: ViewContext, context?: Context): void {
       const session = sessionStore.getOrCreateSession()
+      if (!session.isTracked) {
+        // Sampled out. The decision belongs to the session, so this holds for every event in it.
+        return
+      }
       const event = assembleEvent({
         type,
         configuration: assemblyConfiguration,
@@ -120,19 +117,24 @@ export function makeRumLegacyPublicApi() {
       batch.flushOnExit()
     }
 
+    // Wrapped: the browser calls this one, so an internal failure here would become an uncaught
+    // error in the page rather than being contained.
+    const guardedOnPageExit = monitor(onPageExit)
     const addEventListener = getZoneJsOriginalValue(window, 'addEventListener')
-    addEventListener.call(window, 'beforeunload', onPageExit)
-    addEventListener.call(window, 'unload', onPageExit)
+    addEventListener.call(window, 'beforeunload', guardedOnPageExit)
+    addEventListener.call(window, 'unload', guardedOnPageExit)
 
     return {
-      stop() {
+      stop(flushPending: boolean) {
         viewManager.stop()
         errorCollection.stop()
-        batch.flush()
+        if (flushPending) {
+          batch.flush()
+        }
         batch.stop()
         const removeEventListener = getZoneJsOriginalValue(window, 'removeEventListener')
-        removeEventListener.call(window, 'beforeunload', onPageExit)
-        removeEventListener.call(window, 'unload', onPageExit)
+        removeEventListener.call(window, 'beforeunload', guardedOnPageExit)
+        removeEventListener.call(window, 'unload', guardedOnPageExit)
       },
       addError(value: unknown, context?: Context) {
         errorCollection.addError(value, context)
@@ -187,7 +189,10 @@ export function makeRumLegacyPublicApi() {
         return
       }
       initConfiguration = configuration
-      running = start(configuration)
+      trackingConsent = configuration.trackingConsent ?? TRACKING_CONSENT_GRANTED
+      if (trackingConsent === TRACKING_CONSENT_GRANTED) {
+        running = start(configuration)
+      }
     }),
 
     getInitConfiguration: monitor(() => initConfiguration),
@@ -256,7 +261,7 @@ export function makeRumLegacyPublicApi() {
     }),
 
     stopSession: monitor(() => {
-      running?.stop()
+      running?.stop(true)
       running = undefined
     }),
 
@@ -270,7 +275,29 @@ export function makeRumLegacyPublicApi() {
      * "undefined is not a function" and takes the host page down, which is the exact failure this
      * build exists to prevent.
      */
-    setTrackingConsent: monitor(() => undefined),
+    setTrackingConsent: monitor((consent: string) => {
+      if (consent !== TRACKING_CONSENT_GRANTED && consent !== TRACKING_CONSENT_NOT_GRANTED) {
+        // Warned about rather than ignored: a typo would otherwise silently stop all collection.
+        displayWarn(`Unknown tracking consent "${String(consent)}", treating it as not granted.`)
+      }
+      if (consent === trackingConsent) {
+        return
+      }
+      trackingConsent = consent
+
+      if (consent === TRACKING_CONSENT_GRANTED) {
+        if (initConfiguration && !running) {
+          running = start(initConfiguration)
+        }
+        return
+      }
+
+      // Consent withdrawn: drop what is buffered rather than sending it, and forget the session so
+      // a later consent starts a new one.
+      running?.stop(false)
+      running = undefined
+      deleteSessionCookie()
+    }),
     setViewContext: monitor(() => undefined),
     setViewContextProperty: monitor(() => undefined),
     getViewContext: monitor(() => ({})),
@@ -288,7 +315,7 @@ export function makeRumLegacyPublicApi() {
   // the same way the modern bundle hides its debug switch.
   Object.defineProperty(api, '_stop', {
     value: () => {
-      running?.stop()
+      running?.stop(true)
       running = undefined
     },
     enumerable: false,

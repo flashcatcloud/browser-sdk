@@ -16,11 +16,22 @@ const SESSION_EXPIRATION_DELAY = 15 * ONE_MINUTE
 /** Hard cap on a session's lifetime, however active it is. */
 const SESSION_TIME_OUT_DELAY = 4 * ONE_HOUR
 
-/** '2' is "tracked, without session replay", the only state this build can be in. */
+/** Tracking decision, stored in the cookie using the same values as the modern bundle. */
+const NOT_TRACKED = '0'
 const TRACKED_WITHOUT_SESSION_REPLAY = '2'
+
+/**
+ * How long a session may be reused without touching the cookie again.
+ *
+ * The session is looked up for every event, and reading and writing document.cookie is a full
+ * string parse each time. On the browsers this build targets that cost is worth avoiding, and the
+ * modern bundle throttles the same operation over the same window.
+ */
+export const COOKIE_ACCESS_DELAY = 1000
 
 export interface LegacySession {
   id: string
+  isTracked: boolean
 }
 
 interface SessionState {
@@ -30,31 +41,45 @@ interface SessionState {
   rum?: string
 }
 
-export function createSessionStore() {
+export function createSessionStore(sessionSampleRate: number) {
   // Kept in memory as well as in the cookie so that a page which cannot persist cookies still
   // reports a stable session for the lifetime of the document.
   let inMemoryState: SessionState | undefined
+  let lastCookieAccess: number | undefined
 
   return {
     getOrCreateSession(): LegacySession {
       const now = dateNow()
+
+      if (inMemoryState && lastCookieAccess !== undefined && now - lastCookieAccess < COOKIE_ACCESS_DELAY) {
+        return toSession(inMemoryState)
+      }
+
       let state = readSessionCookie() || inMemoryState
 
       if (!state || !state.id || isExpired(state, now)) {
         state = {
           id: generateUUID(),
           created: String(now),
-          rum: TRACKED_WITHOUT_SESSION_REPLAY,
+          // Decided once, when the session starts, and carried in the cookie from then on. Rolling
+          // it per event would send a fraction of the events of every session instead of all the
+          // events of a fraction of the sessions.
+          rum: Math.random() * 100 < sessionSampleRate ? TRACKED_WITHOUT_SESSION_REPLAY : NOT_TRACKED,
         }
       }
 
       state.expire = String(now + SESSION_EXPIRATION_DELAY)
       inMemoryState = state
+      lastCookieAccess = now
       writeSessionCookie(state)
 
-      return { id: state.id! }
+      return toSession(state)
     },
   }
+}
+
+function toSession(state: SessionState): LegacySession {
+  return { id: state.id!, isTracked: state.rum === TRACKED_WITHOUT_SESSION_REPLAY }
 }
 
 function isExpired(state: SessionState, now: number): boolean {
