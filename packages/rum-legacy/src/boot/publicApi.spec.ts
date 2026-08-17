@@ -83,6 +83,19 @@ describe('public api', () => {
       expect(payloads).toEqual([])
     })
 
+    it('hands out a copy of the configuration, not the object it keeps', () => {
+      api.init({ ...VALID_CONFIGURATION, trackingConsent: 'not-granted' })
+
+      const returned = api.getInitConfiguration() as Record<string, unknown>
+      returned.applicationId = 'tampered'
+      api.setTrackingConsent('granted')
+      flush()
+
+      // The stored configuration is what a later consent grant starts from, so handing out the live
+      // object would let a caller change what the SDK reports as its application.
+      expect(sentEvents()[0].application.id).toBe(VALID_CONFIGURATION.applicationId)
+    })
+
     it('exposes the configuration it was initialised with', () => {
       api.init(VALID_CONFIGURATION)
 
@@ -256,6 +269,24 @@ describe('public api', () => {
       const closedView = eventsOfType('view').filter((event) => event.view.is_active === false)[0]
       expect(closedView.view.error.count).toBe(1)
       expect(closedView.view.action.count).toBe(1)
+    })
+
+    it('hands out a copy of the global context, not the object it keeps', () => {
+      api.setGlobalContext({ tenant: 'acme' })
+      ;(api.getGlobalContext() as Record<string, unknown>).tenant = 'tampered'
+      api.addError(new Error('boom'))
+      flush()
+
+      expect(eventsOfType('error')[0].context).toEqual({ tenant: 'acme' })
+    })
+
+    it('hands out a copy of the user, not the object it keeps', () => {
+      api.setUser({ id: 'u-1' })
+      ;(api.getUser() as Record<string, unknown>).id = 'tampered'
+      api.addError(new Error('boom'))
+      flush()
+
+      expect(eventsOfType('error')[0].usr).toEqual({ id: 'u-1' })
     })
 
     it('attaches the global context to events', () => {

@@ -144,7 +144,7 @@ function serialize(event: object): string | undefined {
  * would undercount any non-latin content by a factor of three, letting batches grow well past the
  * intake limit on pages that are not written in English.
  */
-export function computeBytesCount(candidate: string): number {
+function computeBytesCount(candidate: string): number {
   let count = 0
 
   for (let i = 0; i < candidate.length; i++) {

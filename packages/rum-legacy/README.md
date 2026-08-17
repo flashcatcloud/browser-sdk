@@ -142,9 +142,16 @@ yarn typecheck      # ES5 lib check on its own
 runtime crash, and `paths` is emptied so `@flashcatcloud/*` imports do not resolve — those packages
 are written against ES2018 and importing one would defeat the purpose of this build.
 
-`scripts/check-es5-compatibility.js` runs as part of the bundle build. It parses the output as ES5,
-scans it for runtime APIs the target browsers lack, and asserts that the standard bundles are
-rejected, so a broken check cannot pass silently.
+Two checks run as part of the bundle build. `scripts/check-es5-compatibility.js` parses the output
+as ES5, scans it for runtime APIs the target browsers lack, and asserts that the standard bundles
+are _rejected_, so a broken check cannot pass silently.
+
+`scripts/check-legacy-bundle-runtime.js` then executes the emitted file in a deliberately
+impoverished environment — no `fetch`, no `Promise`, no `sendBeacon`, and an `XMLHttpRequest` that
+only fires `onreadystatechange` — and asserts what lands on the wire: a synchronous POST, the intake
+path and parameters inside `ddforward`, and a payload carrying a view and an error. Every unit spec
+runs against TypeScript compiled by the test runner; between that and the shipped file sit Terser
+and the webpack runtime, and this is what covers the gap.
 
 ## Testing, and what it does not cover
 

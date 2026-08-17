@@ -196,7 +196,14 @@ export function makeRumLegacyPublicApi() {
       }
     }),
 
-    getInitConfiguration: monitor(() => initConfiguration),
+    /*
+     * The getters below hand out copies. The stored configuration is what a later consent grant
+     * starts from, and the contexts are attached to every event, so returning the live objects
+     * would let a caller change SDK behaviour by mutating what it read. The standard bundles clone
+     * for the same reason. Nested objects are still shared: the configuration holds only scalars,
+     * and cloning arbitrarily deep customer data is not worth the code here.
+     */
+    getInitConfiguration: monitor(() => (initConfiguration ? shallowMerge(initConfiguration, {}) : undefined)),
 
     getInternalContext: monitor(() => undefined),
 
@@ -222,7 +229,7 @@ export function makeRumLegacyPublicApi() {
     setGlobalContext: monitor((context: Context) => {
       globalContext = context ?? {}
     }),
-    getGlobalContext: monitor(() => globalContext),
+    getGlobalContext: monitor(() => shallowMerge(globalContext, {})),
     setGlobalContextProperty: monitor((key: string, value: any) => {
       globalContext[key] = value
     }),
@@ -236,7 +243,7 @@ export function makeRumLegacyPublicApi() {
     setUser: monitor((user: Context) => {
       userContext = user ?? {}
     }),
-    getUser: monitor(() => userContext),
+    getUser: monitor(() => shallowMerge(userContext, {})),
     setUserProperty: monitor((key: string, value: any) => {
       userContext[key] = value
     }),
@@ -250,7 +257,7 @@ export function makeRumLegacyPublicApi() {
     setAccount: monitor((account: Context) => {
       accountContext = account ?? {}
     }),
-    getAccount: monitor(() => accountContext),
+    getAccount: monitor(() => shallowMerge(accountContext, {})),
     setAccountProperty: monitor((key: string, value: any) => {
       accountContext[key] = value
     }),

@@ -105,6 +105,23 @@ describe('error collection', () => {
     expect(collected[0].message).toBe('bad access')
   })
 
+  it('recognises an error created in another frame', () => {
+    // Frameset and iframe heavy pages are the norm for applications still running these browsers,
+    // and an Error built in another frame fails `instanceof Error` in this one. Treating it as a
+    // plain value would stringify it and lose the message, the type and the stack.
+    const frame = document.createElement('iframe')
+    document.body.appendChild(frame)
+    const ForeignError = (frame.contentWindow as unknown as { Error: ErrorConstructor }).Error
+    const foreignError = new ForeignError('from another frame')
+    const collection = start()
+
+    collection.addError(foreignError)
+    document.body.removeChild(frame)
+
+    expect(collected[0].message).toBe('from another frame')
+    expect(collected[0].type).toBe('Error')
+  })
+
   it('reports a manually added error as handled', () => {
     const collection = start()
 

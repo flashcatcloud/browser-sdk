@@ -69,7 +69,7 @@ function computeError(message: Event | string, url?: string, line?: number, erro
     source_type: 'browser',
   }
 
-  if (error) {
+  if (isError(error)) {
     fillFromError(collected, error)
     return collected
   }
@@ -91,13 +91,23 @@ function computeManualError(value: unknown): CollectedError {
     source_type: 'browser',
   }
 
-  if (value instanceof Error) {
+  if (isError(value)) {
     fillFromError(collected, value)
   } else {
     collected.message = String(value)
   }
 
   return collected
+}
+
+/**
+ * `instanceof` compares against this frame's Error constructor, so an error built in another frame
+ * fails it. Frameset and iframe heavy applications are the norm on these browsers, and treating
+ * such an error as a plain value would stringify it and lose the message, type and stack. The
+ * standard bundles make the same allowance.
+ */
+function isError(value: unknown): value is Error {
+  return value instanceof Error || Object.prototype.toString.call(value) === '[object Error]'
 }
 
 /** Everything an Error instance can contribute. Anonymous errors keep the message already set. */

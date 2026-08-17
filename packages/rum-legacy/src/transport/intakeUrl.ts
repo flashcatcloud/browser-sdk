@@ -83,7 +83,7 @@ function buildTag(key: string, rawValue: string): string {
  * only option: IE9 has no URL constructor, and merely referencing the `URL` global to feature-detect
  * it throws a ReferenceError there.
  */
-export function normalizeUrl(url: string): string {
+function normalizeUrl(url: string): string {
   const anchor = document.createElement('a')
   anchor.href = url
   return anchor.href
