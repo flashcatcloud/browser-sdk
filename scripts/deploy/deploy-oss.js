@@ -4,20 +4,7 @@ const OpenApi = require('@alicloud/openapi-client')
 const { printLog, printError, runMain } = require('../lib/executionUtils')
 const { forEachFile } = require('../lib/filesUtils')
 
-const { buildBundleFolder, packages } = require('./lib/deploymentUtils')
-
-const AWS_CONFIG = {
-  prod: {
-    dir: '/browser-sdk',
-    endpoint: 'flashduty-public.oss-cn-beijing.aliyuncs.com',
-    cdnURL: 'static.flashcat.cloud',
-  },
-  staging: {
-    dir: '/browser-sdk-staging',
-    endpoint: 'flashduty-public.oss-cn-beijing.aliyuncs.com',
-    cdnURL: 'static.flashcat.cloud',
-  },
-}
+const { buildBundleFolder, packages, ossEnvironments } = require('./lib/deploymentUtils')
 
 const client = new OSS({
   region: process.env.OSS_REGION,
@@ -47,18 +34,18 @@ if (require.main === module) {
 }
 
 async function main(env, version) {
-  const awsConfig = AWS_CONFIG[env]
+  const ossConfig = ossEnvironments[env]
 
   let cloudfrontPathsToInvalidate = []
   for (const { packageName } of packages) {
-    const pathsToInvalidate = await uploadPackage(awsConfig, packageName, version)
+    const pathsToInvalidate = await uploadPackage(ossConfig, packageName, version)
     cloudfrontPathsToInvalidate.push(...pathsToInvalidate)
   }
   await refreshCdnCache(cloudfrontPathsToInvalidate)
 }
 
 // 读取bundle文件夹，上传到ali oss，并刷新cdn缓存
-async function uploadPackage(awsConfig, packageName, version) {
+async function uploadPackage(ossConfig, packageName, version) {
   const cloudfrontPathsToInvalidate = []
   const bundleFolder = buildBundleFolder(packageName)
 
@@ -68,11 +55,11 @@ async function uploadPackage(awsConfig, packageName, version) {
     }
 
     const relativeBundlePath = bundlePath.replace(`${bundleFolder}/`, '')
-    const uploadPath = generateUploadPath(awsConfig, relativeBundlePath, version)
+    const uploadPath = generateUploadPath(ossConfig, relativeBundlePath, version)
     // 上传到ali oss
     const uploadResult = await client.put(uploadPath, bundlePath)
     // 自有域名
-    const ownDomainUrl = uploadResult.url.replace(awsConfig.endpoint, awsConfig.cdnURL)
+    const ownDomainUrl = uploadResult.url.replace(ossConfig.endpoint, ossConfig.cdnURL)
     printLog(`成功将 ${bundlePath} 上传到 ${uploadPath}，开始刷新缓存`)
     cloudfrontPathsToInvalidate.push(ownDomainUrl)
   })
@@ -80,8 +67,8 @@ async function uploadPackage(awsConfig, packageName, version) {
   return cloudfrontPathsToInvalidate
 }
 // ex: /browser-sdk/v4/datadog-rum.js
-function generateUploadPath(awsConfig, relativeBundlePath, version) {
-  return `${awsConfig.dir}/${version}/${relativeBundlePath}`
+function generateUploadPath(ossConfig, relativeBundlePath, version) {
+  return `${ossConfig.dir}/${version}/${relativeBundlePath}`
 }
 
 async function refreshCdnCache(ossFilePath) {
