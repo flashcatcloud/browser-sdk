@@ -93,6 +93,10 @@
        * The run finishes in seconds rather than minutes: cloud device sessions are metered, so the
        * batch is filled to its message limit to flush over the asynchronous path immediately, and
        * results survive the exit-check reload in sessionStorage (native since IE8).
+       *
+       * This file must never be run through a formatter that adds trailing commas: they are legal
+       * ES5, but IE8 counts a trailing comma in an array literal as one more (undefined) element,
+       * and IE6/7 reject them outright. It is listed in .prettierignore for exactly that reason.
        */
       var pageErrorHandlerCalls = 0
       window.onerror = function (message, url, line) {
@@ -158,14 +162,14 @@
       }
       function showEnvironment() {
         var mode =
-          typeof document.documentMode === 'undefined' ? '(none - not a Trident engine)' : document.documentMode
+          typeof document.documentMode === 'undefined' ? '(none - documentMode needs IE8+, or not Trident at all)' : document.documentMode
         var pairs = [
           ['document.documentMode', String(mode)],
           ['navigator.userAgent', navigator.userAgent],
           [
             'has fetch / Promise',
-            (typeof window.fetch === 'function') + ' / ' + (typeof window.Promise === 'function'),
-          ],
+            (typeof window.fetch === 'function') + ' / ' + (typeof window.Promise === 'function')
+          ]
         ]
         var box = document.getElementById('envBox')
         while (box.firstChild) {
@@ -191,8 +195,16 @@
         box.appendChild(table)
       }
 
+      function createXhr() {
+        if (typeof window.XMLHttpRequest !== 'undefined') {
+          return new XMLHttpRequest()
+        }
+        // IE6 has only the ActiveX flavour.
+        return new ActiveXObject('Microsoft.XMLHTTP')
+      }
+
       function request(method, url, onDone) {
-        var xhr = new XMLHttpRequest()
+        var xhr = createXhr()
         xhr.open(method, url, true)
         xhr.onreadystatechange = function () {
           if (xhr.readyState === 4) {
@@ -271,7 +283,7 @@
               window.FC_RUM.init({
                 applicationId: '00000000-aaaa-0000-aaaa-000000000000',
                 clientToken: 'verification_token',
-                proxy: '/rum-intake/',
+                proxy: '/rum-intake/'
               })
             } catch (error) {
               initFailed = error && error.message ? error.message : String(error)
@@ -337,7 +349,11 @@
       function assertServerView(arrived) {
         if (arrived.length === 0) {
           record('The intake received a request', 'fail', 'nothing arrived within 15s')
-          note('Done, with failures.')
+          recordCleanliness()
+          note(
+            'Done. Below the support floor this is the expected shape: collection rows red, ' +
+              'and "No unexpected uncaught page errors" green means the page was left untouched.'
+          )
           return
         }
         var first = arrived[0]
@@ -371,6 +387,16 @@
           indexOf(types, 'view') !== -1 && indexOf(types, 'error') !== -1 ? 'pass' : 'fail',
           summarize(types) + '  (across ' + arrived.length + ' request(s))'
         )
+        recordCleanliness()
+        note(
+          'Done. ' +
+            arrived.length +
+            ' request(s) reached the intake. ' +
+            'Press "Check page exit" to also verify the synchronous request sent while the page unloads.'
+        )
+      }
+
+      function recordCleanliness() {
         var foreign = []
         for (var e = 0; e < window.__pageErrors.length; e++) {
           if (window.__pageErrors[e].indexOf('verification uncaught error') === -1) {
@@ -381,12 +407,6 @@
           'No unexpected uncaught page errors',
           foreign.length === 0 ? 'pass' : 'fail',
           foreign.length === 0 ? 'none (the one deliberate test error is excluded)' : foreign.join(' | ')
-        )
-        note(
-          'Done. ' +
-            arrived.length +
-            ' request(s) reached the intake. ' +
-            'Press "Check page exit" to also verify the synchronous request sent while the page unloads.'
         )
       }
 
