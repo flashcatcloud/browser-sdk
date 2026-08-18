@@ -1,0 +1,332 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>RUM legacy build verification</title>
+    <style>
+      body {
+        font: 13px/1.5 monospace;
+        margin: 16px;
+        color: #222;
+      }
+      h1 {
+        font-size: 15px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin-top: 12px;
+      }
+      td,
+      th {
+        border: 1px solid #ccc;
+        padding: 4px 6px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: #eee;
+      }
+      .pass {
+        background: #d8f5d8;
+      }
+      .fail {
+        background: #f8d4d4;
+      }
+      .wait {
+        background: #fdf3d0;
+      }
+      .env td {
+        background: #f4f4f4;
+      }
+      button {
+        font: inherit;
+        padding: 4px 10px;
+        margin-right: 6px;
+      }
+      #note {
+        margin-top: 12px;
+        color: #555;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>RUM legacy build verification</h1>
+    <div>
+      <button id="run" type="button">Run checks</button>
+      <button id="exit" type="button">Check page exit (reloads)</button>
+    </div>
+    <table id="env">
+      <tbody></tbody>
+    </table>
+    <table id="results">
+      <thead>
+        <tr>
+          <th style="width: 26px">#</th>
+          <th style="width: 40%">Check</th>
+          <th style="width: 70px">Result</th>
+          <th>Observed</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div id="note"></div>
+
+    <script>
+      /*
+       * Everything here is ES5 and writes its output into the page. The browsers this verifies
+       * often have no usable developer tools, so anything logged to a console would be invisible on
+       * the device under test.
+       *
+       * A page-level error handler is installed before the SDK so the run can also prove the SDK
+       * chains to it rather than replacing it.
+       */
+      var pageErrorHandlerCalls = 0
+      window.onerror = function () {
+        pageErrorHandlerCalls++
+        return false
+      }
+
+      var rows = []
+      function record(name, state, observed) {
+        rows.push({ name: name, state: state, observed: String(observed) })
+        render()
+      }
+      function render() {
+        var body = document.getElementById('results').getElementsByTagName('tbody')[0]
+        var html = ''
+        for (var i = 0; i < rows.length; i++) {
+          html +=
+            '<tr class="' +
+            rows[i].state +
+            '"><td>' +
+            (i + 1) +
+            '</td><td>' +
+            rows[i].name +
+            '</td><td>' +
+            rows[i].state.toUpperCase() +
+            '</td><td>' +
+            escapeHtml(rows[i].observed) +
+            '</td></tr>'
+        }
+        body.innerHTML = html
+      }
+      function escapeHtml(text) {
+        return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      }
+      function showEnvironment() {
+        var body = document.getElementById('env').getElementsByTagName('tbody')[0]
+        var mode =
+          typeof document.documentMode === 'undefined' ? '(none — not a Trident engine)' : document.documentMode
+        body.innerHTML =
+          '<tr class="env"><td style="width:26%">document.documentMode</td><td>' +
+          mode +
+          '</td></tr>' +
+          '<tr class="env"><td>navigator.userAgent</td><td>' +
+          escapeHtml(navigator.userAgent) +
+          '</td></tr>' +
+          '<tr class="env"><td>has fetch / Promise</td><td>' +
+          (typeof window.fetch === 'function') +
+          ' / ' +
+          (typeof window.Promise === 'function') +
+          '</td></tr>'
+      }
+
+      function request(method, url, onDone) {
+        var xhr = new XMLHttpRequest()
+        xhr.open(method, url, true)
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState === 4) {
+            onDone(xhr.status, xhr.responseText)
+          }
+        }
+        xhr.send(null)
+      }
+
+      function loadBundle(onDone) {
+        var script = document.createElement('script')
+        script.src = 'fc-rum-legacy.js?cache=' + new Date().getTime()
+        script.onload = function () {
+          onDone(true)
+        }
+        script.onerror = function () {
+          onDone(false)
+        }
+        // IE9 fires onreadystatechange rather than onload for scripts.
+        script.onreadystatechange = function () {
+          if (script.readyState === 'loaded' || script.readyState === 'complete') {
+            onDone(true)
+          }
+        }
+        document.getElementsByTagName('head')[0].appendChild(script)
+      }
+
+      function runChecks() {
+        rows = []
+        render()
+        showEnvironment()
+        document.getElementById('note').innerHTML = 'running…'
+
+        request('GET', '/reset?cache=' + new Date().getTime(), function () {
+          loadBundle(function (loaded) {
+            if (!loaded || !window.FC_RUM) {
+              record('The bundle parses and loads', 'fail', 'window.FC_RUM is ' + typeof window.FC_RUM)
+              document.getElementById('note').innerHTML =
+                'Stopped: nothing else can be checked while the script does not load.'
+              return
+            }
+            record('The bundle parses and loads', 'pass', 'FC_RUM.version = ' + window.FC_RUM.version)
+
+            var initFailed = null
+            try {
+              window.FC_RUM.init({
+                applicationId: '00000000-aaaa-0000-aaaa-000000000000',
+                clientToken: 'verification_token',
+                proxy: '/rum-intake/',
+              })
+            } catch (error) {
+              initFailed = error && error.message ? error.message : String(error)
+            }
+            record('init() does not throw into the page', initFailed ? 'fail' : 'pass', initFailed || 'no exception')
+
+            try {
+              window.FC_RUM.addError(new Error('verification error'))
+              window.FC_RUM.addAction('verification action')
+              record('addError / addAction do not throw', 'pass', 'no exception')
+            } catch (error2) {
+              record('addError / addAction do not throw', 'fail', String(error2))
+            }
+
+            var before = pageErrorHandlerCalls
+            setTimeout(function () {
+              throwUncaught()
+              setTimeout(function () {
+                record(
+                  'An uncaught error still reaches the page handler',
+                  pageErrorHandlerCalls > before ? 'pass' : 'fail',
+                  'page handler calls: ' + before + ' -> ' + pageErrorHandlerCalls
+                )
+                record(
+                  'Session cookie is written',
+                  document.cookie.indexOf('_dd_s=') !== -1 ? 'pass' : 'fail',
+                  document.cookie || '(empty)'
+                )
+                inspectServer()
+              }, 300)
+            }, 100)
+          })
+        })
+      }
+
+      function throwUncaught() {
+        setTimeout(function () {
+          throw new Error('verification uncaught error')
+        }, 0)
+      }
+
+      function inspectServer() {
+        document.getElementById('note').innerHTML = 'waiting for the batch to be sent…'
+        // The batch flushes on its own timer; poll rather than assume it has arrived.
+        var attempts = 0
+        function poll() {
+          attempts++
+          request('GET', '/received?cache=' + new Date().getTime(), function (status, text) {
+            var arrived = []
+            // JSON.parse is native from IE8 on; eval would also break under any CSP.
+            try {
+              arrived = JSON.parse(text)
+            } catch (error) {
+              arrived = []
+            }
+            if (arrived.length === 0 && attempts < 40) {
+              setTimeout(poll, 1000)
+              return
+            }
+            reportServerView(arrived)
+          })
+        }
+        poll()
+      }
+
+      function reportServerView(arrived) {
+        if (arrived.length === 0) {
+          record('The intake received a request', 'fail', 'nothing arrived within 40s')
+          document.getElementById('note').innerHTML = 'Done, with failures.'
+          return
+        }
+        var first = arrived[0]
+        record('The intake received a request', 'pass', first.method + ' ' + first.url.substring(0, 60) + '…')
+        record(
+          'The request carries text/plain, which the intake requires',
+          first.contentType && first.contentType.indexOf('text/plain') === 0 ? 'pass' : 'fail',
+          'Content-Type: ' + (first.contentType || '(none sent)')
+        )
+        var forwarded = decodeURIComponent((first.url.split('?ddforward=')[1] || '').split('&')[0])
+        record(
+          'The intake path travels inside ddforward',
+          forwarded.indexOf('/api/v2/rum') === 0 ? 'pass' : 'fail',
+          forwarded || '(no ddforward)'
+        )
+        var types = []
+        var lines = first.body.split('\n')
+        for (var i = 0; i < lines.length; i++) {
+          if (lines[i].length === 0) {
+            continue
+          }
+          var match = /"type":"([a-z_]+)"/.exec(lines[i])
+          types.push(match ? match[1] : '?')
+        }
+        record(
+          'The payload carries a view and an error',
+          indexOf(types, 'view') !== -1 && indexOf(types, 'error') !== -1 ? 'pass' : 'fail',
+          types.join(', ') + '  (' + first.body.length + ' bytes)'
+        )
+        var exitRequests = 0
+        for (var j = 0; j < arrived.length; j++) {
+          if (arrived[j].sync) {
+            exitRequests++
+          }
+        }
+        document.getElementById('note').innerHTML =
+          'Done. ' +
+          arrived.length +
+          ' request(s) reached the intake. ' +
+          'Use the exit button to check the synchronous request sent while the page unloads.'
+      }
+
+      function indexOf(list, value) {
+        for (var i = 0; i < list.length; i++) {
+          if (list[i] === value) {
+            return i
+          }
+        }
+        return -1
+      }
+
+      document.getElementById('run').onclick = runChecks
+      document.getElementById('exit').onclick = function () {
+        // Reloading exercises the beforeunload path, and the reloaded page reports what arrived.
+        window.location.href = 'index.html?after-exit=1'
+      }
+
+      showEnvironment()
+      if (window.location.search.indexOf('after-exit=1') !== -1) {
+        document.getElementById('note').innerHTML = 'Checking what the exit sent…'
+        request('GET', '/received?cache=' + new Date().getTime(), function (status, text) {
+          var arrived = []
+          try {
+            arrived = JSON.parse(text)
+          } catch (error) {
+            arrived = []
+          }
+          record(
+            'The page exit delivered a final request',
+            arrived.length > 0 ? 'pass' : 'fail',
+            arrived.length + ' request(s) recorded before the reload'
+          )
+          document.getElementById('note').innerHTML = 'Exit check done. Press "Run checks" to start over.'
+        })
+      }
+    </script>
+  </body>
+</html>

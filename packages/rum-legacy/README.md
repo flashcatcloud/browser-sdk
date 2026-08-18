@@ -177,3 +177,26 @@ sampling and consent gates, and the listener guards.
 That covers missing runtime APIs and unsupported syntax. It does not cover the behaviour of an
 actual old browser engine. **This package has not been verified on real hardware**, and that
 verification is a separate step before any support commitment is made.
+
+## Verifying on a real browser
+
+`verification/` holds a self-contained harness for exactly that step:
+
+```bash
+node packages/rum-legacy/scripts/verification-server.js   # builds are not included: build first
+```
+
+Then open `http://localhost:8099/` in the browser under test and press _Run checks_. The page is
+plain ES5 and renders every result into the DOM, because the browsers it targets often have no
+usable developer tools. The server doubles as a same-origin intake that records what actually
+arrived — method, content type, body — so the checks assert the wire, not the SDK's own claims:
+the bundle loads, `init` and the collection APIs do not throw into the page, an uncaught error
+still reaches the page's own handler, the session cookie is written, and the intake received a
+`text/plain` POST whose real path travels inside `ddforward`, carrying a view and an error event.
+
+On Windows, Edge's IE mode (F12 → emulation → document mode 9/10/11) runs the real Trident engine
+and is the cheapest meaningful pass; a run on actual IE hardware or a cloud device farm is the
+authoritative one. One check is worth knowing about: the content-type assertion passes on any
+modern browser regardless of the SDK, because `fetch`-era browsers add the header to a string body
+implicitly. Only an old engine can genuinely fail it, which is precisely why it is in this page and
+not only in the unit suite.
