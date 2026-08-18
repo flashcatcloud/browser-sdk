@@ -323,13 +323,19 @@ export function makeRumLegacyPublicApi() {
 
   // Internal escape hatch used by the specs to tear down between runs, kept off the public surface
   // the same way the modern bundle hides its debug switch.
-  Object.defineProperty(api, '_stop', {
-    value: () => {
-      running?.stop(true)
-      running = undefined
-    },
-    enumerable: false,
-  })
+  const stop = () => {
+    running?.stop(true)
+    running = undefined
+  }
+  try {
+    // IE8 and the IE8 document mode only accept DOM objects here and throw for plain ones. Our own
+    // loader snippet routes those browsers to this bundle, and a cosmetic hidden property is not
+    // worth failing the whole evaluation for: falling back to a plain assignment keeps the page
+    // free of the uncaught error the throw would otherwise become.
+    Object.defineProperty(api, '_stop', { value: stop, enumerable: false })
+  } catch {
+    ;(api as unknown as { _stop: () => void })._stop = stop
+  }
 
   return api
 }

@@ -29,6 +29,12 @@ build exists to avoid.
 Everything unsupported is a no-op method rather than a missing one. A page written against the
 standard bundle runs unchanged; it does not need to branch on the browser.
 
+Below the floor — IE6 to IE8 and their document modes, which the loader snippet also routes here —
+the promise inverts: nothing is collected, and the bundle's whole evaluation is guarded so the
+hosting page stays untouched. `Object.defineProperty` on plain objects, which IE8 rejects, is
+guarded individually, and the build gate additionally rejects ES3 reserved words used as property
+names, which those engines cannot even parse and no runtime guard could catch.
+
 ## Setup
 
 Both builds share the `FC_RUM` global and the same call sequence, so the page carries one snippet.

@@ -48,6 +48,52 @@ const FORBIDDEN_GLOBALS = [
 
 const FORBIDDEN_MEMBERS = ['Object.assign', 'Array.from', 'Object.entries', 'Object.values']
 
+/**
+ * ES3 reserved words. ES5 allows them as property names; the ES3 engines in IE6 and IE7 (and
+ * their document modes) fail to PARSE them there, which no runtime guard can catch. The legacy
+ * bundle promises those browsers a silent no-op, and a parse error is the opposite of silent.
+ */
+const ES3_RESERVED = new Set(
+  (
+    'break case catch class const continue debugger default delete do else enum export extends ' +
+    'false finally for function if import in instanceof new null return super switch this throw ' +
+    'true try typeof var void while with'
+  ).split(' ')
+)
+
+function findEs3ReservedProperties(relativePath) {
+  const absolutePath = path.join(ROOT_DIR, relativePath)
+  if (!fs.existsSync(absolutePath)) {
+    return undefined
+  }
+  const ast = acorn.parse(fs.readFileSync(absolutePath, 'utf-8'), { ecmaVersion: 5 })
+  const found = new Set()
+
+  ;(function walk(node) {
+    if (!node || typeof node.type !== 'string') {
+      return
+    }
+    if (node.type === 'MemberExpression' && !node.computed && node.property.type === 'Identifier') {
+      if (ES3_RESERVED.has(node.property.name)) {
+        found.add(`.${node.property.name}`)
+      }
+    }
+    if (node.type === 'Property' && node.key.type === 'Identifier' && ES3_RESERVED.has(node.key.name)) {
+      found.add(`{${node.key.name}:}`)
+    }
+    for (const key of Object.keys(node)) {
+      const value = node[key]
+      if (Array.isArray(value)) {
+        value.forEach(walk)
+      } else if (value && typeof value.type === 'string') {
+        walk(value)
+      }
+    }
+  })(ast)
+
+  return [...found]
+}
+
 runMain(() => {
   const failures = []
 
@@ -60,6 +106,13 @@ runMain(() => {
       failures.push(`${relativePath}: references APIs missing from the target browsers: ${found.join(', ')}`)
     } else {
       printLog(`✅ ${relativePath} references no API the target browsers lack`)
+    }
+
+    const reserved = findEs3ReservedProperties(relativePath)
+    if (reserved && reserved.length > 0) {
+      failures.push(`${relativePath}: uses ES3 reserved words as property names, which IE6/7 cannot parse: ${reserved.join(', ')}`)
+    } else if (reserved) {
+      printLog(`✅ ${relativePath} uses no ES3 reserved word as a property name`)
     }
   }
 

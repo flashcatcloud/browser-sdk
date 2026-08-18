@@ -599,6 +599,23 @@ describe('public api', () => {
       }
     })
 
+    it('still constructs when Object.defineProperty rejects plain objects', () => {
+      // IE8 and the IE8 document mode only accept DOM objects there. The loader snippet routes
+      // those browsers to this bundle, so construction failing would throw an uncaught error into
+      // the customer's page at script evaluation time.
+      const original = Object.defineProperty
+      ;(Object as { defineProperty: unknown }).defineProperty = () => {
+        throw new Error('only DOM objects are supported')
+      }
+      try {
+        const freshApi = makeRumLegacyPublicApi()
+        expect(typeof freshApi.init).toBe('function')
+        expect(typeof (freshApi as unknown as { _stop: unknown })._stop).toBe('function')
+      } finally {
+        ;(Object as { defineProperty: unknown }).defineProperty = original
+      }
+    })
+
     it('reports its version', () => {
       expect(typeof api.version).toBe('string')
     })
