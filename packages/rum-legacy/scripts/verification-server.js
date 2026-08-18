@@ -34,6 +34,7 @@ function createServer() {
   return http.createServer((request, response) => {
     const url = request.url || '/'
     const pathname = url.split('?')[0]
+    printLog(`${request.method} ${url}  UA: ${(request.headers['user-agent'] || '').slice(0, 60)}`)
 
     if (url.indexOf('/rum-intake/') === 0) {
       collectBody(request, (body) => {

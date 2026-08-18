@@ -57,40 +57,48 @@
       <button id="run" type="button">Run checks</button>
       <button id="exit" type="button">Check page exit (reloads)</button>
     </div>
-    <table id="env">
-      <tbody></tbody>
-    </table>
-    <table id="results">
-      <thead>
-        <tr>
-          <th style="width: 26px">#</th>
-          <th style="width: 40%">Check</th>
-          <th style="width: 70px">Result</th>
-          <th>Observed</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <!-- Whole tables are rendered into these divs. IE9 and earlier make innerHTML read-only on
+         table sections, so writing into a tbody throws "Invalid target element" there. -->
+    <div id="envBox"></div>
+    <div id="resultsBox"></div>
     <div id="note"></div>
 
     <script>
       /*
-       * Everything here is ES5 and writes its output into the page. The browsers this verifies
-       * often have no usable developer tools, so anything logged to a console would be invisible
-       * on the device under test.
+       * Kept in its own script block: a syntax error in the main block below would kill that whole
+       * block including any handler it installs, and on these browsers there is often no console to
+       * see it in. This one survives and paints the error into the page.
+       */
+      window.__pageErrors = []
+      window.__paintErrors = function () {
+        try {
+          var target = document.getElementById('note')
+          if (target && window.__pageErrors.length > 0) {
+            target.innerHTML = 'PAGE ERROR: ' + window.__pageErrors.join(' | ')
+          }
+        } catch (ignored) {}
+      }
+      window.onerror = function (message, url, line) {
+        window.__pageErrors.push(message + ' @ ' + (url || '?') + ':' + (line || '?'))
+        window.__paintErrors()
+        return false
+      }
+    </script>
+
+    <script>
+      /*
+       * Everything here is ES5 and writes its output into the page, because the browsers this
+       * verifies often have no usable developer tools.
        *
-       * The whole run is built to finish in seconds, not minutes: cloud device sessions are often
-       * capped at a minute or two, and a harness that waits out the SDK's 30 second flush timer
-       * would spend the entire session on a timer. Filling the batch to its message limit makes it
-       * flush over the asynchronous path immediately, and results survive the exit-check reload in
-       * sessionStorage (native since IE8).
-       *
-       * A page-level error handler is installed before the SDK loads so the run can also prove the
-       * SDK chains to it rather than replacing it.
+       * The run finishes in seconds rather than minutes: cloud device sessions are metered, so the
+       * batch is filled to its message limit to flush over the asynchronous path immediately, and
+       * results survive the exit-check reload in sessionStorage (native since IE8).
        */
       var pageErrorHandlerCalls = 0
-      window.onerror = function () {
+      window.onerror = function (message, url, line) {
         pageErrorHandlerCalls++
+        window.__pageErrors.push(message + ' @ ' + (url || '?') + ':' + (line || '?'))
+        window.__paintErrors()
         return false
       }
 
@@ -106,46 +114,81 @@
         } catch (error) {}
       }
       function render() {
-        var body = document.getElementById('results').getElementsByTagName('tbody')[0]
-        var html = ''
-        for (var i = 0; i < rows.length; i++) {
-          html +=
-            '<tr class="' +
-            rows[i].state +
-            '"><td>' +
-            (i + 1) +
-            '</td><td>' +
-            rows[i].name +
-            '</td><td>' +
-            rows[i].state.toUpperCase() +
-            '</td><td>' +
-            escapeHtml(rows[i].observed) +
-            '</td></tr>'
+        // Built with DOM calls rather than innerHTML. Old IE restricts table markup through
+        // innerHTML in several ways (read-only sections on IE9, "Unknown runtime error" on IE8),
+        // and element-by-element construction is the one route that behaves identically from IE8
+        // through modern engines. createTextNode also makes escaping unnecessary.
+        var box = document.getElementById('resultsBox')
+        while (box.firstChild) {
+          box.removeChild(box.firstChild)
         }
-        body.innerHTML = html
-      }
-      function escapeHtml(text) {
-        return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        var table = document.createElement('table')
+        table.id = 'results'
+        var thead = document.createElement('thead')
+        var headRow = document.createElement('tr')
+        var headers = ['#', 'Check', 'Result', 'Observed']
+        var widths = ['26px', '40%', '70px', '']
+        for (var h = 0; h < headers.length; h++) {
+          var th = document.createElement('th')
+          if (widths[h]) {
+            th.style.width = widths[h]
+          }
+          th.appendChild(document.createTextNode(headers[h]))
+          headRow.appendChild(th)
+        }
+        thead.appendChild(headRow)
+        table.appendChild(thead)
+        var tbody = document.createElement('tbody')
+        for (var i = 0; i < rows.length; i++) {
+          var tr = document.createElement('tr')
+          tr.className = rows[i].state
+          var cells = [String(i + 1), rows[i].name, rows[i].state.toUpperCase(), rows[i].observed]
+          for (var c = 0; c < cells.length; c++) {
+            var td = document.createElement('td')
+            td.appendChild(document.createTextNode(cells[c]))
+            tr.appendChild(td)
+          }
+          tbody.appendChild(tr)
+        }
+        table.appendChild(tbody)
+        box.appendChild(table)
       }
       function note(text) {
         document.getElementById('note').innerHTML = text
       }
       function showEnvironment() {
-        var body = document.getElementById('env').getElementsByTagName('tbody')[0]
         var mode =
-          typeof document.documentMode === 'undefined' ? '(none — not a Trident engine)' : document.documentMode
-        body.innerHTML =
-          '<tr class="env"><td style="width:26%">document.documentMode</td><td>' +
-          mode +
-          '</td></tr>' +
-          '<tr class="env"><td>navigator.userAgent</td><td>' +
-          escapeHtml(navigator.userAgent) +
-          '</td></tr>' +
-          '<tr class="env"><td>has fetch / Promise</td><td>' +
-          (typeof window.fetch === 'function') +
-          ' / ' +
-          (typeof window.Promise === 'function') +
-          '</td></tr>'
+          typeof document.documentMode === 'undefined' ? '(none - not a Trident engine)' : document.documentMode
+        var pairs = [
+          ['document.documentMode', String(mode)],
+          ['navigator.userAgent', navigator.userAgent],
+          [
+            'has fetch / Promise',
+            (typeof window.fetch === 'function') + ' / ' + (typeof window.Promise === 'function'),
+          ],
+        ]
+        var box = document.getElementById('envBox')
+        while (box.firstChild) {
+          box.removeChild(box.firstChild)
+        }
+        var table = document.createElement('table')
+        table.id = 'env'
+        var tbody = document.createElement('tbody')
+        for (var i = 0; i < pairs.length; i++) {
+          var tr = document.createElement('tr')
+          tr.className = 'env'
+          for (var c = 0; c < 2; c++) {
+            var td = document.createElement('td')
+            if (i === 0 && c === 0) {
+              td.style.width = '26%'
+            }
+            td.appendChild(document.createTextNode(pairs[i][c]))
+            tr.appendChild(td)
+          }
+          tbody.appendChild(tr)
+        }
+        table.appendChild(tbody)
+        box.appendChild(table)
       }
 
       function request(method, url, onDone) {
@@ -171,17 +214,26 @@
 
       function loadBundle(onDone) {
         var script = document.createElement('script')
+        var finished = false
+        // IE9 fires only onreadystatechange; IE10 and 11 fire BOTH it and onload, so without this
+        // guard everything after the load runs twice and every row appears in duplicate.
+        function finish(loaded) {
+          if (finished) {
+            return
+          }
+          finished = true
+          onDone(loaded)
+        }
         script.src = 'fc-rum-legacy.js?cache=' + new Date().getTime()
         script.onload = function () {
-          onDone(true)
+          finish(true)
         }
         script.onerror = function () {
-          onDone(false)
+          finish(false)
         }
-        // IE9 fires onreadystatechange rather than onload for scripts.
         script.onreadystatechange = function () {
           if (script.readyState === 'loaded' || script.readyState === 'complete') {
-            onDone(true)
+            finish(true)
           }
         }
         document.getElementsByTagName('head')[0].appendChild(script)
@@ -195,7 +247,15 @@
           window.sessionStorage.removeItem(ROWS_KEY)
           window.sessionStorage.removeItem(PRE_EXIT_KEY)
         } catch (error) {}
-        note('running…')
+        note('running...')
+
+        // A previous run in the same session leaves its SDK instance alive; stop it so two
+        // instances do not both report into the assertions below.
+        try {
+          if (window.FC_RUM && window.FC_RUM._stop) {
+            window.FC_RUM._stop()
+          }
+        } catch (error) {}
 
         request('GET', '/reset?cache=' + new Date().getTime(), function () {
           loadBundle(function (loaded) {
@@ -222,7 +282,7 @@
               window.FC_RUM.addError(new Error('verification error'))
               window.FC_RUM.addAction('verification action')
               // Filling the batch to its message limit flushes it over the asynchronous path right
-              // now, instead of waiting out the 30 second timer a capped session cannot afford.
+              // now, instead of waiting out the 30 second timer a metered session cannot afford.
               for (var filler = 0; filler < 60; filler++) {
                 window.FC_RUM.addAction('flush-filler')
               }
@@ -259,7 +319,7 @@
       }
 
       function pollServer() {
-        note('waiting for the batch…')
+        note('waiting for the batch...')
         var attempts = 0
         function poll() {
           attempts++
@@ -281,7 +341,7 @@
           return
         }
         var first = arrived[0]
-        record('The intake received a request', 'pass', first.method + ' ' + first.url.substring(0, 60) + '…')
+        record('The intake received a request', 'pass', first.method + ' ' + first.url.substring(0, 60) + '...')
         record(
           'The request carries text/plain, which the intake requires',
           first.contentType && first.contentType.indexOf('text/plain') === 0 ? 'pass' : 'fail',
@@ -293,19 +353,34 @@
           forwarded.indexOf('/api/v2/rum') === 0 ? 'pass' : 'fail',
           forwarded.split('?')[0] || '(no ddforward)'
         )
+        // Aggregated across every request: the async flushes travel the tunnel independently and
+        // can arrive out of order, so the view and the error are not always in the first one.
         var types = []
-        var lines = first.body.split('\n')
-        for (var i = 0; i < lines.length; i++) {
-          if (lines[i].length === 0) {
-            continue
+        for (var r = 0; r < arrived.length; r++) {
+          var lines = arrived[r].body.split('\n')
+          for (var i = 0; i < lines.length; i++) {
+            if (lines[i].length === 0) {
+              continue
+            }
+            var match = /"type":"([a-z_]+)"/.exec(lines[i])
+            types.push(match ? match[1] : '?')
           }
-          var match = /"type":"([a-z_]+)"/.exec(lines[i])
-          types.push(match ? match[1] : '?')
         }
         record(
           'The payload carries a view and an error',
           indexOf(types, 'view') !== -1 && indexOf(types, 'error') !== -1 ? 'pass' : 'fail',
-          summarize(types) + '  (' + first.body.length + ' bytes)'
+          summarize(types) + '  (across ' + arrived.length + ' request(s))'
+        )
+        var foreign = []
+        for (var e = 0; e < window.__pageErrors.length; e++) {
+          if (window.__pageErrors[e].indexOf('verification uncaught error') === -1) {
+            foreign.push(window.__pageErrors[e])
+          }
+        }
+        record(
+          'No unexpected uncaught page errors',
+          foreign.length === 0 ? 'pass' : 'fail',
+          foreign.length === 0 ? 'none (the one deliberate test error is excluded)' : foreign.join(' | ')
         )
         note(
           'Done. ' +
@@ -323,7 +398,7 @@
         var parts = []
         for (var key in counts) {
           if (Object.prototype.hasOwnProperty.call(counts, key)) {
-            parts.push(key + ' ×' + counts[key])
+            parts.push(key + ' x' + counts[key])
           }
         }
         return parts.join(', ')
@@ -341,7 +416,7 @@
       document.getElementById('run').onclick = runChecks
       document.getElementById('exit').onclick = function () {
         // Remember how many requests the intake had, reload to fire beforeunload, and let the
-        // reloaded page prove the exit added one more — sent synchronously, or it would be lost.
+        // reloaded page prove the exit added one more, sent synchronously or lost.
         readReceived(function (arrived) {
           try {
             window.sessionStorage.setItem(PRE_EXIT_KEY, String(arrived.length))
@@ -359,7 +434,7 @@
             render()
           }
         } catch (error) {}
-        note('Checking what the exit sent…')
+        note('Checking what the exit sent...')
         readReceived(function (arrived) {
           var preExit = 0
           try {
@@ -377,12 +452,12 @@
               ' request(s) before the reload, ' +
               arrived.length +
               ' after' +
-              (delivered || isTrident ? '' : ' — modern engines block sync XHR at unload; needs Trident')
+              (delivered || isTrident ? '' : ' - modern engines block sync XHR at unload; needs Trident')
           )
           note('Exit check done. Press "Run checks" to start over.')
         })
       } else if (window.location.search.indexOf('autorun=1') !== -1) {
-        // Lets the page be opened as localhost:8099/?autorun=1 on a metered session, saving a click.
+        // Lets the page be opened as ?autorun=1 on a metered session, saving a click.
         runChecks()
       }
     </script>
