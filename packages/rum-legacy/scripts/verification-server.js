@@ -33,6 +33,7 @@ runMain(() => {
 function createServer() {
   return http.createServer((request, response) => {
     const url = request.url || '/'
+    const pathname = url.split('?')[0]
 
     if (url.indexOf('/rum-intake/') === 0) {
       collectBody(request, (body) => {
@@ -69,7 +70,7 @@ function createServer() {
       return
     }
 
-    if (url === '/' || url.indexOf('/index.html') === 0) {
+    if (pathname === '/' || pathname === '/index.html') {
       serveFile(response, PAGE, 'text/html')
       return
     }

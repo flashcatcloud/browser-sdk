@@ -196,7 +196,8 @@ still reaches the page's own handler, the session cookie is written, and the int
 
 On Windows, Edge's IE mode (F12 → emulation → document mode 9/10/11) runs the real Trident engine
 and is the cheapest meaningful pass; a run on actual IE hardware or a cloud device farm is the
-authoritative one. One check is worth knowing about: the content-type assertion passes on any
-modern browser regardless of the SDK, because `fetch`-era browsers add the header to a string body
-implicitly. Only an old engine can genuinely fail it, which is precisely why it is in this page and
-not only in the unit suite.
+authoritative one. Two checks only have meaning on a real Trident engine, which is precisely why they are in this
+page and not only in the unit suite: the content-type assertion passes on any modern browser
+regardless of the SDK, because `fetch`-era browsers add the header to a string body implicitly —
+and the page-exit assertion shows SKIP on modern engines, which block synchronous XHR during page
+dismissal by design.

@@ -33,8 +33,9 @@
       .fail {
         background: #f8d4d4;
       }
-      .wait {
-        background: #fdf3d0;
+      .skip {
+        background: #e8e8e8;
+        color: #666;
       }
       .env td {
         background: #f4f4f4;
@@ -75,11 +76,17 @@
     <script>
       /*
        * Everything here is ES5 and writes its output into the page. The browsers this verifies
-       * often have no usable developer tools, so anything logged to a console would be invisible on
-       * the device under test.
+       * often have no usable developer tools, so anything logged to a console would be invisible
+       * on the device under test.
        *
-       * A page-level error handler is installed before the SDK so the run can also prove the SDK
-       * chains to it rather than replacing it.
+       * The whole run is built to finish in seconds, not minutes: cloud device sessions are often
+       * capped at a minute or two, and a harness that waits out the SDK's 30 second flush timer
+       * would spend the entire session on a timer. Filling the batch to its message limit makes it
+       * flush over the asynchronous path immediately, and results survive the exit-check reload in
+       * sessionStorage (native since IE8).
+       *
+       * A page-level error handler is installed before the SDK loads so the run can also prove the
+       * SDK chains to it rather than replacing it.
        */
       var pageErrorHandlerCalls = 0
       window.onerror = function () {
@@ -87,10 +94,16 @@
         return false
       }
 
+      var ROWS_KEY = 'verificationRows'
+      var PRE_EXIT_KEY = 'verificationPreExitCount'
+
       var rows = []
       function record(name, state, observed) {
         rows.push({ name: name, state: state, observed: String(observed) })
         render()
+        try {
+          window.sessionStorage.setItem(ROWS_KEY, JSON.stringify(rows))
+        } catch (error) {}
       }
       function render() {
         var body = document.getElementById('results').getElementsByTagName('tbody')[0]
@@ -113,6 +126,9 @@
       }
       function escapeHtml(text) {
         return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      }
+      function note(text) {
+        document.getElementById('note').innerHTML = text
       }
       function showEnvironment() {
         var body = document.getElementById('env').getElementsByTagName('tbody')[0]
@@ -143,6 +159,16 @@
         xhr.send(null)
       }
 
+      function readReceived(onDone) {
+        request('GET', '/received?cache=' + new Date().getTime(), function (status, text) {
+          var arrived = []
+          try {
+            arrived = JSON.parse(text)
+          } catch (error) {}
+          onDone(arrived)
+        })
+      }
+
       function loadBundle(onDone) {
         var script = document.createElement('script')
         script.src = 'fc-rum-legacy.js?cache=' + new Date().getTime()
@@ -165,14 +191,17 @@
         rows = []
         render()
         showEnvironment()
-        document.getElementById('note').innerHTML = 'running…'
+        try {
+          window.sessionStorage.removeItem(ROWS_KEY)
+          window.sessionStorage.removeItem(PRE_EXIT_KEY)
+        } catch (error) {}
+        note('running…')
 
         request('GET', '/reset?cache=' + new Date().getTime(), function () {
           loadBundle(function (loaded) {
             if (!loaded || !window.FC_RUM) {
               record('The bundle parses and loads', 'fail', 'window.FC_RUM is ' + typeof window.FC_RUM)
-              document.getElementById('note').innerHTML =
-                'Stopped: nothing else can be checked while the script does not load.'
+              note('Stopped: nothing else can be checked while the script does not load.')
               return
             }
             record('The bundle parses and loads', 'pass', 'FC_RUM.version = ' + window.FC_RUM.version)
@@ -192,6 +221,11 @@
             try {
               window.FC_RUM.addError(new Error('verification error'))
               window.FC_RUM.addAction('verification action')
+              // Filling the batch to its message limit flushes it over the asynchronous path right
+              // now, instead of waiting out the 30 second timer a capped session cannot afford.
+              for (var filler = 0; filler < 60; filler++) {
+                window.FC_RUM.addAction('flush-filler')
+              }
               record('addError / addAction do not throw', 'pass', 'no exception')
             } catch (error2) {
               record('addError / addAction do not throw', 'fail', String(error2))
@@ -211,7 +245,7 @@
                   document.cookie.indexOf('_dd_s=') !== -1 ? 'pass' : 'fail',
                   document.cookie || '(empty)'
                 )
-                inspectServer()
+                pollServer()
               }, 300)
             }, 100)
           })
@@ -224,34 +258,26 @@
         }, 0)
       }
 
-      function inspectServer() {
-        document.getElementById('note').innerHTML = 'waiting for the batch to be sent…'
-        // The batch flushes on its own timer; poll rather than assume it has arrived.
+      function pollServer() {
+        note('waiting for the batch…')
         var attempts = 0
         function poll() {
           attempts++
-          request('GET', '/received?cache=' + new Date().getTime(), function (status, text) {
-            var arrived = []
-            // JSON.parse is native from IE8 on; eval would also break under any CSP.
-            try {
-              arrived = JSON.parse(text)
-            } catch (error) {
-              arrived = []
-            }
-            if (arrived.length === 0 && attempts < 40) {
+          readReceived(function (arrived) {
+            if (arrived.length === 0 && attempts < 15) {
               setTimeout(poll, 1000)
               return
             }
-            reportServerView(arrived)
+            assertServerView(arrived)
           })
         }
         poll()
       }
 
-      function reportServerView(arrived) {
+      function assertServerView(arrived) {
         if (arrived.length === 0) {
-          record('The intake received a request', 'fail', 'nothing arrived within 40s')
-          document.getElementById('note').innerHTML = 'Done, with failures.'
+          record('The intake received a request', 'fail', 'nothing arrived within 15s')
+          note('Done, with failures.')
           return
         }
         var first = arrived[0]
@@ -265,7 +291,7 @@
         record(
           'The intake path travels inside ddforward',
           forwarded.indexOf('/api/v2/rum') === 0 ? 'pass' : 'fail',
-          forwarded || '(no ddforward)'
+          forwarded.split('?')[0] || '(no ddforward)'
         )
         var types = []
         var lines = first.body.split('\n')
@@ -279,19 +305,28 @@
         record(
           'The payload carries a view and an error',
           indexOf(types, 'view') !== -1 && indexOf(types, 'error') !== -1 ? 'pass' : 'fail',
-          types.join(', ') + '  (' + first.body.length + ' bytes)'
+          summarize(types) + '  (' + first.body.length + ' bytes)'
         )
-        var exitRequests = 0
-        for (var j = 0; j < arrived.length; j++) {
-          if (arrived[j].sync) {
-            exitRequests++
+        note(
+          'Done. ' +
+            arrived.length +
+            ' request(s) reached the intake. ' +
+            'Press "Check page exit" to also verify the synchronous request sent while the page unloads.'
+        )
+      }
+
+      function summarize(types) {
+        var counts = {}
+        for (var i = 0; i < types.length; i++) {
+          counts[types[i]] = (counts[types[i]] || 0) + 1
+        }
+        var parts = []
+        for (var key in counts) {
+          if (Object.prototype.hasOwnProperty.call(counts, key)) {
+            parts.push(key + ' ×' + counts[key])
           }
         }
-        document.getElementById('note').innerHTML =
-          'Done. ' +
-          arrived.length +
-          ' request(s) reached the intake. ' +
-          'Use the exit button to check the synchronous request sent while the page unloads.'
+        return parts.join(', ')
       }
 
       function indexOf(list, value) {
@@ -305,27 +340,50 @@
 
       document.getElementById('run').onclick = runChecks
       document.getElementById('exit').onclick = function () {
-        // Reloading exercises the beforeunload path, and the reloaded page reports what arrived.
-        window.location.href = 'index.html?after-exit=1'
+        // Remember how many requests the intake had, reload to fire beforeunload, and let the
+        // reloaded page prove the exit added one more — sent synchronously, or it would be lost.
+        readReceived(function (arrived) {
+          try {
+            window.sessionStorage.setItem(PRE_EXIT_KEY, String(arrived.length))
+          } catch (error) {}
+          window.location.href = 'index.html?after-exit=1'
+        })
       }
 
       showEnvironment()
       if (window.location.search.indexOf('after-exit=1') !== -1) {
-        document.getElementById('note').innerHTML = 'Checking what the exit sent…'
-        request('GET', '/received?cache=' + new Date().getTime(), function (status, text) {
-          var arrived = []
-          try {
-            arrived = JSON.parse(text)
-          } catch (error) {
-            arrived = []
+        try {
+          var stored = window.sessionStorage.getItem(ROWS_KEY)
+          if (stored) {
+            rows = JSON.parse(stored)
+            render()
           }
+        } catch (error) {}
+        note('Checking what the exit sent…')
+        readReceived(function (arrived) {
+          var preExit = 0
+          try {
+            preExit = Number(window.sessionStorage.getItem(PRE_EXIT_KEY) || '0')
+          } catch (error) {}
+          var delivered = arrived.length > preExit
+          // Modern engines block synchronous XHR during page dismissal by design, so on anything
+          // that is not Trident this check cannot pass regardless of the SDK. Only a real IE run
+          // can prove or disprove it, which is why it is here at all.
+          var isTrident = typeof document.documentMode !== 'undefined'
           record(
-            'The page exit delivered a final request',
-            arrived.length > 0 ? 'pass' : 'fail',
-            arrived.length + ' request(s) recorded before the reload'
+            'The page exit delivered a final synchronous request',
+            delivered ? 'pass' : isTrident ? 'fail' : 'skip',
+            preExit +
+              ' request(s) before the reload, ' +
+              arrived.length +
+              ' after' +
+              (delivered || isTrident ? '' : ' — modern engines block sync XHR at unload; needs Trident')
           )
-          document.getElementById('note').innerHTML = 'Exit check done. Press "Run checks" to start over.'
+          note('Exit check done. Press "Run checks" to start over.')
         })
+      } else if (window.location.search.indexOf('autorun=1') !== -1) {
+        // Lets the page be opened as localhost:8099/?autorun=1 on a metered session, saving a click.
+        runChecks()
       }
     </script>
   </body>
