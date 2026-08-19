@@ -1,5 +1,5 @@
-import { registerCleanupTask } from '@flashcatcloud/browser-rum/test'
-import { getGlobalObject } from '@flashcatcloud/browser-rum'
+import { registerCleanupTask } from '@flashcatcloud/browser-core/test'
+import { getGlobalObject } from '@flashcatcloud/browser-core'
 import type { Profiler, ProfilerTrace, ProfilerInitOptions } from '../src/domain/profiling/types'
 
 export function mockProfiler(mockedTrace: ProfilerTrace) {
