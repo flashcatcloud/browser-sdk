@@ -28,6 +28,7 @@ import { startErrorCollection } from '../domain/error/errorCollection'
 import { startResourceCollection } from '../domain/resource/resourceCollection'
 import { startViewCollection } from '../domain/view/viewCollection'
 import { startRumSessionManager, startRumSessionManagerStub } from '../domain/rumSessionManager'
+import { startSessionErrorTracking } from '../domain/trackSessionError'
 import { startRumBatch } from '../transport/startRumBatch'
 import { startRumEventBridge } from '../transport/startRumEventBridge'
 import { startUrlContexts } from '../domain/contexts/urlContexts'
@@ -109,6 +110,9 @@ export function startRum(
   const session = !canUseEventBridge()
     ? startRumSessionManager(configuration, lifeCycle, trackingConsentState)
     : startRumSessionManagerStub()
+
+  const sessionErrorTracking = startSessionErrorTracking(lifeCycle, session)
+  cleanupTasks.push(() => sessionErrorTracking.stop())
 
   if (!canUseEventBridge()) {
     const batch = startRumBatch(

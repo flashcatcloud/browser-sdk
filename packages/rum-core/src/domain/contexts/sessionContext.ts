@@ -20,15 +20,19 @@ export function startSessionContext(
       return DISCARDED
     }
 
+    // A session withholding its replay is recording, but nothing has been uploaded and nothing may
+    // ever be. Reporting `has_replay` here would offer a replay that does not exist.
+    const isReplayWithheld = session.sessionReplay === SessionReplayState.BUFFERED_ON_ERROR
+
     let hasReplay
     let sampledForReplay
     let isActive
     if (eventType === RumEventType.VIEW) {
-      hasReplay = recorderApi.getReplayStats(view.id) ? true : undefined
+      hasReplay = !isReplayWithheld && recorderApi.getReplayStats(view.id) ? true : undefined
       sampledForReplay = session.sessionReplay === SessionReplayState.SAMPLED
       isActive = view.sessionIsActive ? undefined : false
     } else {
-      hasReplay = recorderApi.isRecording() ? true : undefined
+      hasReplay = !isReplayWithheld && recorderApi.isRecording() ? true : undefined
     }
 
     return {
