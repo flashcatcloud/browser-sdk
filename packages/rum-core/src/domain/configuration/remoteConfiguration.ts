@@ -51,6 +51,11 @@ export interface RemoteSampling {
    * changed.
    */
   version?: number
+  /**
+   * The application-defined bag the console delivers and the SDK hands to the host application
+   * verbatim, without interpreting — see `getRemoteConfig()`.
+   */
+  custom?: Record<string, unknown>
 }
 
 /**
@@ -76,6 +81,7 @@ interface RemoteConfigurationResponse {
    */
   refresh_on_foreground: boolean
   rum: RemoteSampling
+  custom?: Record<string, unknown>
 }
 
 /**
@@ -254,6 +260,11 @@ function store(setup: RemoteSamplingSetup, response: RemoteConfigurationResponse
     if (isRate(response.rum.sessionReplaySampleRate)) {
       rates.sessionReplaySampleRate = response.rum.sessionReplaySampleRate
     }
+  }
+  // The custom bag rides along untouched — the platform's job is delivery, its meaning belongs to
+  // the host application. Gone from the response (or the kill switch off) means gone from storage.
+  if (response.enabled && response.custom && typeof response.custom === 'object') {
+    rates.custom = response.custom
   }
 
   try {

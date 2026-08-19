@@ -33,8 +33,9 @@ function body({
   enabled = true,
   ttl = 300,
   refreshOnForeground = false,
+  custom = undefined as Record<string, unknown> | undefined,
 } = {}) {
-  return JSON.stringify({ version: 3, ttl, enabled, activation, refresh_on_foreground: refreshOnForeground, rum })
+  return JSON.stringify({ version: 3, ttl, enabled, activation, refresh_on_foreground: refreshOnForeground, rum, custom })
 }
 
 describe('remoteConfiguration', () => {
@@ -94,6 +95,28 @@ describe('remoteConfiguration', () => {
         xhr.complete(200, body({ rum: { sessionSampleRate: 42 } }))
 
         expect(readRemoteSampling(setup).sessionReplaySampleRate).toBeUndefined()
+        done()
+      })
+      start(configurationWith(), noop)
+    })
+
+    it('keeps the custom bag the server reports, verbatim', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: {}, custom: { viplist: ['u-1', 'u-2'], debug: true } }))
+
+        expect(readRemoteSampling(setup).custom).toEqual({ viplist: ['u-1', 'u-2'], debug: true })
+        done()
+      })
+      start(configurationWith(), noop)
+    })
+
+    it('forgets the custom bag when the kill switch is off', (done) => {
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ custom: { debug: true } }))
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ enabled: false, custom: { debug: true } }))
+
+        expect(readRemoteSampling(setup).custom).toBeUndefined()
         done()
       })
       start(configurationWith(), noop)

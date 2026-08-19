@@ -24,6 +24,8 @@ import {
   validateAndBuildRumConfiguration,
   type RumConfiguration,
   type RumInitConfiguration,
+  readRemoteSampling,
+  buildRemoteSamplingSetup,
 } from '../domain/configuration'
 import type { ViewOptions } from '../domain/view/trackViews'
 import type { DurationVital, CustomVitalsState } from '../domain/vital/vitalCollection'
@@ -188,6 +190,14 @@ export function createPreStartStrategy(
 
     setForcedSession() {
       bufferApiCalls.add((startRumResult) => startRumResult.setForcedSession())
+    },
+
+    getRemoteConfig() {
+      // Before the SDK starts, the last stored bag still answers — that is what lets application
+      // code read it right after init() without waiting for the first fetch.
+      return cachedInitConfiguration
+        ? readRemoteSampling(buildRemoteSamplingSetup(cachedInitConfiguration)).custom
+        : undefined
     },
 
     addTiming(name, time = timeStampNow()) {

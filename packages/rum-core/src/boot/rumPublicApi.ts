@@ -289,6 +289,16 @@ export interface RumPublicApi extends PublicApi {
   setForcedSession: () => void
 
   /**
+   * Read the custom values published for this application in the console. The SDK delivers them
+   * verbatim and never interprets them — what a value means is entirely up to your own code (a
+   * debug allow-list to pair with `setForcedSession()`, a feature toggle). Values are cached
+   * locally, so the bag published while a previous page was open answers immediately on the next.
+   * Returns undefined when nothing has been published or remote configuration is off. The content
+   * is readable by anyone holding the public client token — it is public information.
+   */
+  getRemoteConfig: () => Record<string, unknown> | undefined
+
+  /**
    * Add a feature flag evaluation,
    * stored in `@feature_flags.<feature_flag_key>`
    *
@@ -407,6 +417,7 @@ export interface Strategy {
   getInternalContext: StartRumResult['getInternalContext']
   stopSession: StartRumResult['stopSession']
   setForcedSession: StartRumResult['setForcedSession']
+  getRemoteConfig: StartRumResult['getRemoteConfig']
   addTiming: StartRumResult['addTiming']
   startView: StartRumResult['startView']
   setViewName: StartRumResult['setViewName']
@@ -638,6 +649,8 @@ export function makeRumPublicApi(
     setForcedSession: monitor(() => {
       strategy.setForcedSession()
     }),
+
+    getRemoteConfig: monitor(() => strategy.getRemoteConfig()),
 
     addFeatureFlagEvaluation: monitor((key, value) => {
       strategy.addFeatureFlagEvaluation(sanitize(key)!, sanitize(value))
