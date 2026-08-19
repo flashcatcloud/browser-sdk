@@ -543,6 +543,7 @@ describe('serializeRumConfiguration', () => {
       ...EXHAUSTIVE_INIT_CONFIGURATION,
       applicationId: 'applicationId',
       beforeSend: () => true,
+      beforeSampling: () => undefined,
       excludedActivityUrls: ['toto.com'],
       workerUrl: './worker.js',
       compressIntakeRequests: true,
@@ -585,6 +586,7 @@ describe('serializeRumConfiguration', () => {
                 | 'trackWebVitals'
                 // FLASHCAT FORK: not reported to telemetry
                 | 'sessionReplayDirectUpload'
+                | 'beforeSampling'
             ? never
             : CamelToSnakeCase<Key>
     // By specifying the type here, we can ensure that serializeConfiguration is returning an

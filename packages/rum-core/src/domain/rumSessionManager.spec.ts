@@ -276,6 +276,80 @@ describe('rum session manager', () => {
     })
   })
 
+  describe('beforeSampling', () => {
+    const STORE_KEY = 'test-before-sampling'
+    const REMOTE_SAMPLING_SETUP = { url: 'https://example.com/config', storeKey: STORE_KEY, fetchTimeout: 3000 }
+
+    function storeRemote(stored: object) {
+      localStorage.setItem(STORE_KEY, JSON.stringify(stored))
+      registerCleanupTask(() => localStorage.removeItem(STORE_KEY))
+    }
+
+    it('gets the last word on the rates at the draw', () => {
+      startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 0,
+          sessionReplaySampleRate: 0,
+          beforeSampling: () => ({ sessionSampleRate: 100, sessionReplaySampleRate: 100 }),
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
+    it('receives the delivered rates and custom values', () => {
+      storeRemote({ sessionSampleRate: 42, custom: { viplist: ['u-1'] } })
+      const beforeSampling = jasmine.createSpy('beforeSampling')
+
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP, beforeSampling },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(beforeSampling).toHaveBeenCalledOnceWith({
+        sessionSampleRate: 42,
+        sessionReplaySampleRate: 50,
+        custom: { viplist: ['u-1'] },
+      })
+    })
+
+    it('ignores an out-of-range rate', () => {
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, beforeSampling: () => ({ sessionSampleRate: 150 }) },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+    })
+
+    it('never lets a thrown error reach session creation', () => {
+      startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 100,
+          sessionReplaySampleRate: 100,
+          beforeSampling: () => {
+            throw new Error('boom')
+          },
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
+    it('is not consulted for a session already under way', () => {
+      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      const beforeSampling = jasmine.createSpy('beforeSampling')
+
+      startRumSessionManagerWithDefaults({ configuration: { beforeSampling } })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(beforeSampling).not.toHaveBeenCalled()
+      expect(getSessionState(SESSION_STORE_KEY).id).toBe('abcdef')
+    })
+  })
+
   describe('forced session', () => {
     it('forces the next session to be collected with replay despite a zero rate', () => {
       const rumSessionManager = startRumSessionManagerWithDefaults({

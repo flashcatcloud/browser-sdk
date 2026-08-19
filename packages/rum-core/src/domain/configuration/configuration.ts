@@ -23,7 +23,7 @@ import type { RumEvent } from '../../rumEvent.types'
 import type { RumPlugin } from '../plugins'
 import { isTracingOption } from '../tracing/tracer'
 import type { PropagatorType, TracingOption } from '../tracing/tracer.types'
-import type { RemoteSamplingSetup } from './remoteConfiguration'
+import type { BeforeSamplingCallback, RemoteSamplingSetup } from './remoteConfiguration'
 import { buildRemoteSamplingSetup } from './remoteConfiguration'
 
 export const DEFAULT_PROPAGATOR_TYPES: PropagatorType[] = ['tracecontext']
@@ -49,6 +49,15 @@ export interface RumInitConfiguration extends InitConfiguration {
    * See [Enrich And Control Browser RUM Data With beforeSend](https://docs.datadoghq.com/real_user_monitoring/guide/enrich-and-control-rum-data) for further information.
    */
   beforeSend?: ((event: RumEvent, context: RumEventDomainContext) => boolean) | undefined
+  /**
+   * The application's last word on session sampling, called synchronously each time a new session
+   * is about to be drawn, with the rates that would apply (console-delivered, falling back to
+   * init) and the console-delivered custom values. Return a rate to override — 100 always
+   * collects, 0 never does — or nothing to leave the incoming rates alone. Runs inside session
+   * creation, so it must be fast and synchronous; a thrown error or an out-of-range value is
+   * ignored. A session already under way is never re-decided.
+   */
+  beforeSampling?: BeforeSamplingCallback | undefined
   /**
    * A list of request origins ignored when computing the page activity.
    * See [How page activity is calculated](https://docs.datadoghq.com/real_user_monitoring/browser/monitoring_page_performance/#how-page-activity-is-calculated) for further information.
@@ -241,11 +250,17 @@ export interface RumConfiguration extends Configuration {
    * and the draw only has the built configuration to work from.
    */
   remoteSampling: RemoteSamplingSetup | undefined
+  beforeSampling: BeforeSamplingCallback | undefined
 }
 
 export function validateAndBuildRumConfiguration(
   initConfiguration: RumInitConfiguration
 ): RumConfiguration | undefined {
+  if (initConfiguration.beforeSampling !== undefined && typeof initConfiguration.beforeSampling !== 'function') {
+    display.error('beforeSampling should be a function')
+    return
+  }
+
   if (
     initConfiguration.trackFeatureFlagsForEvents !== undefined &&
     !Array.isArray(initConfiguration.trackFeatureFlagsForEvents)
@@ -319,6 +334,7 @@ export function validateAndBuildRumConfiguration(
     profilingSampleRate: profilingEnabled ? (initConfiguration.profilingSampleRate ?? 0) : 0, // Enforce 0 if profiling is not enabled, and set 0 as default when not set.
     propagateTraceBaggage: !!initConfiguration.propagateTraceBaggage,
     remoteSampling: buildRemoteSamplingSetup(initConfiguration),
+    beforeSampling: initConfiguration.beforeSampling,
     ...baseConfiguration,
   }
 }

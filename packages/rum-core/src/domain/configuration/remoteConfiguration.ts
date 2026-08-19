@@ -59,6 +59,27 @@ export interface RemoteSampling {
 }
 
 /**
+ * What the application's `beforeSampling` callback receives at the moment a new session is about to
+ * be drawn: the rates that would apply (console-delivered, falling back to init) and the custom
+ * values the console delivered. On the very first visit, before the first response has been
+ * cached, `custom` is undefined and the rates are the init ones.
+ */
+export interface BeforeSamplingContext {
+  sessionSampleRate: number
+  sessionReplaySampleRate: number
+  custom?: Record<string, unknown>
+}
+
+/**
+ * The application's last word on the sampling of the session about to be drawn — see the
+ * `beforeSampling` init option. Returning nothing, or an out-of-range rate, leaves the incoming
+ * value in place.
+ */
+export type BeforeSamplingCallback = (
+  context: BeforeSamplingContext
+) => { sessionSampleRate?: number; sessionReplaySampleRate?: number } | void
+
+/**
  * Everything needed to fetch and store the rates, resolved once at init. Undefined on the
  * configuration means the site did not opt in, and is what switches every read, write and request
  * off in one place.

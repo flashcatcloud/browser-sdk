@@ -5,6 +5,7 @@ import {
   STORAGE_POLL_DELAY,
   bridgeSupports,
   clearInterval,
+  display,
   getEventBridge,
   noop,
   performDraw,
@@ -242,9 +243,33 @@ function computeSessionState(configuration: RumConfiguration, rawTrackingType?: 
     // collecting for a visitor already on the site.
     const remote = readRemoteSampling(configuration.remoteSampling)
 
-    if (!performDraw(remote.sessionSampleRate ?? configuration.sessionSampleRate)) {
+    let sessionSampleRate = remote.sessionSampleRate ?? configuration.sessionSampleRate
+    let sessionReplaySampleRate = remote.sessionReplaySampleRate ?? configuration.sessionReplaySampleRate
+
+    // FLASHCAT FORK - the application gets the last word, right at the draw. This is what turns the
+    // delivered custom values into sampling decisions without a wasted first draw or a session
+    // restart: the console ships the data (an allow-list, a cohort rule), the application's own
+    // code interprets it here. Its failure modes must never reach session creation, so a thrown
+    // error or a value outside 0..100 leaves the incoming rate in place.
+    if (configuration.beforeSampling) {
+      try {
+        const override = configuration.beforeSampling({ sessionSampleRate, sessionReplaySampleRate, custom: remote.custom })
+        if (override) {
+          if (isSampleRate(override.sessionSampleRate)) {
+            sessionSampleRate = override.sessionSampleRate
+          }
+          if (isSampleRate(override.sessionReplaySampleRate)) {
+            sessionReplaySampleRate = override.sessionReplaySampleRate
+          }
+        }
+      } catch (e) {
+        display.error('beforeSampling threw an error:', e)
+      }
+    }
+
+    if (!performDraw(sessionSampleRate)) {
       trackingType = RumTrackingType.NOT_TRACKED
-    } else if (!performDraw(remote.sessionReplaySampleRate ?? configuration.sessionReplaySampleRate)) {
+    } else if (!performDraw(sessionReplaySampleRate)) {
       trackingType = RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY
     } else {
       trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
@@ -262,6 +287,10 @@ function hasValidRumSession(trackingType?: string): trackingType is RumTrackingT
     trackingType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY ||
     trackingType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY
   )
+}
+
+function isSampleRate(value: number | undefined): value is number {
+  return typeof value === 'number' && value >= 0 && value <= 100
 }
 
 function isTypeTracked(rumSessionType: RumTrackingType | undefined) {
