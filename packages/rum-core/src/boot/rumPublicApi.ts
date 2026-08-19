@@ -280,6 +280,15 @@ export interface RumPublicApi extends PublicApi {
   stopSession: () => void
 
   /**
+   * Force the session to be collected, with Session Replay, regardless of the configured sample
+   * rates. Call it when your own code decides a visitor needs debugging (an allow-list, a support
+   * flow). If the current session was not being collected, it ends and a collected one starts at
+   * the next user interaction; a session already collected keeps running and gets replay recording.
+   * The forced state lasts for the page lifetime — decide on each page load whether to call again.
+   */
+  setForcedSession: () => void
+
+  /**
    * Add a feature flag evaluation,
    * stored in `@feature_flags.<feature_flag_key>`
    *
@@ -397,6 +406,7 @@ export interface Strategy {
   initConfiguration: RumInitConfiguration | undefined
   getInternalContext: StartRumResult['getInternalContext']
   stopSession: StartRumResult['stopSession']
+  setForcedSession: StartRumResult['setForcedSession']
   addTiming: StartRumResult['addTiming']
   startView: StartRumResult['startView']
   setViewName: StartRumResult['setViewName']
@@ -623,6 +633,10 @@ export function makeRumPublicApi(
     stopSession: monitor(() => {
       strategy.stopSession()
       addTelemetryUsage({ feature: 'stop-session' })
+    }),
+
+    setForcedSession: monitor(() => {
+      strategy.setForcedSession()
     }),
 
     addFeatureFlagEvaluation: monitor((key, value) => {

@@ -276,6 +276,58 @@ describe('rum session manager', () => {
     })
   })
 
+  describe('forced session', () => {
+    it('forces the next session to be collected with replay despite a zero rate', () => {
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, sessionReplaySampleRate: 0 },
+      })
+
+      rumSessionManager.setForcedSession()
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
+    it('ends a session that was not being collected so a collected one can start', () => {
+      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=0', DURATION)
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, sessionReplaySampleRate: 0 },
+      })
+
+      rumSessionManager.setForcedSession()
+      expect(getSessionState(SESSION_STORE_KEY).isExpired).toBe('1')
+
+      clock.tick(STORAGE_POLL_DELAY)
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+      expect(getSessionState(SESSION_STORE_KEY).id).not.toBe('abcdef')
+    })
+
+    it('keeps a session collected without replay and forces replay onto it', () => {
+      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=2', DURATION)
+      const rumSessionManager = startRumSessionManagerWithDefaults()
+
+      rumSessionManager.setForcedSession()
+
+      const session = rumSessionManager.findTrackedSession()!
+      expect(session.id).toBe('abcdef')
+      expect(session.sessionReplay).toBe(SessionReplayState.FORCED)
+    })
+
+    it('leaves a session already collected with replay untouched', () => {
+      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      const rumSessionManager = startRumSessionManagerWithDefaults()
+
+      rumSessionManager.setForcedSession()
+
+      const session = rumSessionManager.findTrackedSession()!
+      expect(session.id).toBe('abcdef')
+      expect(session.sessionReplay).toBe(SessionReplayState.SAMPLED)
+      expect(expireSessionSpy).not.toHaveBeenCalled()
+    })
+  })
+
   function startRumSessionManagerWithDefaults({ configuration }: { configuration?: Partial<RumConfiguration> } = {}) {
     return startRumSessionManager(
       mockRumConfiguration({

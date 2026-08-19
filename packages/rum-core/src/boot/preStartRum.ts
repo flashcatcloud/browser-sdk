@@ -186,6 +186,10 @@ export function createPreStartStrategy(
 
     stopSession: noop,
 
+    setForcedSession() {
+      bufferApiCalls.add((startRumResult) => startRumResult.setForcedSession())
+    },
+
     addTiming(name, time = timeStampNow()) {
       bufferApiCalls.add((startRumResult) => startRumResult.addTiming(name, time))
     },

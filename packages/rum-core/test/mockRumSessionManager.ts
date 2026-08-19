@@ -65,5 +65,8 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
       forcedReplay = true
       return this
     },
+    setForcedSession() {
+      sessionStatus = SessionStatus.TRACKED_WITH_SESSION_REPLAY
+    },
   }
 }

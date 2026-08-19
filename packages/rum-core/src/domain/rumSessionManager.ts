@@ -29,6 +29,7 @@ export interface RumSessionManager {
   expire: () => void
   expireObservable: Observable<void>
   setForcedReplay: () => void
+  setForcedSession: () => void
 }
 
 export type RumSession = {
@@ -54,10 +55,15 @@ export function startRumSessionManager(
   lifeCycle: LifeCycle,
   trackingConsentState: TrackingConsentState
 ): RumSessionManager {
+  // FLASHCAT FORK - set through `setForcedSession()`, read at draw time. Once set it stays set for
+  // the page lifetime, so every session drawn after the call is collected with replay; the host
+  // application decides on each page load whether to call again.
+  let forcedSession = false
+
   const sessionManager = startSessionManager(
     configuration,
     RUM_SESSION_KEY,
-    (rawTrackingType) => computeSessionState(configuration, rawTrackingType),
+    (rawTrackingType) => computeSessionState(configuration, rawTrackingType, forcedSession),
     trackingConsentState
   )
 
@@ -97,6 +103,21 @@ export function startRumSessionManager(
     expire: sessionManager.expire,
     expireObservable: sessionManager.expireObservable,
     setForcedReplay: () => sessionManager.updateSessionState({ forcedReplay: '1' }),
+    // FLASHCAT FORK - the escape hatch for "collect this visitor NOW": the host application knows
+    // who needs debugging (its own allow-list, a support flow), the SDK only provides the switch.
+    // A session keeps the decision it was drawn with, so forcing a visitor that was not being
+    // collected means ending their current (empty) session; the next activity draws again with
+    // `forcedSession` set and starts a collected session with replay. A session already collected
+    // only needs replay forced on, which is the existing forced-replay path.
+    setForcedSession: () => {
+      forcedSession = true
+      const session = sessionManager.findSession()
+      if (!session || !isTypeTracked(session.trackingType)) {
+        sessionManager.expire()
+      } else if (session.trackingType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY) {
+        sessionManager.updateSessionState({ forcedReplay: '1' })
+      }
+    },
   }
 }
 
@@ -201,14 +222,19 @@ export function startRumSessionManagerStub(
     expire: noop,
     expireObservable,
     setForcedReplay: noop,
+    setForcedSession: noop,
     stop: () => clearInterval(watchIntervalId),
   }
 }
 
-function computeSessionState(configuration: RumConfiguration, rawTrackingType?: string) {
+function computeSessionState(configuration: RumConfiguration, rawTrackingType?: string, forcedSession?: boolean) {
   let trackingType: RumTrackingType
   if (hasValidRumSession(rawTrackingType)) {
     trackingType = rawTrackingType
+  } else if (forcedSession) {
+    // FLASHCAT FORK - a forced draw skips both lotteries. It sits in the draw branch on purpose:
+    // an existing session keeps the decision it was created with, forcing only shapes new ones.
+    trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
   } else {
     // FLASHCAT FORK - rates set in the console take precedence over the ones passed to init. They
     // are read here, inside the only branch that draws, so a session restored from the store keeps

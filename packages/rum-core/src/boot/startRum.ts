@@ -248,6 +248,13 @@ export function startRum(
     viewHistory,
     session,
     stopSession: () => session.expire(),
+    setForcedSession: () => {
+      session.setForcedSession()
+      // A session that was collected without replay needs the recorder actually started on top of
+      // the session-state flip; the forced-replay start path already handles every other case as a
+      // no-op.
+      recorderApi.start({ force: true })
+    },
     getInternalContext: internalContext.get,
     startDurationVital: vitalCollection.startDurationVital,
     stopDurationVital: vitalCollection.stopDurationVital,
