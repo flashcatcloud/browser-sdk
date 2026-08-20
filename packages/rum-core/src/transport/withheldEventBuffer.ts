@@ -4,6 +4,7 @@ import {
   ONE_SECOND,
   addTelemetryDebug,
   clearTimeout,
+  computeBytesCount,
   jsonStringify,
   relativeNow,
   setTimeout,
@@ -43,8 +44,12 @@ const enum EvictionTier {
   FIRST,
   /** Actions and vitals: they explain what the user was doing. */
   LAST,
-  /** Errors are the reason the session is kept at all. */
-  NEVER,
+  /**
+   * Errors are the reason the session is kept at all, so they go only once nothing else is left -
+   * and even then the newest goes first, because the earliest error is the one that releases the
+   * buffer and the one the session is about.
+   */
+  LAST_RESORT,
 }
 
 interface WithheldEvent {
@@ -134,7 +139,7 @@ export function startWithheldEventBuffer(
       event,
       viewId: event.view.id,
       time: relativeNow(),
-      bytes: jsonStringify(event)?.length ?? 0,
+      bytes: computeBytesCount(jsonStringify(event) ?? ''),
       tier: getEvictionTier(event),
     }
     details.push(held)
@@ -162,18 +167,32 @@ export function startWithheldEventBuffer(
     }
   }
 
-  /** Removes the oldest event of the least valuable tier present. Returns false when empty. */
+  /** Removes one event of the least valuable tier present. Returns false when there is none left. */
   function evictOne() {
-    for (const tier of [EvictionTier.FIRST, EvictionTier.LAST, EvictionTier.NEVER]) {
+    for (const tier of [EvictionTier.FIRST, EvictionTier.LAST]) {
       const index = details.findIndex((held) => held.tier === tier)
       if (index !== -1) {
-        bytes -= details[index].bytes
-        droppedCount += 1
-        details.splice(index, 1)
+        evictAt(index)
+        return true
+      }
+    }
+
+    // Only errors are left. One still has to go to stay within budget, and it is the newest: an
+    // error storm would otherwise push out the first error, which is the one that released the
+    // buffer and the one the session is really about.
+    for (let index = details.length - 1; index >= 0; index -= 1) {
+      if (details[index].tier === EvictionTier.LAST_RESORT) {
+        evictAt(index)
         return true
       }
     }
     return false
+  }
+
+  function evictAt(index: number) {
+    bytes -= details[index].bytes
+    droppedCount += 1
+    details.splice(index, 1)
   }
 
   function scheduleRelease() {
@@ -233,7 +252,7 @@ export function startWithheldEventBuffer(
 function getEvictionTier(event: RumEvent): EvictionTier {
   switch (event.type) {
     case RumEventType.ERROR:
-      return EvictionTier.NEVER
+      return EvictionTier.LAST_RESORT
     case RumEventType.LONG_TASK:
       return EvictionTier.FIRST
     case RumEventType.RESOURCE: {

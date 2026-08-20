@@ -196,6 +196,22 @@ describe('startWithheldEventBuffer', () => {
     expect(errors.some((event) => event.date === 1)).toBeTrue()
   })
 
+  it('gives up the newest error rather than the first one when only errors are left', () => {
+    collect(RumEventType.VIEW)
+    for (let i = 0; i < WITHHELD_BUFFER_EVENTS_LIMIT + 20; i++) {
+      collect(RumEventType.ERROR, { date: i })
+    }
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR, { date: 9999 })
+
+    const dates = releasedAfterJitter()
+      .filter((event) => event.type === RumEventType.ERROR)
+      .map((event) => event.date)
+    // the first error - the one the session is about - survives
+    expect(dates).toContain(0)
+  })
+
   it('does not release detail whose view is no longer buffered', () => {
     collect(RumEventType.VIEW, { view: { id: 'old-view' } })
     collect(RumEventType.RESOURCE, { view: { id: 'old-view' } })
