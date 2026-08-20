@@ -434,7 +434,24 @@ describe('startSegmentCollection withholding (error session replay)', () => {
     expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(2)
   })
 
-  it('drops the buffer on page exit rather than sending a replay for a session that never errored', () => {
+  it('keeps the buffer when the page is only hidden, so the replay can still start from its snapshot', () => {
+    // switching tabs is ordinary; dropping here would take the only full snapshot with it
+    addRecord(RECORD)
+    addRecord(RECORD)
+    lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, { reason: PageExitReason.HIDDEN })
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.sendOnExit).not.toHaveBeenCalled()
+    expect(restartFromFullSnapshotSpy).not.toHaveBeenCalled()
+
+    reportError()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends nothing on page exit for a session that never errored', () => {
     addRecord(RECORD)
     lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, { reason: PageExitReason.UNLOADING })
     worker.processAllMessages()

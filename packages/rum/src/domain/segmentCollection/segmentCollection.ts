@@ -167,11 +167,16 @@ export function doStartSegmentCollection(
     const isWithheld = withheldForSessionId !== undefined && !buffering.isReleased(withheldForSessionId)
 
     if (state.status === SegmentCollectionStatus.SegmentPending) {
-      if (isWithheld && flushReason === 'segment_duration_limit') {
-        // The 5s rotation is what turns records into requests. While withheld there is nothing to
-        // send, so the segment keeps growing instead, and the timer is re-armed so that the buffer
-        // is flushed normally within one rotation of the session reporting its error.
-        state.expirationTimeoutId = setTimeout(() => flushSegment('segment_duration_limit'), SEGMENT_DURATION_LIMIT)
+      if (isWithheld && (flushReason === 'segment_duration_limit' || isPageExitReason(flushReason))) {
+        // Nothing can be sent while withheld, so these rotations would only throw the buffer away -
+        // and with it the full snapshot a released replay has to start from, leaving the rest of the
+        // session as incremental records nothing can be played from. A page that is merely hidden or
+        // frozen comes back and goes on recording; one that is really unloading takes the buffer with
+        // it either way. Keeping it is never worse than dropping it.
+        if (flushReason === 'segment_duration_limit') {
+          // Re-armed, so the buffer is flushed normally within one rotation of the session erroring.
+          state.expirationTimeoutId = setTimeout(() => flushSegment('segment_duration_limit'), SEGMENT_DURATION_LIMIT)
+        }
         return
       }
 
