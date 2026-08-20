@@ -26,7 +26,7 @@ import type { RumConfiguration, RumInitConfiguration } from './configuration'
 const CONFIG_PATH = '/api/v2/rum/config'
 const STORE_KEY_PREFIX = '_fc_rc_'
 const DEFAULT_FETCH_TIMEOUT = 3 * ONE_SECOND
-const DEFAULT_TTL = 300 * ONE_SECOND
+const DEFAULT_TTL = 600 * ONE_SECOND
 
 /**
  * End the running session as soon as rates that change this client arrive, so a new session starts
