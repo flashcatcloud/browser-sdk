@@ -16,7 +16,6 @@ import type { RumConfiguration } from '../domain/configuration'
 import type { LifeCycle } from '../domain/lifeCycle'
 import type { RumSessionManager } from '../domain/rumSessionManager'
 import { RumEventType } from '../rawRumEvent.types'
-import type { RumEvent } from '../rumEvent.types'
 import { startWithheldEventBuffer } from './withheldEventBuffer'
 
 export function startRumBatch(
