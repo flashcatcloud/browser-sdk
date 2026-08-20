@@ -175,6 +175,10 @@ export function doStartSegmentCollection(
         // it either way. Keeping it is never worse than dropping it.
         if (flushReason === 'segment_duration_limit') {
           // Re-armed, so the buffer is flushed normally within one rotation of the session erroring.
+          // That rotation is also the only thing that notices the release, which leaves a window of
+          // one rotation in which a session that expires right after its own error takes the buffer
+          // with it. Closing it would mean asking the session manager on every record, which is far
+          // too hot a path for a window this narrow.
           state.expirationTimeoutId = setTimeout(() => flushSegment('segment_duration_limit'), SEGMENT_DURATION_LIMIT)
         }
         return
