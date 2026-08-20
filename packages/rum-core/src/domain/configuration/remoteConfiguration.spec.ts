@@ -1,13 +1,10 @@
-import { INTAKE_SITE_US1, noop, Observable, ONE_SECOND } from '@flashcatcloud/browser-core'
-import { interceptRequests, registerCleanupTask } from '@flashcatcloud/browser-core/test'
+import { INTAKE_SITE_US1, ONE_SECOND } from '@flashcatcloud/browser-core'
+import type { Clock, MockXhr } from '@flashcatcloud/browser-core/test'
+import { interceptRequests, mockClock, registerCleanupTask } from '@flashcatcloud/browser-core/test'
 import { mockRumConfiguration } from '../../../test'
+import { LifeCycle, LifeCycleEventType } from '../lifeCycle'
 import type { RumConfiguration, RumInitConfiguration } from './configuration'
-import {
-  buildRemoteSamplingSetup,
-  readRemoteSampling,
-  shouldRefreshOnActivation,
-  startRemoteConfiguration,
-} from './remoteConfiguration'
+import { buildRemoteSamplingSetup, readRemoteSampling, startRemoteConfiguration } from './remoteConfiguration'
 
 const INIT_CONFIGURATION = {
   clientToken: 'token',
@@ -28,19 +25,15 @@ function configurationWith(partial: Partial<RumConfiguration> = {}) {
 }
 
 function body({
-  activation = 'next_session',
   rum = {} as Record<string, number>,
   enabled = true,
-  ttl = 300,
-  refreshOnForeground = false,
   custom = undefined as Record<string, unknown> | undefined,
 } = {}) {
   return JSON.stringify({
     version: 3,
-    ttl,
+    ttl: 600,
     enabled,
-    activation,
-    refresh_on_foreground: refreshOnForeground,
+    activation: 'next_session',
     rum,
     custom,
   })
@@ -49,17 +42,19 @@ function body({
 describe('remoteConfiguration', () => {
   let interceptor: ReturnType<typeof interceptRequests>
   let setup: ReturnType<typeof buildRemoteSamplingSetup>
-  let pageActivationObservable: Observable<void>
+  let lifeCycle: LifeCycle
 
   beforeEach(() => {
     interceptor = interceptRequests()
     setup = buildRemoteSamplingSetup(INIT_CONFIGURATION)
-    pageActivationObservable = new Observable<void>()
+    lifeCycle = new LifeCycle()
     registerCleanupTask(() => localStorage.removeItem(setup!.storeKey))
   })
 
-  function start(configuration: RumConfiguration, endCurrentSession: () => void = noop) {
-    return startRemoteConfiguration(configuration, endCurrentSession, pageActivationObservable)
+  function start(configuration: RumConfiguration) {
+    const stop = startRemoteConfiguration(configuration, lifeCycle)
+    registerCleanupTask(stop)
+    return stop
   }
 
   describe('opting in', () => {
@@ -69,7 +64,7 @@ describe('remoteConfiguration', () => {
         requested = true
       })
 
-      start(mockRumConfiguration({ remoteSampling: undefined }), noop)
+      start(mockRumConfiguration({ remoteSampling: undefined }))
 
       expect(requested).toBeFalse()
       expect(buildRemoteSamplingSetup({ ...INIT_CONFIGURATION, remoteConfiguration: false })).toBeUndefined()
@@ -85,7 +80,7 @@ describe('remoteConfiguration', () => {
         expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 42, sessionReplaySampleRate: 7, version: 3 })
         done()
       })
-      start(configurationWith(), noop)
+      start(configurationWith())
     })
 
     it('keeps a zero rate, which is a deliberate setting and not a missing one', (done) => {
@@ -95,7 +90,7 @@ describe('remoteConfiguration', () => {
         expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 0, version: 3 })
         done()
       })
-      start(configurationWith(), noop)
+      start(configurationWith())
     })
 
     it('leaves out a rate the server did not report, so it stays with the value passed to init', (done) => {
@@ -105,7 +100,7 @@ describe('remoteConfiguration', () => {
         expect(readRemoteSampling(setup).sessionReplaySampleRate).toBeUndefined()
         done()
       })
-      start(configurationWith(), noop)
+      start(configurationWith())
     })
 
     it('keeps the custom bag the server reports, verbatim', (done) => {
@@ -115,7 +110,7 @@ describe('remoteConfiguration', () => {
         expect(readRemoteSampling(setup).custom).toEqual({ viplist: ['u-1', 'u-2'], debug: true })
         done()
       })
-      start(configurationWith(), noop)
+      start(configurationWith())
     })
 
     it('forgets the custom bag when the kill switch is off', (done) => {
@@ -127,7 +122,7 @@ describe('remoteConfiguration', () => {
         expect(readRemoteSampling(setup).custom).toBeUndefined()
         done()
       })
-      start(configurationWith(), noop)
+      start(configurationWith())
     })
 
     it('forgets the rates once remote configuration is switched off', (done) => {
@@ -141,11 +136,73 @@ describe('remoteConfiguration', () => {
         expect(readRemoteSampling(setup)).toEqual({ version: 3 })
         done()
       })
-      start(configurationWith(), noop)
+      start(configurationWith())
     })
   })
 
-  describe('when the endpoint cannot be reached', () => {
+  describe('fetching cadence', () => {
+    // No polling: the rates only matter at the next draw, so the SDK asks once at start-up and
+    // once per session renewal, and stays quiet in between.
+    let clock: Clock
+
+    beforeEach(() => {
+      clock = mockClock()
+      registerCleanupTask(() => clock.cleanup())
+    })
+
+    it('fetches once at start-up and stays quiet afterwards', () => {
+      const requests: MockXhr[] = []
+      interceptor.withMockXhr((xhr) => {
+        requests.push(xhr)
+        xhr.complete(200, body())
+      })
+
+      start(configurationWith())
+      clock.tick(60 * 60 * ONE_SECOND)
+
+      expect(requests.length).toBe(1)
+    })
+
+    it('fetches again when a session is renewed', () => {
+      const requests: MockXhr[] = []
+      interceptor.withMockXhr((xhr) => {
+        requests.push(xhr)
+        xhr.complete(200, body())
+      })
+
+      start(configurationWith())
+      lifeCycle.notify(LifeCycleEventType.SESSION_RENEWED)
+
+      expect(requests.length).toBe(2)
+    })
+
+    it('retries a failure quickly, then patiently, then gives up until the next trigger', () => {
+      const requests: MockXhr[] = []
+      interceptor.withMockXhr((xhr) => {
+        requests.push(xhr)
+        xhr.complete(500)
+      })
+
+      start(configurationWith())
+      expect(requests.length).toBe(1)
+
+      // First retry lands within 5s ± jitter.
+      clock.tick(6 * ONE_SECOND + ONE_SECOND)
+      expect(requests.length).toBe(2)
+
+      // Second retry lands within 60s ± jitter.
+      clock.tick(72 * ONE_SECOND + ONE_SECOND)
+      expect(requests.length).toBe(3)
+
+      // Budget exhausted: no matter how long the page sits there, nothing more is asked.
+      clock.tick(60 * 60 * ONE_SECOND)
+      expect(requests.length).toBe(3)
+
+      // The next natural trigger starts a fresh attempt (with a fresh retry budget).
+      lifeCycle.notify(LifeCycleEventType.SESSION_RENEWED)
+      expect(requests.length).toBe(4)
+    })
+
     it('leaves the rates it already had alone rather than falling back to init', (done) => {
       localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 42 }))
 
@@ -155,7 +212,7 @@ describe('remoteConfiguration', () => {
         expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 42 })
         done()
       })
-      start(configurationWith(), noop)
+      start(configurationWith())
     })
 
     it('leaves the rates alone when the body makes no sense', (done) => {
@@ -165,131 +222,6 @@ describe('remoteConfiguration', () => {
         xhr.complete(200, 'not json')
 
         expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 42 })
-        done()
-      })
-      start(configurationWith(), noop)
-    })
-  })
-
-  describe('activation', () => {
-    it('leaves the running session alone by default, however much the rates changed', (done) => {
-      let ended = false
-      interceptor.withMockXhr((xhr) => {
-        xhr.complete(200, body({ activation: 'next_session', rum: { sessionSampleRate: 100 } }))
-
-        expect(ended).toBeFalse()
-        done()
-      })
-      start(configurationWith(), () => {
-        ended = true
-      })
-    })
-
-    it('ends the running session when asked to activate immediately and the rates changed', (done) => {
-      let ended = false
-      interceptor.withMockXhr((xhr) => {
-        xhr.complete(200, body({ activation: 'immediate', rum: { sessionSampleRate: 100 } }))
-
-        expect(ended).toBeTrue()
-        done()
-      })
-      start(configurationWith(), () => {
-        ended = true
-      })
-    })
-
-    it('leaves the session alone when immediate rates match what this client already draws with', (done) => {
-      // The console can send the same numbers the site passed to init, or resend an unchanged
-      // configuration on every poll. Neither is a change, and neither may cost a visitor a session.
-      let ended = false
-      interceptor.withMockXhr((xhr) => {
-        xhr.complete(
-          200,
-          body({ activation: 'immediate', rum: { sessionSampleRate: 10, sessionReplaySampleRate: 20 } })
-        )
-
-        expect(ended).toBeFalse()
-        done()
-      })
-      start(configurationWith(), () => {
-        ended = true
-      })
-    })
-
-    it('ends the running session when only the replay rate changed', (done) => {
-      let ended = false
-      interceptor.withMockXhr((xhr) => {
-        xhr.complete(
-          200,
-          body({ activation: 'immediate', rum: { sessionSampleRate: 10, sessionReplaySampleRate: 90 } })
-        )
-
-        expect(ended).toBeTrue()
-        done()
-      })
-      start(configurationWith(), () => {
-        ended = true
-      })
-    })
-
-    it('ends the running session when the kill switch takes the rates away', (done) => {
-      // Going back to the init rates is as much a change as any other, and switching remote
-      // configuration off during an incident is exactly when it should not have to wait.
-      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 100 }))
-
-      let ended = false
-      interceptor.withMockXhr((xhr) => {
-        xhr.complete(200, body({ activation: 'immediate', enabled: false }))
-
-        expect(ended).toBeTrue()
-        done()
-      })
-      start(configurationWith(), () => {
-        ended = true
-      })
-    })
-
-    it('leaves the session alone when the request fails, whatever activation was last seen', (done) => {
-      let ended = false
-      interceptor.withMockXhr((xhr) => {
-        xhr.complete(500)
-
-        expect(ended).toBeFalse()
-        done()
-      })
-      start(configurationWith(), () => {
-        ended = true
-      })
-    })
-  })
-
-  describe('coming back to the page', () => {
-    // Tested through the decision rather than by counting requests: the poll interval and the age
-    // at which settings count as stale are the same duration by construction, so any clock tick
-    // that makes them stale also fires the poll, and a request count cannot tell the two apart.
-    it('asks again only when the server allowed it and the settings went stale', () => {
-      expect(shouldRefreshOnActivation(true, 61 * ONE_SECOND, 60 * ONE_SECOND)).toBeTrue()
-    })
-
-    it('asks nothing when the server did not allow it', () => {
-      // Off by default on purpose: coming back bunches requests at the moments people return to
-      // their tabs, which is the shape the endpoint copes with worst.
-      expect(shouldRefreshOnActivation(false, 61 * ONE_SECOND, 60 * ONE_SECOND)).toBeFalse()
-    })
-
-    it('asks nothing while the settings are still fresh', () => {
-      expect(shouldRefreshOnActivation(true, 10 * ONE_SECOND, 60 * ONE_SECOND)).toBeFalse()
-    })
-
-    it('is wired to the page coming back, and stays quiet on a fresh page', (done) => {
-      let requests = 0
-      interceptor.withMockXhr((xhr) => {
-        requests++
-        xhr.complete(200, body({ refreshOnForeground: true }))
-
-        pageActivationObservable.notify()
-
-        expect(requests).toBe(1)
         done()
       })
       start(configurationWith())
@@ -326,6 +258,10 @@ describe('remoteConfiguration', () => {
       expect(keyOf({})).not.toEqual(keyOf({ applicationId: 'other' }))
       expect(keyOf({})).not.toEqual(keyOf({ env: 'production' }))
       expect(keyOf({})).not.toEqual(keyOf({ version: '1.2.4' }))
+    })
+
+    it('carries the storage format version, so only a format change orphans the cache', () => {
+      expect(buildRemoteSamplingSetup(INIT_CONFIGURATION)!.storeKey.startsWith('_fc_rc_1_')).toBeTrue()
     })
   })
 })

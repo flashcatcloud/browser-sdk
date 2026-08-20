@@ -4,42 +4,44 @@ import {
   createEndpointUrlBuilder,
   noop,
   setTimeout,
-  timeStampNow,
   ONE_SECOND,
 } from '@flashcatcloud/browser-core'
-import type { Observable, TimeoutId } from '@flashcatcloud/browser-core'
+import type { TimeoutId } from '@flashcatcloud/browser-core'
+import type { LifeCycle } from '../lifeCycle'
+import { LifeCycleEventType } from '../lifeCycle'
 import type { RumConfiguration, RumInitConfiguration } from './configuration'
 
 /**
  * Sampling rates the application owner can change from the console, without the customer shipping a
  * new release of their site.
  *
- * By default a change only affects sessions created after it arrives, so a visitor is never dropped
- * halfway through and never starts being recorded halfway through. The console can also ask for the
- * change to land immediately, which ends the running session so a new one starts under the new
- * rates — see `ACTIVATION_IMMEDIATE`.
+ * A change only affects sessions created after it arrives, so a visitor is never dropped halfway
+ * through and never starts being recorded halfway through. Fetching follows the same rhythm: once
+ * at start-up and once whenever a new session begins — a change can only matter at the next draw,
+ * so asking more often than sessions are drawn would be requests for nothing. There is no timer
+ * between sessions; the server's `ttl` field is accepted and ignored, reserved for a future
+ * polling mode.
  *
  * Nothing here runs unless `remoteConfiguration: true`. Left off — the default — the SDK makes no
  * extra request and behaves exactly as it did before this existed.
  */
 
 const CONFIG_PATH = '/api/v2/rum/config'
-const STORE_KEY_PREFIX = '_fc_rc_'
+/**
+ * The `1` is the storage format version, not the SDK version: it changes only when the shape of
+ * what we store changes, so an SDK upgrade keeps the cache (losing it would put the first session
+ * after every upgrade back on the init values), while a format change orphans the old entry
+ * instead of asking new code to parse it.
+ */
+const STORE_KEY_PREFIX = '_fc_rc_1_'
 const DEFAULT_FETCH_TIMEOUT = 3 * ONE_SECOND
-const DEFAULT_TTL = 600 * ONE_SECOND
 
 /**
- * End the running session as soon as rates that change this client arrive, so a new session starts
- * under them. Chosen in the console, per application.
- *
- * Ending and restarting is deliberate: it is not the same as flipping the running session's decision
- * in place. A session that was not being collected has no id and no history, so "flipping" it would
- * invent a session that appears to begin mid-visit; and a collected session flipped off would simply
- * stop, looking like it ended early. Restarting keeps every session a complete record of itself, and
- * reuses the expiry path the SDK already has — the recorder flushes and starts again from a fresh
- * full snapshot, exactly as it does when a session times out.
+ * A failed fetch is retried quickly, then patiently, then not at all until the next natural
+ * trigger (a new session, or the next page load). The budget is deliberately tiny — two extra
+ * requests per outage per client, so a fleet can never turn an endpoint incident into a storm.
  */
-const ACTIVATION_IMMEDIATE = 'immediate'
+const RETRY_DELAYS = [5 * ONE_SECOND, 60 * ONE_SECOND]
 
 export interface RemoteSampling {
   sessionSampleRate?: number
@@ -92,15 +94,7 @@ export interface RemoteSamplingSetup {
 
 interface RemoteConfigurationResponse {
   version: number
-  ttl: number
   enabled: boolean
-  activation: string
-  /**
-   * Whether this application may ask again when the page comes back into view. Off unless an
-   * operator turned it on: unlike the poll, which spreads requests out, coming back concentrates
-   * them at the moment everyone opens their tabs again.
-   */
-  refresh_on_foreground: boolean
   rum: RemoteSampling
   custom?: Record<string, unknown>
 }
@@ -125,116 +119,68 @@ export function readRemoteSampling(setup: RemoteSamplingSetup | undefined): Remo
 }
 
 /**
- * Start keeping the stored rates fresh for the life of the page.
+ * Keep the stored rates as fresh as the sessions that read them.
  *
- * The first fetch is issued immediately but nothing waits for it — initialisation is never delayed
- * and collection never pauses, whatever the endpoint does. Later fetches follow the ttl the server
- * asks for, which is what keeps a long-lived single-page application from running on the rates it
- * happened to load with.
- *
- * `endCurrentSession` is called only when the server asked for immediate activation AND the rates
- * this client will now draw with actually differ from the ones its running session was drawn with.
- * Both halves matter: without the first, a routine poll would cut sessions in half; without the
- * second, every poll would.
+ * A fetch is issued at start-up and on every session renewal, and nothing ever waits for it —
+ * initialisation is never delayed and collection never pauses, whatever the endpoint does. The
+ * response lands in storage for the NEXT draw: the draw that triggered the fetch has already
+ * happened by the time the response arrives, which is exactly the next-session semantics the
+ * console promises.
  */
-export function startRemoteConfiguration(
-  configuration: RumConfiguration,
-  endCurrentSession: () => void,
-  pageActivationObservable: Observable<void>
-) {
+export function startRemoteConfiguration(configuration: RumConfiguration, lifeCycle: LifeCycle) {
   const setup = configuration.remoteSampling
-  return setup ? keepSamplingFresh(configuration, setup, endCurrentSession, pageActivationObservable) : noop
+  return setup ? keepSamplingFresh(configuration, setup, lifeCycle) : noop
 }
 
-function keepSamplingFresh(
-  configuration: RumConfiguration,
-  setup: RemoteSamplingSetup,
-  endCurrentSession: () => void,
-  pageActivationObservable: Observable<void>
-) {
-  let timeoutId: TimeoutId | undefined
-  let lastFetchTime = 0
-  let currentTtl = DEFAULT_TTL
-  let refreshOnForeground = false
+function keepSamplingFresh(configuration: RumConfiguration, setup: RemoteSamplingSetup, lifeCycle: LifeCycle) {
+  let retryTimeoutId: TimeoutId | undefined
+  let failedAttempts = 0
+  let inFlight = false
 
-  function scheduleNext(delay: number) {
-    clearTimeout(timeoutId)
-    timeoutId = setTimeout(fetchOnce, delay)
-  }
-
-  function fetchOnce() {
-    // Armed before the request goes out, so a request that never comes back still leads to another
-    // attempt rather than leaving the page on whatever it last knew, forever.
-    lastFetchTime = timeStampNow()
-    scheduleNext(DEFAULT_TTL)
+  function fetchNow() {
+    if (inFlight) {
+      return
+    }
+    inFlight = true
 
     fetchRemoteConfiguration(configuration, setup, readRemoteSampling(setup).version, (response) => {
-      const before = effectiveRates(configuration, readRemoteSampling(setup))
-      store(setup, response)
-      const after = effectiveRates(configuration, readRemoteSampling(setup))
-
-      if (response.activation === ACTIVATION_IMMEDIATE && !sameRates(before, after)) {
-        endCurrentSession()
+      inFlight = false
+      if (response) {
+        failedAttempts = 0
+        store(setup, response)
+        return
       }
-
-      // Follow the server's ttl rather than a constant of ours, so how fast a change propagates
-      // stays a server-side decision.
-      currentTtl = response.ttl > 0 ? response.ttl * ONE_SECOND : DEFAULT_TTL
-      refreshOnForeground = !!response.refresh_on_foreground
-      scheduleNext(currentTtl)
+      if (failedAttempts < RETRY_DELAYS.length) {
+        retryTimeoutId = setTimeout(fetchNow, jittered(RETRY_DELAYS[failedAttempts]))
+        failedAttempts += 1
+      }
+      // Out of retries: give up until the next trigger. The stored rates stay as they were.
     })
   }
 
-  // A page the visitor left and came back to has usually missed its refresh: browsers throttle
-  // timers hard in hidden tabs, and a page restored from the back-forward cache may not have run
-  // one for hours, so someone can come back and carry on under settings that changed while they
-  // were away.
-  //
-  // Asking on the way back fixes that, and is off unless the server says otherwise. The poll
-  // spreads requests out across the ttl; coming back does the opposite, bunching them at the
-  // moments people return to their tabs, which is the shape the endpoint copes with worst. It is
-  // worth that for an application whose owner needs a change to land within minutes, and not worth
-  // it for everyone else, so it is theirs to turn on rather than ours to assume.
-  const activationSubscription = pageActivationObservable.subscribe(() => {
-    if (shouldRefreshOnActivation(refreshOnForeground, timeStampNow() - lastFetchTime, currentTtl)) {
-      fetchOnce()
-    }
-  })
+  function onTrigger() {
+    clearTimeout(retryTimeoutId)
+    failedAttempts = 0
+    fetchNow()
+  }
 
-  fetchOnce()
+  const renewSubscription = lifeCycle.subscribe(LifeCycleEventType.SESSION_RENEWED, onTrigger)
+
+  onTrigger()
 
   return () => {
-    activationSubscription.unsubscribe()
-    clearTimeout(timeoutId)
+    renewSubscription.unsubscribe()
+    clearTimeout(retryTimeoutId)
   }
 }
 
 /**
- * Whether coming back to the page is a reason to ask again.
- *
- * Both halves matter and they guard different things: the permission keeps the request pattern —
- * a burst as people return to their tabs — off unless someone chose it, and the age keeps
- * switching tabs back and forth from becoming a request each time.
+ * Spread a delay by ±20%. An endpoint incident aligns every failed client's retry clock to the
+ * same moment; without this, recovery would be greeted by the whole fleet at once, exactly when
+ * the endpoint is weakest.
  */
-export function shouldRefreshOnActivation(allowed: boolean, ageOfSettings: number, ttl: number) {
-  return allowed && ageOfSettings >= ttl
-}
-
-/**
- * The rates this client would draw with: whatever the console sent, falling back per knob to what
- * the site passed to init. Comparing these rather than the raw stored values is what makes "did
- * anything change for me?" exact — a console that sends the same number the site already used has
- * changed nothing, and must not cost anyone a session.
- */
-function effectiveRates(configuration: RumConfiguration, remote: RemoteSampling) {
-  return {
-    session: remote.sessionSampleRate ?? configuration.sessionSampleRate,
-    replay: remote.sessionReplaySampleRate ?? configuration.sessionReplaySampleRate,
-  }
-}
-
-function sameRates(a: { session: number; replay: number }, b: { session: number; replay: number }) {
-  return a.session === b.session && a.replay === b.replay
+function jittered(delay: number) {
+  return delay * (0.8 + 0.4 * Math.random())
 }
 
 /**
@@ -242,25 +188,32 @@ function sameRates(a: { session: number; replay: number }, b: { session: number;
  * as they were. Clearing them on failure would swing a whole fleet back to its local settings the
  * moment the endpoint had a bad minute, which is the opposite of what a customer wants from a knob
  * they turned deliberately.
+ *
+ * Conditional requests are the HTTP stack's job, not ours: the server pairs `Cache-Control:
+ * private, no-cache` with an `ETag`, so the browser cache revalidates on its own and answers this
+ * request from cache on a 304 — no `If-None-Match` handling in here.
  */
 function fetchRemoteConfiguration(
   configuration: RumConfiguration,
   setup: RemoteSamplingSetup,
   appliedVersion: number | undefined,
-  callback: (response: RemoteConfigurationResponse) => void
+  callback: (response: RemoteConfigurationResponse | undefined) => void
 ) {
   const xhr = new XMLHttpRequest()
 
   addEventListener(configuration, xhr, 'load', () => {
     if (xhr.status !== 200) {
+      callback(undefined)
       return
     }
     try {
       callback(JSON.parse(xhr.responseText) as RemoteConfigurationResponse)
     } catch {
-      // Not something we can act on, and not something worth telling the customer about.
+      callback(undefined)
     }
   })
+  addEventListener(configuration, xhr, 'error', () => callback(undefined))
+  addEventListener(configuration, xhr, 'timeout', () => callback(undefined))
 
   // Telling the server which version this client is running is what lets the console answer "has
   // my change reached everyone yet". It is sent on the request every client makes, kept or not.
@@ -316,7 +269,9 @@ export function buildRemoteSamplingSetup(initConfiguration: RumInitConfiguration
  * The key covers everything that can change the answer — which application, on which host, in which
  * environment, at which version — so a visitor moving between two of them does not read the other's
  * rates. It deliberately leaves out the SDK version: including it would throw the stored rates away
- * on every SDK upgrade and put the first session after an upgrade back on the local settings.
+ * on every SDK upgrade and put the first session after an upgrade back on the local settings. The
+ * storage format version lives in `STORE_KEY_PREFIX` instead, so only a real format change orphans
+ * the cache.
  */
 function buildStoreKey(initConfiguration: RumInitConfiguration) {
   const parts = [

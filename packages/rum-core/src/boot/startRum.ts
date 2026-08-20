@@ -126,12 +126,12 @@ export function startRum(
   }
 
   if (!canUseEventBridge()) {
-    // FLASHCAT FORK - keep the console's sampling rates fresh. It lives here, next to the session
-    // manager, because immediate activation has to be able to end the running session; and it is
-    // skipped under an event bridge, where the host application owns the sampling decision.
-    // Nothing waits on the first response: the rates already in storage, or the ones passed to
-    // init, carry this page either way, so an endpoint having a bad minute never costs a visit.
-    cleanupTasks.push(startRemoteConfiguration(configuration, session.expire, pageActivationObservable))
+    // FLASHCAT FORK - keep the console's sampling rates fresh, at the rhythm the sessions read
+    // them: once now and once per session renewal. It is skipped under an event bridge, where the
+    // host application owns the sampling decision. Nothing waits on the first response: the rates
+    // already in storage, or the ones passed to init, carry this page either way, so an endpoint
+    // having a bad minute never costs a visit.
+    cleanupTasks.push(startRemoteConfiguration(configuration, lifeCycle))
 
     const batch = startRumBatch(
       configuration,
