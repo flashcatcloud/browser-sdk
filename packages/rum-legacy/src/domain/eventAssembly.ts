@@ -12,6 +12,8 @@ export interface ViewContext {
   id: string
   url: string
   referrer: string
+  /** When the view started. Every update of a view carries the same value. */
+  startTime: number
 }
 
 export interface AssembleOptions {
@@ -19,6 +21,8 @@ export interface AssembleOptions {
   configuration: AssemblyConfiguration
   sessionId: string
   view: ViewContext
+  /** When the event happened. Defaults to now, which is wrong for a view: see below. */
+  date?: number
   properties: { [key: string]: any }
   context?: { [key: string]: any }
 }
@@ -31,11 +35,11 @@ export interface AssembleOptions {
  * `view` sub-object is merged rather than replaced.
  */
 export function assembleEvent(options: AssembleOptions): object {
-  const { type, configuration, sessionId, view, properties, context } = options
+  const { type, configuration, sessionId, view, date, properties, context } = options
 
   const event: { [key: string]: any } = {
     type,
-    date: dateNow(),
+    date: date ?? dateNow(),
     source: 'browser',
     application: {
       id: configuration.applicationId,

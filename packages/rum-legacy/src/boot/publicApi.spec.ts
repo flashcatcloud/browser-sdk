@@ -183,6 +183,16 @@ describe('public api', () => {
       expect(payloads).toEqual([])
     })
 
+    it('does not let init overrule a consent decision the page already made', () => {
+      // The order a consent management platform commonly uses: answer first, init afterwards.
+      api.setTrackingConsent('not-granted')
+      api.init(VALID_CONFIGURATION)
+      api.addError(new Error('boom'))
+      flush()
+
+      expect(payloads).toEqual([])
+    })
+
     it('collects when consent is granted at init', () => {
       api.init({ ...VALID_CONFIGURATION, trackingConsent: 'granted' })
       flush()
@@ -408,6 +418,41 @@ describe('public api', () => {
 
       const closing = eventsOfType('view').filter((event) => event.view.is_active === false)
       expect(closing.length).toBe(1)
+      ;(freshApi as unknown as { _stop: () => void })._stop()
+    })
+
+    it('still reports the real exit after the user cancels a navigation', () => {
+      const handlers = captureExitHandlers()
+      const freshApi = makeRumLegacyPublicApi()
+      freshApi.init(VALID_CONFIGURATION)
+
+      // The user starts to leave, then stays. Nothing was dismissed, and the page keeps recording.
+      handlers.beforeunload[0]()
+      freshApi.addAction('changed-my-mind')
+      payloads = []
+
+      handlers.beforeunload[0]()
+
+      // Without releasing the guard, this second exit is a no-op and everything buffered since the
+      // cancelled navigation is lost with the page.
+      expect(eventsOfType('action').length).toBe(1)
+      ;(freshApi as unknown as { _stop: () => void })._stop()
+    })
+
+    it('dates every update of a view by when the view started', () => {
+      const handlers = captureExitHandlers()
+      const freshApi = makeRumLegacyPublicApi()
+      const openedAt = Date.now()
+      freshApi.init(VALID_CONFIGURATION)
+      const dismissedAt = openedAt + 5000
+      jasmine.clock().mockDate(new Date(dismissedAt))
+
+      handlers.beforeunload[0]()
+
+      const closing = eventsOfType('view').filter((event) => event.view.is_active === false)[0]
+      // Dated when the view opened, not when the page was dismissed five seconds later.
+      expect(closing.date).toBeLessThan(dismissedAt)
+      expect(closing.date).toBeGreaterThanOrEqual(openedAt)
       ;(freshApi as unknown as { _stop: () => void })._stop()
     })
 

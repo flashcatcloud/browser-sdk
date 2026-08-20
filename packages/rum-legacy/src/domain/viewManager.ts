@@ -77,7 +77,7 @@ export function startViewManager(
         view,
         _dd: { document_version: currentView.documentVersion },
       },
-      { id: currentView.id, url: currentView.url, referrer: currentView.referrer }
+      { id: currentView.id, url: currentView.url, referrer: currentView.referrer, startTime: currentView.startTime }
     )
   }
 
@@ -120,7 +120,12 @@ export function startViewManager(
 
   return {
     getCurrentView(): ViewContext {
-      return { id: currentView.id, url: currentView.url, referrer: currentView.referrer }
+      return {
+        id: currentView.id,
+        url: currentView.url,
+        referrer: currentView.referrer,
+        startTime: currentView.startTime,
+      }
     },
 
     startView(name?: string): void {
@@ -171,7 +176,10 @@ export function startViewManager(
  * left out rather than reported as 0.
  */
 function addNavigationTimings(view: { [key: string]: any }): void {
-  const timing = performance && performance.timing
+  // Read off window rather than as a bare identifier: where the property does not exist at all, a
+  // bare reference throws a ReferenceError instead of evaluating to undefined, and this runs inside
+  // the first view emitted during init.
+  const timing = window.performance && window.performance.timing
   if (!timing || !timing.navigationStart) {
     return
   }

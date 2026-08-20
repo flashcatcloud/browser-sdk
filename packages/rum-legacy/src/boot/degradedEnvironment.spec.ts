@@ -24,6 +24,9 @@ import { makeRumLegacyPublicApi } from './publicApi'
  */
 const REMOVED_GLOBALS = ['fetch', 'Promise', 'MutationObserver', 'PerformanceObserver', 'TextEncoder', 'URL'] as const
 
+/** Absent entirely, not merely undefined — see `remove` below for why the difference matters. */
+const DELETED_GLOBALS = ['performance'] as const
+
 /*
  * These globals are shared with every other spec in the suite, which all run in the same browser
  * context. Restoring them by plain assignment is not enough: `navigator.sendBeacon` lives on
@@ -42,8 +45,22 @@ function withIE9Environment<T>(operation: () => T): T {
     Object.defineProperty(host, name, { value: undefined, configurable: true, writable: true })
   }
 
+  /*
+   * Deleted outright rather than defined as undefined. The two are not the same to a bare
+   * identifier reference: an own property holding undefined resolves quietly, while an absent one
+   * throws a ReferenceError. Engines that never shipped an API are the second case, so hiding it
+   * the first way would leave exactly the code this suite exists to catch passing.
+   */
+  function remove(host: any, name: string) {
+    hidden.push({ host, name, descriptor: Object.getOwnPropertyDescriptor(host, name) })
+    delete host[name]
+  }
+
   for (const name of REMOVED_GLOBALS) {
     hide(window, name)
+  }
+  for (const name of DELETED_GLOBALS) {
+    remove(window, name)
   }
   hide(navigator, 'sendBeacon')
 

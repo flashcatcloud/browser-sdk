@@ -45,6 +45,10 @@ export function makeRumLegacyPublicApi() {
   // Collection only runs while this is exactly 'granted', matching the modern bundle. An
   // unrecognised value therefore withholds collection rather than silently enabling it.
   let trackingConsent: string = TRACKING_CONSENT_GRANTED
+  // A consent management platform commonly calls setTrackingConsent before init, and the answer it
+  // gives is the user's, not the page's. The configuration only supplies a default for a page that
+  // has not answered yet.
+  let trackingConsentSetExplicitly = false
   let globalContext: Context = {}
   let userContext: Context = {}
   let accountContext: Context = {}
@@ -67,9 +71,22 @@ export function makeRumLegacyPublicApi() {
     })
     const batch = startBatch(createHttpRequest(buildUrl))
 
+    /*
+     * Declared here rather than next to the page exit listeners below, which is where they are
+     * used: the first view update is emitted while startViewManager is still running, so sendEvent
+     * runs before anything declared after it has been initialised.
+     */
+    let exited = false
+    let exiting = false
+    function releaseExitGuard(): void {
+      if (!exiting) {
+        exited = false
+      }
+    }
+
     // The view is passed in rather than read back from the view manager: the first view update is
     // emitted while startViewManager is still running, before the binding below exists.
-    function sendEvent(type: string, properties: Context, view: ViewContext, context?: Context): void {
+    function sendEvent(type: string, properties: Context, view: ViewContext, context?: Context, date?: number): void {
       const session = sessionStore.getOrCreateSession()
       if (!session.isTracked) {
         // Sampled out. The decision belongs to the session, so this holds for every event in it.
@@ -80,14 +97,19 @@ export function makeRumLegacyPublicApi() {
         configuration: assemblyConfiguration,
         sessionId: session.id,
         view,
+        date,
         properties: withIdentityContexts(properties),
         context: context && !isEmptyObject(context) ? shallowMerge(globalContext, context) : globalContext,
       })
       batch.add(event)
+      releaseExitGuard()
     }
 
     const viewManager = startViewManager((properties, view) => {
-      sendEvent('view', properties, view)
+      // A view event is dated by when the view started, not by when this update was assembled. The
+      // modern bundle does the same, so every update of one view shares a date and the closing
+      // update does not appear to have happened at the moment the page was dismissed.
+      sendEvent('view', properties, view, undefined, view.startTime)
     })
 
     // Both uncaught and manually added errors arrive here, so the count and the event stay in one
@@ -103,19 +125,29 @@ export function makeRumLegacyPublicApi() {
      * before the buffer is sent. A listener inside startBatch would always run first and flush an
      * empty buffer.
      *
-     * beforeunload and unload are the only signals available before IE10. The exit runs once: the
-     * synchronous request it makes blocks the browser, and doing that twice while a page is closing
-     * is worse than missing a second closing update on the rare cancelled navigation.
+     * beforeunload and unload are the only signals available before IE10, and both fire on the same
+     * dismissal. The guard below keeps that from sending the synchronous request twice while the
+     * page is closing, which would block the browser for a second time.
+     *
+     * It is released again by the next event, because a page that is still recording was not
+     * closing after all: the user cancelled the navigation. Leaving the guard set there would drop
+     * everything buffered from that point on, since the real exit would find it already true.
+     * Events produced by the exit flush itself do not release it — they are part of the sequence
+     * being guarded.
      */
-    let exited = false
     function onPageExit(): void {
       if (exited) {
         return
       }
       exited = true
-      // Closing the view inside the exit flush keeps the whole sequence on the synchronous
-      // transport, including a buffer limit the closing update happens to cross.
-      batch.flushOnExit(() => viewManager.endView())
+      exiting = true
+      try {
+        // Closing the view inside the exit flush keeps the whole sequence on the synchronous
+        // transport, including a buffer limit the closing update happens to cross.
+        batch.flushOnExit(() => viewManager.endView())
+      } finally {
+        exiting = false
+      }
     }
 
     // Wrapped: the browser calls this one, so an internal failure here would become an uncaught
@@ -192,7 +224,9 @@ export function makeRumLegacyPublicApi() {
       // Copied on the way in: pages commonly keep the object they passed, and this one is what a
       // later consent grant starts from.
       initConfiguration = shallowMerge(configuration, {}) as LegacyInitConfiguration
-      trackingConsent = configuration.trackingConsent ?? TRACKING_CONSENT_GRANTED
+      if (!trackingConsentSetExplicitly) {
+        trackingConsent = configuration.trackingConsent ?? TRACKING_CONSENT_GRANTED
+      }
       if (trackingConsent === TRACKING_CONSENT_GRANTED) {
         running = start(configuration)
       }
@@ -290,6 +324,7 @@ export function makeRumLegacyPublicApi() {
         // Warned about rather than ignored: a typo would otherwise silently stop all collection.
         displayWarn(`Unknown tracking consent "${String(consent)}", treating it as not granted.`)
       }
+      trackingConsentSetExplicitly = true
       if (consent === trackingConsent) {
         return
       }
