@@ -1,4 +1,4 @@
-import { DISCARDED, HookNames } from '@flashcatcloud/browser-core'
+import { DISCARDED, HookNames, round } from '@flashcatcloud/browser-core'
 import { SessionReplayState, SessionType } from '../rumSessionManager'
 import type { RumSessionManager } from '../rumSessionManager'
 import { RumEventType } from '../../rawRumEvent.types'
@@ -40,6 +40,23 @@ export function startSessionContext(
         sampled_for_replay: sampledForReplay,
         is_active: isActive,
       },
+      // FLASHCAT FORK - overrides the init values reported by the default context with the rates
+      // this session was actually drawn under (remote settings and `beforeSampling` included), plus
+      // the remote settings version they came from. Extrapolation and audits must line up with the
+      // draw that kept the session, and the version lets an auditor recover the exact settings from
+      // the console's version history. `rc_version` is a FlashCat addition on top of the shared
+      // schema; our intake reads it, others ignore it.
+      ...(session.drawnConfiguration
+        ? {
+            _dd: {
+              configuration: {
+                session_sample_rate: round(session.drawnConfiguration.sessionSampleRate, 3),
+                session_replay_sample_rate: round(session.drawnConfiguration.sessionReplaySampleRate, 3),
+                rc_version: session.drawnConfiguration.version,
+              },
+            } as DefaultRumEventAttributes['_dd'],
+          }
+        : undefined),
     }
   })
 }

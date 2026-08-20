@@ -33,10 +33,27 @@ export interface RumSessionManager {
   setForcedSession: () => void
 }
 
+/**
+ * FLASHCAT FORK - the sampling decision this session was created under: the rates actually used at
+ * the draw (after the remote values and `beforeSampling` had their say) and the remote settings
+ * version they came from. Events carry these instead of the init values, so server-side
+ * extrapolation and audits line up with the draw that kept the session — a session is never
+ * re-judged, so the metadata must be from its creation, not from whatever arrived since.
+ */
+export interface DrawnConfiguration {
+  version?: number
+  sessionSampleRate: number
+  sessionReplaySampleRate: number
+}
+
 export type RumSession = {
   id: string
   sessionReplay: SessionReplayState
   anonymousId?: string
+  // FLASHCAT FORK - absent when remote configuration is off, or when the record of the draw did not
+  // survive (storage unavailable); events then keep reporting the init values, which in those cases
+  // are the values the draw used anyway.
+  drawnConfiguration?: DrawnConfiguration
 }
 
 export const enum RumTrackingType {
@@ -61,10 +78,20 @@ export function startRumSessionManager(
   // application decides on each page load whether to call again.
   let forcedSession = false
 
+  // FLASHCAT FORK - the metadata of the most recent draw, captured inside `computeSessionState`
+  // (which cannot know the session id — the id is generated afterwards) and married to the id on
+  // the renew notification. Persisted so a session restored on the next page load still knows the
+  // decision it was created under.
+  let pendingDraw: DrawnConfiguration | undefined
+  let drawnForSession = readDrawRecord(configuration)
+
   const sessionManager = startSessionManager(
     configuration,
     RUM_SESSION_KEY,
-    (rawTrackingType) => computeSessionState(configuration, rawTrackingType, forcedSession),
+    (rawTrackingType) =>
+      computeSessionState(configuration, rawTrackingType, forcedSession, (drawn) => {
+        pendingDraw = drawn
+      }),
     trackingConsentState
   )
 
@@ -72,7 +99,27 @@ export function startRumSessionManager(
     lifeCycle.notify(LifeCycleEventType.SESSION_EXPIRED)
   })
 
+  // FLASHCAT FORK - marries the metadata of the draw to the id of the session it created.
+  function recordPendingDraw() {
+    if (!pendingDraw) {
+      return
+    }
+    const sessionEntity = sessionManager.findSession()
+    if (sessionEntity?.id) {
+      drawnForSession = { id: sessionEntity.id, ...pendingDraw }
+      writeDrawRecord(configuration, drawnForSession)
+    }
+    pendingDraw = undefined
+  }
+
+  // FLASHCAT FORK - the very first draw happens inside startSessionManager, before any
+  // subscription could see its renewal; every later draw announces itself through renew.
+  recordPendingDraw()
+
   sessionManager.renewObservable.subscribe(() => {
+    // Record the draw before anything reacts to the renewal, so the first events assembled for
+    // the new session already carry it.
+    recordPendingDraw()
     lifeCycle.notify(LifeCycleEventType.SESSION_RENEWED)
   })
 
@@ -99,6 +146,16 @@ export function startRumSessionManager(
               ? SessionReplayState.FORCED
               : SessionReplayState.OFF,
         anonymousId: session.anonymousId,
+        // FLASHCAT FORK - the id match is the validity check: the record survives page loads in
+        // storage, and a record from a previous, expired session simply never matches again.
+        drawnConfiguration:
+          drawnForSession && drawnForSession.id === session.id
+            ? {
+                version: drawnForSession.version,
+                sessionSampleRate: drawnForSession.sessionSampleRate,
+                sessionReplaySampleRate: drawnForSession.sessionReplaySampleRate,
+              }
+            : undefined,
       }
     },
     expire: sessionManager.expire,
@@ -228,7 +285,15 @@ export function startRumSessionManagerStub(
   }
 }
 
-function computeSessionState(configuration: RumConfiguration, rawTrackingType?: string, forcedSession?: boolean) {
+function computeSessionState(
+  configuration: RumConfiguration,
+  rawTrackingType?: string,
+  forcedSession?: boolean,
+  // FLASHCAT FORK - called only when a draw actually happens (never for a restored session), with
+  // the rates the draw used and the remote version they came from. Only meaningful with remote
+  // configuration on: without it the init values are the drawn values and events already say so.
+  onDraw?: (drawn: DrawnConfiguration) => void
+) {
   let trackingType: RumTrackingType
   if (hasValidRumSession(rawTrackingType)) {
     trackingType = rawTrackingType
@@ -236,6 +301,13 @@ function computeSessionState(configuration: RumConfiguration, rawTrackingType?: 
     // FLASHCAT FORK - a forced draw skips both lotteries. It sits in the draw branch on purpose:
     // an existing session keeps the decision it was created with, forcing only shapes new ones.
     trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
+    if (configuration.remoteSampling && onDraw) {
+      onDraw({
+        version: readRemoteSampling(configuration.remoteSampling).version,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+      })
+    }
   } else {
     // FLASHCAT FORK - rates set in the console take precedence over the ones passed to init. They
     // are read here, inside the only branch that draws, so a session restored from the store keeps
@@ -253,7 +325,11 @@ function computeSessionState(configuration: RumConfiguration, rawTrackingType?: 
     // error or a value outside 0..100 leaves the incoming rate in place.
     if (configuration.beforeSampling) {
       try {
-        const override = configuration.beforeSampling({ sessionSampleRate, sessionReplaySampleRate, custom: remote.custom })
+        const override = configuration.beforeSampling({
+          sessionSampleRate,
+          sessionReplaySampleRate,
+          custom: remote.custom,
+        })
         if (override) {
           if (isSampleRate(override.sessionSampleRate)) {
             sessionSampleRate = override.sessionSampleRate
@@ -267,6 +343,10 @@ function computeSessionState(configuration: RumConfiguration, rawTrackingType?: 
       }
     }
 
+    if (configuration.remoteSampling && onDraw) {
+      onDraw({ version: remote.version, sessionSampleRate, sessionReplaySampleRate })
+    }
+
     if (!performDraw(sessionSampleRate)) {
       trackingType = RumTrackingType.NOT_TRACKED
     } else if (!performDraw(sessionReplaySampleRate)) {
@@ -278,6 +358,40 @@ function computeSessionState(configuration: RumConfiguration, rawTrackingType?: 
   return {
     trackingType,
     isTracked: isTypeTracked(trackingType),
+  }
+}
+
+/**
+ * FLASHCAT FORK - the record of the last draw, keyed like the settings cache so applications on one
+ * host never read each other's. One record only: it belongs to the current session, and the id is
+ * checked on every read, so a stale record is inert rather than wrong.
+ */
+function drawRecordStoreKey(configuration: RumConfiguration) {
+  return configuration.remoteSampling && `${configuration.remoteSampling.storeKey}_draw`
+}
+
+function readDrawRecord(configuration: RumConfiguration): ({ id: string } & DrawnConfiguration) | undefined {
+  const key = drawRecordStoreKey(configuration)
+  if (!key) {
+    return undefined
+  }
+  try {
+    const stored = localStorage.getItem(key)
+    return stored ? (JSON.parse(stored) as { id: string } & DrawnConfiguration) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function writeDrawRecord(configuration: RumConfiguration, record: { id: string } & DrawnConfiguration) {
+  const key = drawRecordStoreKey(configuration)
+  if (!key) {
+    return
+  }
+  try {
+    localStorage.setItem(key, JSON.stringify(record))
+  } catch {
+    // Storage unavailable: the record simply does not survive this page load.
   }
 }
 

@@ -35,7 +35,15 @@ function body({
   refreshOnForeground = false,
   custom = undefined as Record<string, unknown> | undefined,
 } = {}) {
-  return JSON.stringify({ version: 3, ttl, enabled, activation, refresh_on_foreground: refreshOnForeground, rum, custom })
+  return JSON.stringify({
+    version: 3,
+    ttl,
+    enabled,
+    activation,
+    refresh_on_foreground: refreshOnForeground,
+    rum,
+    custom,
+  })
 }
 
 describe('remoteConfiguration', () => {

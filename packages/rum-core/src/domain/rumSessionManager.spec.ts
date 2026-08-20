@@ -402,6 +402,114 @@ describe('rum session manager', () => {
     })
   })
 
+  describe('drawn configuration', () => {
+    const STORE_KEY = 'test-drawn-configuration'
+    const REMOTE_SAMPLING_SETUP = { url: 'https://example.com/config', storeKey: STORE_KEY, fetchTimeout: 3000 }
+
+    function storeRemote(stored: object) {
+      localStorage.setItem(STORE_KEY, JSON.stringify(stored))
+      registerCleanupTask(() => {
+        localStorage.removeItem(STORE_KEY)
+        localStorage.removeItem(`${STORE_KEY}_draw`)
+      })
+    }
+
+    it('exposes the rates and version the session was drawn under', () => {
+      storeRemote({ version: 12, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toEqual({
+        version: 12,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+      })
+    })
+
+    it('reports the rate beforeSampling decided, not the delivered one', () => {
+      storeRemote({ version: 3, sessionSampleRate: 0, sessionReplaySampleRate: 0 })
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 0,
+          remoteSampling: REMOTE_SAMPLING_SETUP,
+          beforeSampling: () => ({ sessionSampleRate: 100, sessionReplaySampleRate: 100 }),
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toEqual({
+        version: 3,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+      })
+    })
+
+    it('records a forced session as drawn at 100', () => {
+      storeRemote({ version: 5, sessionSampleRate: 0, sessionReplaySampleRate: 0 })
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP },
+      })
+      rumSessionManager.setForcedSession()
+      clock.tick(STORAGE_POLL_DELAY)
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toEqual({
+        version: 5,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+      })
+    })
+
+    it('survives a page reload through storage', () => {
+      storeRemote({ version: 7, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+      stopSessionManager()
+
+      const restartedManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP },
+      })
+
+      expect(restartedManager.findTrackedSession()!.drawnConfiguration).toEqual({
+        version: 7,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+      })
+    })
+
+    it('never matches a session the record was not written for', () => {
+      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      localStorage.setItem(
+        `${STORE_KEY}_draw`,
+        JSON.stringify({ id: 'other-session', version: 9, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+      )
+      registerCleanupTask(() => localStorage.removeItem(`${STORE_KEY}_draw`))
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { remoteSampling: REMOTE_SAMPLING_SETUP },
+      })
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toBeUndefined()
+    })
+
+    it('is absent when remote configuration is off', () => {
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 100 },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toBeUndefined()
+    })
+  })
+
   function startRumSessionManagerWithDefaults({ configuration }: { configuration?: Partial<RumConfiguration> } = {}) {
     return startRumSessionManager(
       mockRumConfiguration({

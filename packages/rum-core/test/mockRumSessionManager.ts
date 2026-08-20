@@ -1,5 +1,5 @@
 import { Observable } from '@flashcatcloud/browser-core'
-import { SessionReplayState, type RumSessionManager } from '../src/domain/rumSessionManager'
+import { SessionReplayState, type DrawnConfiguration, type RumSessionManager } from '../src/domain/rumSessionManager'
 
 export interface RumSessionManagerMock extends RumSessionManager {
   setId(id: string): RumSessionManagerMock
@@ -7,6 +7,7 @@ export interface RumSessionManagerMock extends RumSessionManager {
   setTrackedWithoutSessionReplay(): RumSessionManagerMock
   setTrackedWithSessionReplay(): RumSessionManagerMock
   setForcedReplay(): RumSessionManagerMock
+  setDrawnConfiguration(drawn: DrawnConfiguration): RumSessionManagerMock
 }
 
 const DEFAULT_ID = 'session-id'
@@ -21,6 +22,7 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
   let id = DEFAULT_ID
   let sessionStatus: SessionStatus = SessionStatus.TRACKED_WITH_SESSION_REPLAY
   let forcedReplay: boolean = false
+  let drawnConfiguration: DrawnConfiguration | undefined
   return {
     findTrackedSession() {
       if (
@@ -38,6 +40,7 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
               ? SessionReplayState.FORCED
               : SessionReplayState.OFF,
         anonymousId: 'device-123',
+        drawnConfiguration,
       }
     },
     expire() {
@@ -63,6 +66,10 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
     },
     setForcedReplay() {
       forcedReplay = true
+      return this
+    },
+    setDrawnConfiguration(drawn) {
+      drawnConfiguration = drawn
       return this
     },
     setForcedSession() {
