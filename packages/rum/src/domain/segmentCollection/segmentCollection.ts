@@ -127,13 +127,9 @@ type SegmentCollectionState =
 /**
  * `buffer_checkout` is internal: it drops a withheld buffer that has grown past
  * {@link BUFFER_CHECKOUT_TIME}. It never reaches the intake, so it is mapped back to a schema value
- * before being recorded as the next segment's creation reason.
+ * where the next segment records why it was created.
  */
 type InternalFlushReason = FlushReason | 'buffer_checkout'
-
-function toCreationReason(flushReason: Exclude<InternalFlushReason, 'stop'>): CreationReason {
-  return flushReason === 'buffer_checkout' ? 'segment_duration_limit' : flushReason
-}
 
 export function doStartSegmentCollection(
   lifeCycle: LifeCycle,
@@ -166,10 +162,9 @@ export function doStartSegmentCollection(
   function flushSegment(flushReason: InternalFlushReason) {
     // Decided once, and against the session that produced the records rather than whatever session
     // is current now: a segment must be either dropped or sent as a whole.
-    const isWithheld =
-      state.status === SegmentCollectionStatus.SegmentPending &&
-      state.withheldForSessionId !== undefined &&
-      !buffering.isReleased(state.withheldForSessionId)
+    const withheldForSessionId =
+      state.status === SegmentCollectionStatus.SegmentPending ? state.withheldForSessionId : undefined
+    const isWithheld = withheldForSessionId !== undefined && !buffering.isReleased(withheldForSessionId)
 
     if (state.status === SegmentCollectionStatus.SegmentPending) {
       if (isWithheld && flushReason === 'segment_duration_limit') {
@@ -180,8 +175,6 @@ export function doStartSegmentCollection(
         return
       }
 
-      const wasWithheld = state.withheldForSessionId !== undefined
-
       state.segment.flush((metadata, encoderResult) => {
         if (isWithheld) {
           // No error was reported, so this buffer is dropped rather than sent. Rolling back its
@@ -191,7 +184,7 @@ export function doStartSegmentCollection(
           return
         }
 
-        if (wasWithheld) {
+        if (withheldForSessionId !== undefined) {
           // The first segment released by an error: report how much history it actually carried, so
           // the window we promise can be compared against the one users get.
           addTelemetryDebug('Error session replay buffer released', {
@@ -217,7 +210,7 @@ export function doStartSegmentCollection(
     if (flushReason !== 'stop') {
       state = {
         status: SegmentCollectionStatus.WaitingForInitialRecord,
-        nextSegmentCreationReason: toCreationReason(flushReason),
+        nextSegmentCreationReason: flushReason === 'buffer_checkout' ? 'segment_duration_limit' : flushReason,
       }
     } else {
       state = {
