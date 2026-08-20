@@ -1,4 +1,11 @@
-import type { Context, TelemetryEvent, Observable, RawError, PageMayExitEvent, Encoder } from '@flashcatcloud/browser-core'
+import type {
+  Context,
+  TelemetryEvent,
+  Observable,
+  RawError,
+  PageMayExitEvent,
+  Encoder,
+} from '@flashcatcloud/browser-core'
 import {
   DeflateEncoderStreamId,
   combine,
@@ -7,9 +14,10 @@ import {
 } from '@flashcatcloud/browser-core'
 import type { RumConfiguration } from '../domain/configuration'
 import type { LifeCycle } from '../domain/lifeCycle'
-import { LifeCycleEventType } from '../domain/lifeCycle'
+import type { RumSessionManager } from '../domain/rumSessionManager'
 import { RumEventType } from '../rawRumEvent.types'
 import type { RumEvent } from '../rumEvent.types'
+import { startWithheldEventBuffer } from './withheldEventBuffer'
 
 export function startRumBatch(
   configuration: RumConfiguration,
@@ -17,7 +25,7 @@ export function startRumBatch(
   telemetryEventObservable: Observable<TelemetryEvent & Context>,
   reportError: (error: RawError) => void,
   pageMayExitObservable: Observable<PageMayExitEvent>,
-  sessionExpireObservable: Observable<void>,
+  sessionManager: RumSessionManager,
   createEncoder: (streamId: DeflateEncoderStreamId) => Encoder
 ) {
   const replica = configuration.replica
@@ -35,10 +43,12 @@ export function startRumBatch(
     },
     reportError,
     pageMayExitObservable,
-    sessionExpireObservable
+    sessionManager.expireObservable
   )
 
-  lifeCycle.subscribe(LifeCycleEventType.RUM_EVENT_COLLECTED, (serverRumEvent: RumEvent & Context) => {
+  // Events reach the batch through the buffer, which either forwards them straight away or withholds
+  // them until the session reports an error. A session that never errors uploads nothing at all.
+  startWithheldEventBuffer(lifeCycle, sessionManager, (serverRumEvent: RumEvent & Context) => {
     if (serverRumEvent.type === RumEventType.VIEW) {
       batch.upsert(serverRumEvent, serverRumEvent.view.id)
     } else {

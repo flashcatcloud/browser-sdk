@@ -121,7 +121,7 @@ export function startRum(
       telemetry.observable,
       reportError,
       pageMayExitObservable,
-      session.expireObservable,
+      session,
       createEncoder
     )
     cleanupTasks.push(() => batch.stop())

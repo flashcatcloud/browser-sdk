@@ -111,6 +111,19 @@ export interface RumInitConfiguration extends InitConfiguration {
    */
   sessionReplayOnErrorSampleRate?: number | undefined
   /**
+   * The percentage of tracked sessions that collect events but only upload them if the session
+   * reports an error: 100 for all, 0 for none. Drawn only for sessions that the plain
+   * `sessionSampleRate` draw missed, so a session is never counted by both rates.
+   *
+   * Such a session collects from the start and keeps at most the last minute of it in memory. If it
+   * never reports an error, nothing is uploaded and the session is not stored. On the first error,
+   * the withheld minute is uploaded and collection continues normally.
+   *
+   * A session sampled this way never uploads its replay ahead of its events: until the events are
+   * released the session does not exist yet, and a replay sent then would have nothing to attach to.
+   */
+  sessionOnErrorSampleRate?: number | undefined
+  /**
    * If the session is sampled for Session Replay, only start the recording when `startSessionReplayRecording()` is called, instead of at the beginning of the session. Default: if startSessionReplayRecording is 0, true; otherwise, false.
    * See [Session Replay Usage](https://docs.datadoghq.com/real_user_monitoring/session_replay/browser/#usage) for further information.
    */
@@ -186,6 +199,7 @@ export interface RumConfiguration extends Configuration {
   enablePrivacyForActionName: boolean
   sessionReplaySampleRate: number
   sessionReplayOnErrorSampleRate: number
+  sessionOnErrorSampleRate: number
   startSessionReplayRecordingManually: boolean
   trackUserInteractions: boolean
   trackViewsManually: boolean
@@ -219,6 +233,7 @@ export function validateAndBuildRumConfiguration(
   if (
     !isSampleRate(initConfiguration.sessionReplaySampleRate, 'Session Replay') ||
     !isSampleRate(initConfiguration.sessionReplayOnErrorSampleRate, 'Session Replay on Error') ||
+    !isSampleRate(initConfiguration.sessionOnErrorSampleRate, 'Session on Error') ||
     !isSampleRate(initConfiguration.traceSampleRate, 'Trace')
   ) {
     return
@@ -243,6 +258,7 @@ export function validateAndBuildRumConfiguration(
 
   const sessionReplaySampleRate = initConfiguration.sessionReplaySampleRate ?? 0
   const sessionReplayOnErrorSampleRate = initConfiguration.sessionReplayOnErrorSampleRate ?? 0
+  const sessionOnErrorSampleRate = initConfiguration.sessionOnErrorSampleRate ?? 0
 
   return {
     applicationId: initConfiguration.applicationId,
@@ -250,6 +266,7 @@ export function validateAndBuildRumConfiguration(
     actionNameAttribute: initConfiguration.actionNameAttribute,
     sessionReplaySampleRate,
     sessionReplayOnErrorSampleRate,
+    sessionOnErrorSampleRate,
     startSessionReplayRecordingManually:
       initConfiguration.startSessionReplayRecordingManually !== undefined
         ? !!initConfiguration.startSessionReplayRecordingManually

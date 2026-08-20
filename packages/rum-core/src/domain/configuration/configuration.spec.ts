@@ -533,6 +533,7 @@ describe('serializeRumConfiguration', () => {
       subdomain: 'foo',
       sessionReplaySampleRate: 60,
       sessionReplayOnErrorSampleRate: 40,
+      sessionOnErrorSampleRate: 30,
       startSessionReplayRecordingManually: true,
       trackUserInteractions: true,
       actionNameAttribute: 'test-id',
@@ -560,6 +561,7 @@ describe('serializeRumConfiguration', () => {
                 | 'propagateTraceBaggage'
                 // not reported yet: needs a rum-events-format schema change first
                 | 'sessionReplayOnErrorSampleRate'
+                | 'sessionOnErrorSampleRate'
             ? never
             : CamelToSnakeCase<Key>
     // By specifying the type here, we can ensure that serializeConfiguration is returning an
