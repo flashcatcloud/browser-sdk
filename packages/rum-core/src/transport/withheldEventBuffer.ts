@@ -21,7 +21,7 @@ import type { RumEvent } from '../rumEvent.types'
 export const WITHHELD_BUFFER_DURATION = 60 * ONE_SECOND
 
 /** Memory bound. Above it the least valuable events are dropped first, see {@link EvictionTier}. */
-export const WITHHELD_BUFFER_BYTES_LIMIT = 64 * ONE_KIBI_BYTE
+const WITHHELD_BUFFER_BYTES_LIMIT = 64 * ONE_KIBI_BYTE
 export const WITHHELD_BUFFER_EVENTS_LIMIT = 200
 
 /**
@@ -29,7 +29,7 @@ export const WITHHELD_BUFFER_EVENTS_LIMIT = 200
  * events, so a detail released without its view would be unreachable. Views are kept out of the
  * eviction budget for that reason, and this only bounds pathological single-page navigation counts.
  */
-export const WITHHELD_BUFFER_VIEWS_LIMIT = 50
+const WITHHELD_BUFFER_VIEWS_LIMIT = 50
 
 /**
  * Correlated errors make every client release at the same instant, right when whatever caused them
@@ -75,7 +75,7 @@ export function startWithheldEventBuffer(
       if (withheldForSessionId !== undefined && withheldForSessionId !== session.id) {
         // A renewed session is a different session: it draws its own sampling and starts without an
         // error, so what the previous one collected must not ride along.
-        discard()
+        clearBuffer()
       }
       withheldForSessionId = session.id
       hold(event)
@@ -91,7 +91,7 @@ export function startWithheldEventBuffer(
         return
       }
       // The session that was withholding is gone without ever reporting an error.
-      discard()
+      clearBuffer()
     }
 
     forward(event)
@@ -104,14 +104,16 @@ export function startWithheldEventBuffer(
     if (releaseTimeoutId !== undefined) {
       release()
     } else {
-      discard()
+      clearBuffer()
     }
   })
 
   function hold(event: RumEvent & Context) {
     if (event.type === RumEventType.VIEW) {
       // Upsert: a view event is cumulative, so the latest one supersedes the ones before it. This
-      // mirrors what the batch already does with view events.
+      // mirrors what the batch already does with view events. The delete is deliberate - setting an
+      // existing key leaves its insertion order untouched, so without it the oldest entry would be
+      // the first view seen rather than the least recently updated one.
       views.delete(event.view.id)
       views.set(event.view.id, event)
       while (views.size > WITHHELD_BUFFER_VIEWS_LIMIT) {
@@ -120,15 +122,15 @@ export function startWithheldEventBuffer(
       return
     }
 
-    const serialized = jsonStringify(event)
-    details.push({
+    const held: WithheldEvent = {
       event,
       viewId: event.view.id,
       time: relativeNow(),
-      bytes: serialized ? serialized.length : 0,
+      bytes: jsonStringify(event)?.length ?? 0,
       tier: getEvictionTier(event),
-    })
-    bytes += details[details.length - 1].bytes
+    }
+    details.push(held)
+    bytes += held.bytes
 
     prune()
     while (details.length > WITHHELD_BUFFER_EVENTS_LIMIT || bytes > WITHHELD_BUFFER_BYTES_LIMIT) {
@@ -174,8 +176,6 @@ export function startWithheldEventBuffer(
   }
 
   function release() {
-    clearTimeout(releaseTimeoutId)
-    releaseTimeoutId = undefined
     prune()
 
     // A detail whose view is gone has no container to hang from, so it would be unreachable.
@@ -199,16 +199,13 @@ export function startWithheldEventBuffer(
       'buffer.bytes': bytes,
     })
 
-    reset()
+    clearBuffer()
   }
 
-  function discard() {
+  /** Empties the buffer, whether it was just released or is being thrown away. */
+  function clearBuffer() {
     clearTimeout(releaseTimeoutId)
     releaseTimeoutId = undefined
-    reset()
-  }
-
-  function reset() {
     views = new Map()
     details = []
     bytes = 0
@@ -218,7 +215,7 @@ export function startWithheldEventBuffer(
 
   return {
     stop: () => {
-      discard()
+      clearBuffer()
       eventSubscription.unsubscribe()
       pageMayExitSubscription.unsubscribe()
     },
@@ -233,10 +230,9 @@ function getEvictionTier(event: RumEvent): EvictionTier {
       return EvictionTier.FIRST
     case RumEventType.RESOURCE: {
       // A request that failed is part of how the error happened; one that succeeded rarely is.
-      const statusCode = event.resource?.status_code
-      return statusCode === 0 || (statusCode !== undefined && statusCode >= 400)
-        ? EvictionTier.LAST
-        : EvictionTier.FIRST
+      // -1 stands for an unknown status code, which is treated like an ordinary success
+      const statusCode = event.resource?.status_code ?? -1
+      return statusCode === 0 || statusCode >= 400 ? EvictionTier.LAST : EvictionTier.FIRST
     }
     default:
       return EvictionTier.LAST
@@ -244,7 +240,7 @@ function getEvictionTier(event: RumEvent): EvictionTier {
 }
 
 /** Deterministic per session, so a client always spreads to the same offset. */
-export function computeReleaseDelay(sessionId: string) {
+function computeReleaseDelay(sessionId: string) {
   let hash = 0
   for (let i = 0; i < sessionId.length; i += 1) {
     hash = (hash + sessionId.charCodeAt(i)) % WITHHELD_BUFFER_RELEASE_MAX_DELAY
