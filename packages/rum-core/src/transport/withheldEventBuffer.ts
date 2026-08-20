@@ -97,13 +97,21 @@ export function startWithheldEventBuffer(
     forward(event)
   })
 
-  // Whatever is still held when the page goes away belongs to a session that never reported an
-  // error, so it is dropped rather than sent. A release already scheduled is sent immediately
-  // instead of losing it to the jitter window.
   const pageMayExitSubscription = lifeCycle.subscribe(LifeCycleEventType.PAGE_MAY_EXIT, () => {
-    if (releaseTimeoutId !== undefined) {
+    if (withheldForSessionId === undefined) {
+      return
+    }
+    // A release already scheduled goes out now rather than being lost to the jitter window. The
+    // session is also re-read, because it may have reported its error without the buffer noticing:
+    // the event arrives synchronously but the state behind it is written through a lock that can
+    // defer the write, and "an error, then the user leaves" is exactly what this feature is for.
+    const session = sessionManager.findTrackedSession()
+    const hasSinceErrored = !!session && session.id === withheldForSessionId && !session.eventsWithheld
+
+    if (releaseTimeoutId !== undefined || hasSinceErrored) {
       release()
     } else {
+      // Nothing was ever released for this session, so what is held goes no further.
       clearBuffer()
     }
   })
@@ -239,11 +247,20 @@ function getEvictionTier(event: RumEvent): EvictionTier {
   }
 }
 
-/** Deterministic per session, so a client always spreads to the same offset. */
-function computeReleaseDelay(sessionId: string) {
+/** Keeps the running hash inside the range `Math.imul` is exact over. */
+const LARGEST_INT32_PRIME = 2147483647
+
+/**
+ * Deterministic per session, so a client always spreads to the same offset.
+ *
+ * Multiplicative rather than a running sum: session ids are same-length strings drawn from the same
+ * small alphabet, so summing their character codes lands almost every session within a few hundred
+ * milliseconds of the same value - which delays the herd instead of spreading it.
+ */
+export function computeReleaseDelay(sessionId: string) {
   let hash = 0
   for (let i = 0; i < sessionId.length; i += 1) {
-    hash = (hash + sessionId.charCodeAt(i)) % WITHHELD_BUFFER_RELEASE_MAX_DELAY
+    hash = (Math.imul(hash, 31) + sessionId.charCodeAt(i)) % LARGEST_INT32_PRIME
   }
-  return hash
+  return Math.abs(hash) % WITHHELD_BUFFER_RELEASE_MAX_DELAY
 }

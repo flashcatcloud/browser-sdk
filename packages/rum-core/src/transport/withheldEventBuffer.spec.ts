@@ -10,6 +10,7 @@ import {
   WITHHELD_BUFFER_DURATION,
   WITHHELD_BUFFER_EVENTS_LIMIT,
   WITHHELD_BUFFER_RELEASE_MAX_DELAY,
+  computeReleaseDelay,
   startWithheldEventBuffer,
 } from './withheldEventBuffer'
 
@@ -133,6 +134,19 @@ describe('startWithheldEventBuffer', () => {
     expect(releasedAfterJitter().filter((event) => event.type === RumEventType.RESOURCE).length).toBe(1)
   })
 
+  it('releases on page exit when the session errored without the buffer having noticed yet', () => {
+    // the event arrives synchronously, but the session state behind it is written through a lock
+    // that can defer the write - so the buffer can still read the session as withholding
+    collect(RumEventType.VIEW)
+    collect(RumEventType.RESOURCE)
+    sessionManager.setSessionHasError()
+    // no further event, so nothing re-reads the session before the page goes
+
+    lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, { reason: PageExitReason.UNLOADING })
+
+    expect(forwarded.map((event) => event.type)).toEqual([RumEventType.VIEW, RumEventType.RESOURCE])
+  })
+
   it('drops the buffer on page exit rather than uploading a session that never errored', () => {
     collect(RumEventType.VIEW)
     collect(RumEventType.RESOURCE)
@@ -195,5 +209,51 @@ describe('startWithheldEventBuffer', () => {
 
     const released = releasedAfterJitter()
     expect(released.some((event) => event.type === RumEventType.RESOURCE)).toBeFalse()
+  })
+})
+
+describe('computeReleaseDelay', () => {
+  function randomSessionId() {
+    const hex = '0123456789abcdef'
+    let id = ''
+    for (let i = 0; i < 36; i++) {
+      id += i === 8 || i === 13 || i === 18 || i === 23 ? '-' : hex[Math.floor(Math.random() * 16)]
+    }
+    return id
+  }
+
+  it('is stable for a given session', () => {
+    const id = randomSessionId()
+
+    expect(computeReleaseDelay(id)).toBe(computeReleaseDelay(id))
+  })
+
+  it('stays within the release window', () => {
+    for (let i = 0; i < 1000; i++) {
+      const delay = computeReleaseDelay(randomSessionId())
+      expect(delay).toBeGreaterThanOrEqual(0)
+      expect(delay).toBeLessThan(WITHHELD_BUFFER_RELEASE_MAX_DELAY)
+    }
+  })
+
+  it('spreads sessions across the window rather than bunching them up', () => {
+    // session ids are same-length strings over one small alphabet, so a running sum of their
+    // character codes lands nearly all of them within a few hundred ms of each other - which delays
+    // the herd instead of spreading it
+    const bucketCount = 10
+    const buckets = new Array<number>(bucketCount).fill(0)
+    const samples = 10000
+    for (let i = 0; i < samples; i++) {
+      const bucket = Math.floor(
+        (computeReleaseDelay(randomSessionId()) / WITHHELD_BUFFER_RELEASE_MAX_DELAY) * bucketCount
+      )
+      buckets[bucket] += 1
+    }
+
+    buckets.forEach((count) => {
+      // a flat spread puts 10% in each; allow a wide margin and still catch bunching
+      expect(count / samples).toBeGreaterThan(0.05)
+      expect(count / samples).toBeLessThan(0.2)
+    })
   })
 })
