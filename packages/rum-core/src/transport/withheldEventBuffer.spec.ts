@@ -212,19 +212,40 @@ describe('startWithheldEventBuffer', () => {
     expect(dates).toContain(0)
   })
 
-  it('does not release detail whose view is no longer buffered', () => {
-    collect(RumEventType.VIEW, { view: { id: 'old-view' } })
-    collect(RumEventType.RESOURCE, { view: { id: 'old-view' } })
-    // push the old view out of the view map
+  it('releases every detail alongside the view it hangs from', () => {
+    // the backend builds the session row out of view events, so a detail without its view would be
+    // unreachable however the view came to be missing
     for (let i = 0; i < 60; i++) {
       collect(RumEventType.VIEW, { view: { id: `view-${i}` } })
+      collect(RumEventType.RESOURCE, { view: { id: `view-${i}` } })
     }
 
     sessionManager.setSessionHasError()
-    collect(RumEventType.ERROR)
+    collect(RumEventType.ERROR, { view: { id: 'view-59' } })
 
     const released = releasedAfterJitter()
-    expect(released.some((event) => event.type === RumEventType.RESOURCE)).toBeFalse()
+    const releasedViewIds = new Set(
+      released.filter((event) => event.type === RumEventType.VIEW).map((event) => event.view.id)
+    )
+    released
+      .filter((event) => event.type !== RumEventType.VIEW)
+      .forEach((event) => expect(releasedViewIds.has(event.view.id)).toBeTrue())
+  })
+
+  it('lets a view go once none of its detail is left inside the window', () => {
+    collect(RumEventType.VIEW, { view: { id: 'old-view' } })
+    collect(RumEventType.RESOURCE, { view: { id: 'old-view' } })
+    clock.tick(WITHHELD_BUFFER_DURATION + ONE_SECOND)
+    collect(RumEventType.VIEW, { view: { id: 'current-view' } })
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR, { view: { id: 'current-view' } })
+
+    const releasedViewIds = releasedAfterJitter()
+      .filter((event) => event.type === RumEventType.VIEW)
+      .map((event) => event.view.id)
+    expect(releasedViewIds).not.toContain('old-view')
+    expect(releasedViewIds).toContain('current-view')
   })
 })
 

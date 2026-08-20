@@ -69,6 +69,7 @@ export function startWithheldEventBuffer(
   let views = new Map<string, RumEvent & Context>()
   let details: WithheldEvent[] = []
   let bytes = 0
+  let currentViewId: string | undefined
   let withheldForSessionId: string | undefined
   let releaseTimeoutId: TimeoutId | undefined
   let droppedCount = 0
@@ -102,7 +103,11 @@ export function startWithheldEventBuffer(
     forward(event)
   })
 
-  const pageMayExitSubscription = lifeCycle.subscribe(LifeCycleEventType.PAGE_MAY_EXIT, () => {
+  /**
+   * Called when the session the buffer belongs to may be about to end - the page is going away, or
+   * the session expired (which is also how a withdrawn tracking consent arrives here).
+   */
+  function settleBuffer() {
     if (withheldForSessionId === undefined) {
       return
     }
@@ -116,10 +121,14 @@ export function startWithheldEventBuffer(
     if (releaseTimeoutId !== undefined || hasSinceErrored) {
       release()
     } else {
-      // Nothing was ever released for this session, so what is held goes no further.
+      // Nothing was ever released for this session, so what is held goes no further - and is not
+      // kept in memory either, which matters when the session ended because consent was withdrawn.
       clearBuffer()
     }
-  })
+  }
+
+  const pageMayExitSubscription = lifeCycle.subscribe(LifeCycleEventType.PAGE_MAY_EXIT, settleBuffer)
+  const sessionExpireSubscription = lifeCycle.subscribe(LifeCycleEventType.SESSION_EXPIRED, settleBuffer)
 
   function hold(event: RumEvent & Context) {
     if (event.type === RumEventType.VIEW) {
@@ -129,9 +138,11 @@ export function startWithheldEventBuffer(
       // the first view seen rather than the least recently updated one.
       views.delete(event.view.id)
       views.set(event.view.id, event)
+      currentViewId = event.view.id
       while (views.size > WITHHELD_BUFFER_VIEWS_LIMIT) {
         views.delete(views.keys().next().value!)
       }
+      prune()
       return
     }
 
@@ -165,6 +176,17 @@ export function startWithheldEventBuffer(
     if (cutoff > 0) {
       details = details.slice(cutoff)
     }
+
+    // A view is kept as the container of the detail hanging from it, so once none of its detail is
+    // left inside the window it has nothing left to contain. Without this the map would grow with
+    // every route change for as long as the page lives, holding more than the detail budget itself.
+    // The view in progress always stays: it is the container the error will hang from.
+    const viewsWithDetail = new Set(details.map((held) => held.viewId))
+    views.forEach((_, viewId) => {
+      if (viewId !== currentViewId && !viewsWithDetail.has(viewId)) {
+        views.delete(viewId)
+      }
+    })
   }
 
   /** Removes one event of the least valuable tier present. Returns false when there is none left. */
@@ -237,6 +259,7 @@ export function startWithheldEventBuffer(
     details = []
     bytes = 0
     droppedCount = 0
+    currentViewId = undefined
     withheldForSessionId = undefined
   }
 
@@ -245,6 +268,7 @@ export function startWithheldEventBuffer(
       clearBuffer()
       eventSubscription.unsubscribe()
       pageMayExitSubscription.unsubscribe()
+      sessionExpireSubscription.unsubscribe()
     },
   }
 }

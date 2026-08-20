@@ -48,7 +48,7 @@ export function startRumBatch(
 
   // Events reach the batch through the buffer, which either forwards them straight away or withholds
   // them until the session reports an error. A session that never errors uploads nothing at all.
-  startWithheldEventBuffer(lifeCycle, sessionManager, (serverRumEvent: RumEvent & Context) => {
+  const withheldEventBuffer = startWithheldEventBuffer(lifeCycle, sessionManager, (serverRumEvent) => {
     if (serverRumEvent.type === RumEventType.VIEW) {
       batch.upsert(serverRumEvent, serverRumEvent.view.id)
     } else {
@@ -58,5 +58,13 @@ export function startRumBatch(
 
   telemetryEventObservable.subscribe((event) => batch.add(event, isTelemetryReplicationAllowed(configuration)))
 
-  return batch
+  return {
+    ...batch,
+    stop: () => {
+      // Stops the buffer too, so a release waiting on its jitter cannot fire into a batch that is
+      // no longer flushing.
+      withheldEventBuffer.stop()
+      batch.stop()
+    },
+  }
 }
