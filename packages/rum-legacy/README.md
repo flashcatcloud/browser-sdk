@@ -16,7 +16,7 @@ build exists to avoid.
 | Capability                 | Supported | Notes                                            |
 | -------------------------- | :-------: | ------------------------------------------------ |
 | Uncaught JavaScript errors |    ✅     | No stack; the script url and line are reported   |
-| Page load timings          |    ⚠️     | From `performance.timing`; see the note below    |
+| Page load timings          |    ✅     | From `performance.timing`                        |
 | Views                      |    ✅     | Initial load, plus `hashchange` and manual views |
 | Manual actions and errors  |    ✅     | `addAction`, `addError`                          |
 | Session and user identity  |    ✅     | Same session cookie as the standard bundles      |
@@ -26,11 +26,10 @@ build exists to avoid.
 | Session replay             |    ❌     | No `MutationObserver`                            |
 | CSP violation reporting    |    ❌     | No `securitypolicyviolation` event               |
 
-Page load timings come from Navigation Timing, which the engines here support unevenly. On the IE9
-device used for verification none were reported: the view events arrived without them, while the
-same code fills them in on a modern browser. They are read defensively and their absence costs
-nothing else, so a view is still reported — but do not promise them for IE9 without measuring that
-browser first.
+Page load timings come from Navigation Timing, which IE9 does provide — measured on a real IE9,
+where all five arrive. It is read defensively all the same, since the engines below it do not have
+it and reading an absent global as a bare identifier throws rather than yielding undefined. A view
+is still reported where it is missing.
 
 Everything unsupported is a no-op method rather than a missing one. A page written against the
 standard bundle runs unchanged; it does not need to branch on the browser.
