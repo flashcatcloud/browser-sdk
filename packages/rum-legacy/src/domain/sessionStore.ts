@@ -68,15 +68,23 @@ export function createSessionStore(sessionSampleRate: number) {
 
       let state = readSessionCookie() || inMemoryState
 
-      if (!state || !state.id || isExpired(state, now)) {
-        state = {
-          id: generateUUID(),
-          created: String(now),
-          // Decided once, when the session starts, and carried in the cookie from then on. Rolling
-          // it per event would send a fraction of the events of every session instead of all the
-          // events of a fraction of the sessions.
-          rum: Math.random() * 100 < sessionSampleRate ? TRACKED_WITHOUT_SESSION_REPLAY : NOT_TRACKED,
-        }
+      // An id-less cookie is not an invalid one. The modern bundle only mints an id once a session
+      // is tracked, so `rum=0` with no id is what a legitimately sampled-out session looks like.
+      // Renewing on a missing id would re-run the draw on a session that has already been sampled
+      // out, which is the one thing sessionSampleRate promises not to do.
+      if (!state || !state.rum || isExpired(state, now)) {
+        // Entries this build does not understand — the anonymous user id among them — belong to the
+        // user rather than to the session, and outlive the session they were found on.
+        state = extractForeignFields(state)
+        state.created = String(now)
+        // Decided once, when the session starts, and carried in the cookie from then on. Rolling
+        // it per event would send a fraction of the events of every session instead of all the
+        // events of a fraction of the sessions.
+        state.rum = Math.random() * 100 < sessionSampleRate ? TRACKED_WITHOUT_SESSION_REPLAY : NOT_TRACKED
+      }
+
+      if (isTracked(state) && !state.id) {
+        state.id = generateUUID()
       }
 
       state.expire = String(now + SESSION_EXPIRATION_DELAY)
@@ -94,11 +102,32 @@ function toSession(state: SessionState): LegacySession {
   // jar per domain, and IE enterprise site lists routinely put some urls of a site in compatibility
   // mode and others not. Reading a session the modern bundle started as untracked would silence
   // this one for the rest of that session's lifetime.
-  const trackingType = state.rum
   return {
     id: state.id!,
-    isTracked: trackingType === TRACKED_WITHOUT_SESSION_REPLAY || trackingType === TRACKED_WITH_SESSION_REPLAY,
+    isTracked: isTracked(state),
   }
+}
+
+function isTracked(state: SessionState): boolean {
+  return state.rum === TRACKED_WITHOUT_SESSION_REPLAY || state.rum === TRACKED_WITH_SESSION_REPLAY
+}
+
+/**
+ * Keeps the entries of a state that this build does not own, dropping the session's own fields.
+ * Used when a session is renewed: the new session is a different session, but the user behind it
+ * is the same one.
+ */
+function extractForeignFields(state: SessionState | undefined): SessionState {
+  const kept: SessionState = {}
+  if (!state) {
+    return kept
+  }
+  for (const key in state) {
+    if (Object.prototype.hasOwnProperty.call(state, key) && KNOWN_FIELDS.indexOf(key) === -1 && state[key]) {
+      kept[key] = state[key]
+    }
+  }
+  return kept
 }
 
 function isExpired(state: SessionState, now: number): boolean {
@@ -145,7 +174,9 @@ function deserialize(value: string): SessionState | undefined {
       state[match[1]] = match[2]
     }
   }
-  return state.id ? state : undefined
+  // Returned even without an id: an untracked session has none, and discarding the state here
+  // would also discard the foreign entries stored alongside it.
+  return entries.length > 0 && (state.id || state.rum || state.expire) ? state : undefined
 }
 
 function readSessionCookie(): SessionState | undefined {
@@ -162,7 +193,10 @@ function readSessionCookie(): SessionState | undefined {
 
 function writeSessionCookie(state: SessionState): void {
   const expires = new Date(dateNow() + SESSION_EXPIRATION_DELAY).toUTCString()
-  document.cookie = `${SESSION_COOKIE_NAME}=${encodeURIComponent(serialize(state))};expires=${expires};path=/;samesite=strict`
+  // Written raw, not percent-encoded: the modern bundle reads this cookie without decoding it, and
+  // an encoded value fails its validation, so the session would be dropped instead of shared. The
+  // serialized value is already constrained to characters that are legal in a cookie value.
+  document.cookie = `${SESSION_COOKIE_NAME}=${serialize(state)};expires=${expires};path=/;samesite=strict`
 }
 
 export function deleteSessionCookie(): void {

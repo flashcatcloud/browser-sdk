@@ -6,13 +6,17 @@ import { COOKIE_ACCESS_DELAY, SESSION_COOKIE_NAME, createSessionStore, deleteSes
  * The cookie written here is the same one the modern bundle reads, so its format is not ours to
  * choose. These specs validate what we write with the modern parser rather than with a
  * hand-written expectation.
+ *
+ * The raw cookie value is passed to that parser untouched. Decoding it first would be testing a
+ * string that never exists in the browser: the modern bundle reads document.cookie without
+ * decoding, so anything a decode step repairs here is broken in production.
  */
 describe('session store', () => {
   const ONE_MINUTE = 60 * 1000
 
   function readRawCookie(): string | undefined {
     const match = new RegExp(`(?:^|;)\\s*${SESSION_COOKIE_NAME}\\s*=\\s*([^;]+)`).exec(document.cookie)
-    return match ? decodeURIComponent(match[1]) : undefined
+    return match ? match[1] : undefined
   }
 
   // Cleared before rather than only after: a spec elsewhere may have left a session cookie behind,
@@ -35,6 +39,44 @@ describe('session store', () => {
     createSessionStore(100).getOrCreateSession()
 
     expect(isValidSessionString(readRawCookie())).toBe(true)
+  })
+
+  it('leaves a session written by the modern bundle readable after touching it', () => {
+    // Written the way the modern bundle writes it: raw, undecorated.
+    const modernSessionId = '11111111-2222-4333-8444-555555555555'
+    document.cookie = `${SESSION_COOKIE_NAME}=id=${modernSessionId}&rum=2&created=${Date.now()}&expire=${
+      Date.now() + ONE_MINUTE
+    };path=/`
+
+    const session = createSessionStore(100).getOrCreateSession()
+
+    expect(session.id).toBe(modernSessionId)
+    const rewritten = readRawCookie()
+    expect(isValidSessionString(rewritten)).toBe(true)
+    expect(toSessionState(rewritten).id).toBe(modernSessionId)
+  })
+
+  it('keeps a session the modern bundle sampled out, even at a full sample rate', () => {
+    // What the modern bundle writes for a session that lost the draw: a decision, no id.
+    document.cookie = `${SESSION_COOKIE_NAME}=rum=0&created=${Date.now()}&expire=${Date.now() + ONE_MINUTE};path=/`
+
+    const session = createSessionStore(100).getOrCreateSession()
+
+    expect(session.isTracked).toBe(false)
+    expect(toSessionState(readRawCookie()).rum).toBe('0')
+  })
+
+  it('carries entries it does not understand across a session renewal', () => {
+    const anonymousId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    // Expired: created and expire are both in the past.
+    document.cookie = `${SESSION_COOKIE_NAME}=id=old-session&rum=2&created=1&expire=2&aid=${anonymousId};path=/`
+
+    createSessionStore(100).getOrCreateSession()
+
+    // The modern parser exposes the `aid` cookie entry as anonymousId.
+    const state = toSessionState(readRawCookie())
+    expect(state.anonymousId).toBe(anonymousId)
+    expect(state.id).not.toBe('old-session')
   })
 
   it('writes the fields the modern bundle expects to find', () => {
