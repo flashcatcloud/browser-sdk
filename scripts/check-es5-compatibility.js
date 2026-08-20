@@ -97,6 +97,10 @@ function findEs3ReservedProperties(relativePath) {
 runMain(() => {
   const failures = []
 
+  for (const failure of checkDocumentedSnippets()) {
+    failures.push(failure)
+  }
+
   for (const relativePath of EXPECTED_ES5) {
     const found = findForbiddenApis(relativePath)
     if (found === undefined) {
@@ -110,7 +114,9 @@ runMain(() => {
 
     const reserved = findEs3ReservedProperties(relativePath)
     if (reserved && reserved.length > 0) {
-      failures.push(`${relativePath}: uses ES3 reserved words as property names, which IE6/7 cannot parse: ${reserved.join(', ')}`)
+      failures.push(
+        `${relativePath}: uses ES3 reserved words as property names, which IE6/7 cannot parse: ${reserved.join(', ')}`
+      )
     } else if (reserved) {
       printLog(`✅ ${relativePath} uses no ES3 reserved word as a property name`)
     }
@@ -189,4 +195,40 @@ function findForbiddenApis(relativePath) {
   }
 
   return found
+}
+
+/**
+ * The loader snippet in the README is copied into customer pages verbatim, and it has to parse on
+ * every browser it routes — including the ES3 engines that only ever receive a no-op. A trailing
+ * comma is the way this breaks: legal ES5, rejected outright by an ES3 parser, and reinserted by
+ * any formatter given the chance. The failure happens before the routing runs, so nothing inside
+ * the snippet can defend against it.
+ */
+function checkDocumentedSnippets() {
+  const relativePath = 'packages/rum-legacy/README.md'
+  const absolutePath = path.join(ROOT_DIR, relativePath)
+  if (!fs.existsSync(absolutePath)) {
+    return [`${relativePath}: not found`]
+  }
+
+  const content = fs.readFileSync(absolutePath, 'utf-8')
+  const snippets = content.match(/<script>\n([\s\S]*?)<\/script>/g) || []
+  if (snippets.length === 0) {
+    return [`${relativePath}: no documented snippet found, the check would pass vacuously`]
+  }
+
+  const failures = []
+  for (const snippet of snippets) {
+    const source = snippet.replace(/^<script>\n/, '').replace(/<\/script>$/, '')
+    try {
+      acorn.parse(source, { ecmaVersion: 3 })
+    } catch (error) {
+      failures.push(`${relativePath}: a documented snippet does not parse as ES3: ${formatError(error)}`)
+    }
+  }
+
+  if (failures.length === 0) {
+    printLog(`✅ ${snippets.length} documented snippets in ${relativePath} parse as ES3`)
+  }
+  return failures
 }

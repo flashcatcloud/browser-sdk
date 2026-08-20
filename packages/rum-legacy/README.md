@@ -16,7 +16,7 @@ build exists to avoid.
 | Capability                 | Supported | Notes                                            |
 | -------------------------- | :-------: | ------------------------------------------------ |
 | Uncaught JavaScript errors |    ✅     | No stack; the script url and line are reported   |
-| Page load timings          |    ✅     | From `performance.timing`                        |
+| Page load timings          |    ⚠️     | From `performance.timing`; see the note below    |
 | Views                      |    ✅     | Initial load, plus `hashchange` and manual views |
 | Manual actions and errors  |    ✅     | `addAction`, `addError`                          |
 | Session and user identity  |    ✅     | Same session cookie as the standard bundles      |
@@ -25,6 +25,12 @@ build exists to avoid.
 | Web Vitals, long tasks     |    ❌     | No `PerformanceObserver`                         |
 | Session replay             |    ❌     | No `MutationObserver`                            |
 | CSP violation reporting    |    ❌     | No `securitypolicyviolation` event               |
+
+Page load timings come from Navigation Timing, which the engines here support unevenly. On the IE9
+device used for verification none were reported: the view events arrived without them, while the
+same code fills them in on a modern browser. They are read defensively and their absence costs
+nothing else, so a view is still reported — but do not promise them for IE9 without measuring that
+browser first.
 
 Everything unsupported is a no-op method rather than a missing one. A page written against the
 standard bundle runs unchanged; it does not need to branch on the browser.
@@ -38,25 +44,37 @@ names, which those engines cannot even parse and no runtime guard could catch.
 ## Setup
 
 Both builds share the `FC_RUM` global and the same call sequence, so the page carries one snippet.
-The choice is made on capability, not on the user agent string, which means a browser running in a
-compatibility document mode is classified by what it can actually do.
 
+The snippet decides which build to load, and the decision cannot rest on `Promise` and `fetch`
+alone. Those two are the most commonly polyfilled APIs on exactly these pages, and a polyfill
+supplies the API without supplying the syntax: an engine that cannot parse an arrow function still
+cannot parse one after `core-js` has loaded. A polyfilled IE9 would be handed the standard bundle
+and collect nothing.
+
+So `document.documentMode` is checked first. It is defined only by Trident, it reports the mode the
+page is actually rendered in rather than what the user agent string claims, and no polyfill sets
+it — which also means an IE11 running a page in IE9 document mode is classified by what that mode
+can really do. The capability check stays as the fallback for old engines that are not IE.
+
+<!-- prettier-ignore -->
 ```html
 <script>
   ;(function (w, d) {
-    var legacy = typeof w.Promise !== 'function' || typeof w.fetch !== 'function'
+    var legacy = d.documentMode !== undefined ||
+      typeof w.Promise !== 'function' ||
+      typeof w.fetch !== 'function'
     w.FC_RUM = w.FC_RUM || {
       q: [],
       onReady: function (c) {
         this.q.push(c)
       },
-      // Stub so that calling init before the script has landed queues the call instead of throwing
-      // "undefined is not a function" and taking the page down with it.
+      /* Stub so that calling init before the script has landed queues the call instead of throwing
+         "undefined is not a function" and taking the page down with it. */
       init: function (o) {
         this.q.push(function () {
           w.FC_RUM.init(o)
         })
-      },
+      }
     }
     var s = d.createElement('script')
     s.async = true
@@ -69,11 +87,16 @@ compatibility document mode is classified by what it can actually do.
     window.FC_RUM.init({
       applicationId: '<application id>',
       clientToken: '<client token>',
-      proxy: '/rum-intake/',
+      proxy: '/rum-intake/'
     })
   })
 </script>
 ```
+
+The snippet itself has to parse on every browser it is meant to route, which is why it carries no
+trailing comma and no `//` comment inside the object literal: an ES3 parser rejects a trailing comma
+outright, and the failure happens before any of the routing runs. A formatter will reinsert one
+given the chance — the `prettier-ignore` above keeps ours out.
 
 Calls made before the bundle arrives are queued on `q` and run once it loads. This is the same
 mechanism the standard bundles already use. `init` is stubbed on the placeholder for the same
