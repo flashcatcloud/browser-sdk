@@ -160,6 +160,15 @@
       function note(text) {
         document.getElementById('note').innerHTML = text
       }
+      /* Reads one Navigation Timing value without assuming the API exists. Whether it does is the
+         question this page is answering, so nothing here may take it for granted. */
+      function describeTiming(name) {
+        if (!window.performance || !window.performance.timing) {
+          return '(no timing object)'
+        }
+        var value = window.performance.timing[name]
+        return typeof value === 'undefined' ? '(undefined)' : String(value)
+      }
       function showEnvironment() {
         var mode =
           typeof document.documentMode === 'undefined' ? '(none - documentMode needs IE8+, or not Trident at all)' : document.documentMode
@@ -169,7 +178,15 @@
           [
             'has fetch / Promise',
             (typeof window.fetch === 'function') + ' / ' + (typeof window.Promise === 'function')
-          ]
+          ],
+          ['window.performance', typeof window.performance],
+          [
+            'performance.timing',
+            window.performance && window.performance.timing ? 'present' : 'absent'
+          ],
+          ['timing.navigationStart', describeTiming('navigationStart')],
+          ['timing.responseStart', describeTiming('responseStart')],
+          ['timing.domComplete', describeTiming('domComplete')]
         ]
         var box = document.getElementById('envBox')
         while (box.firstChild) {
@@ -315,7 +332,7 @@
                 record(
                   'Session cookie is written',
                   document.cookie.indexOf('_dd_s=') !== -1 ? 'pass' : 'fail',
-                  document.cookie || '(empty)'
+                  sessionCookieOnly()
                 )
                 pollServer()
               }, 300)
@@ -387,12 +404,69 @@
           indexOf(types, 'view') !== -1 && indexOf(types, 'error') !== -1 ? 'pass' : 'fail',
           summarize(types) + '  (across ' + arrived.length + ' request(s))'
         )
+        recordPageLoadTimings(arrived)
         recordCleanliness()
         note(
           'Done. ' +
             arrived.length +
             ' request(s) reached the intake. ' +
             'Press "Check page exit" to also verify the synchronous request sent while the page unloads.'
+        )
+      }
+
+      /*
+       * Page load timings are the one capability claimed for IE9 that the checks above never look
+       * at, and on the IE9 device used for verification none of them arrived. This row separates
+       * the two explanations, which need opposite responses: an engine without Navigation Timing
+       * cannot report them and never promised to, while an engine that has it and still sends none
+       * is a bug in this build.
+       */
+      /* Only the session cookie is shown. This page is meant to be run inside the customer's own
+         environment and its results screenshotted, and the rest of document.cookie belongs to
+         whatever else lives on that host - sign-in tokens among it. */
+      function sessionCookieOnly() {
+        var parts = document.cookie.split(';')
+        for (var i = 0; i < parts.length; i++) {
+          var part = parts[i]
+          while (part.charAt(0) === ' ') {
+            part = part.substring(1)
+          }
+          if (part.indexOf('_dd_s=') === 0) {
+            return part
+          }
+        }
+        return '(no _dd_s cookie)'
+      }
+
+      function recordPageLoadTimings(arrived) {
+        var fields = ['first_byte', 'dom_interactive', 'dom_content_loaded', 'dom_complete', 'load_event']
+        var bodies = ''
+        for (var r = 0; r < arrived.length; r++) {
+          bodies = bodies + arrived[r].body
+        }
+        var found = []
+        for (var f = 0; f < fields.length; f++) {
+          if (bodies.indexOf('"' + fields[f] + '"') !== -1) {
+            found.push(fields[f])
+          }
+        }
+
+        var timing = window.performance && window.performance.timing
+        if (!timing || !timing.navigationStart) {
+          record(
+            'Page load timings reached the intake',
+            'skip',
+            'this browser has no usable Navigation Timing, so there is nothing to report' +
+              (found.length > 0 ? ' - yet ' + found.length + ' arrived, which should not happen' : '')
+          )
+          return
+        }
+        record(
+          'Page load timings reached the intake',
+          found.length > 0 ? 'pass' : 'fail',
+          found.length > 0
+            ? summarize(found)
+            : 'none, although navigationStart is ' + timing.navigationStart + ' - the SDK should have sent them'
         )
       }
 
