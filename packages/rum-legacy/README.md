@@ -160,6 +160,11 @@ page:
   want collection to be resumable.
 - `setViewName()` starts a new view rather than renaming the current one. A view event has already
   been sent under the old name and there is no way to retract it.
+- `startView()` takes the view name and ignores the rest. The standard bundles let a view carry its
+  own `service`, `version` and context; here those stay as they were configured for the page.
+- A relative `proxy` is resolved against the document base url, which a `<base href>` tag changes.
+  The standard bundles resolve it against the page url instead, so a page that carries that tag has
+  to give `proxy` as an absolute url for both builds to reach the same place.
 
 Consent is honoured: with `trackingConsent: 'not-granted'` nothing is collected or sent, and
 withdrawing consent later drops whatever is buffered and clears the session cookie.
