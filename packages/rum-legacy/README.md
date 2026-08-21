@@ -151,14 +151,8 @@ object can be shared between the two.
 
 ## Differences from the standard bundles
 
-Beyond the capability table above, two behaviours differ and are worth knowing before porting a
-page:
+Beyond the capability table above, two details differ and are worth knowing before porting a page:
 
-- `stopSession()` shuts collection down for the rest of the page. In the standard bundles it ends
-  the current session and a new one starts on the next interaction. Use `setTrackingConsent` if you
-  want collection to be resumable.
-- `setViewName()` starts a new view rather than renaming the current one. A view event has already
-  been sent under the old name and there is no way to retract it.
 - `startView()` takes the view name and ignores the rest. The standard bundles let a view carry its
   own `service`, `version` and context; here those stay as they were configured for the page.
 - A relative `proxy` is resolved against the document base url, which a `<base href>` tag changes.

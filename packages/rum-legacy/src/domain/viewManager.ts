@@ -134,6 +134,21 @@ export function startViewManager(
       }
     },
 
+    /**
+     * Renames the current view in place rather than starting a new one.
+     *
+     * An update has already gone out under the old name and cannot be retracted, but every update
+     * of a view shares its id and the intake keeps the one with the highest document version, so
+     * the rename lands. Starting a new view instead would invent a navigation that never happened
+     * and split the view's counts across two ids.
+     */
+    setViewName(name: string): void {
+      if (!stopped) {
+        currentView.name = name
+        emit(true)
+      }
+    },
+
     addErrorCount(): void {
       currentView.errorCount++
     },

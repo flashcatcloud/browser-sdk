@@ -394,6 +394,18 @@ describe('public api', () => {
       ;(freshApi as unknown as { _stop: () => void })._stop()
     })
 
+    it('renames the current view instead of inventing a navigation', () => {
+      api.addAction('checkout')
+      api.setViewName('cart')
+      flush()
+
+      const views = eventsOfType('view')
+      // One view throughout: a new id here would show up as a page the user never visited, and
+      // would split the view's counts across two of them.
+      expect(new Set(views.map((event) => event.view.id as string)).size).toBe(1)
+      expect(views[views.length - 1].view.name).toBe('cart')
+    })
+
     it('keeps a stable session id across events', () => {
       api.addError(new Error('first'))
       api.addAction('checkout')

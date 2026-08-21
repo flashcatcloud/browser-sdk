@@ -200,6 +200,9 @@ export function makeRumLegacyPublicApi() {
       startView(name?: string) {
         viewManager.startView(name)
       },
+      setViewName(name: string) {
+        viewManager.setViewName(name)
+      },
     }
   }
 
@@ -270,10 +273,8 @@ export function makeRumLegacyPublicApi() {
       running?.startView(name)
     }),
 
-    // Renaming the current view is not possible here: a view event has already been sent under the
-    // old name, so the rename is applied by starting a new view instead.
     setViewName: monitor((name: string) => {
-      running?.startView(name)
+      running?.setViewName(name)
     }),
 
     setGlobalContext: monitor((context: Context) => {
