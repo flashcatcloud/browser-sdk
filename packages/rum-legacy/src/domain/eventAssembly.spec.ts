@@ -93,7 +93,8 @@ describe('event assembly', () => {
     expect(event.source).toBe('browser')
     expect(event.application.id).toBe(CONFIGURATION.applicationId)
     expect(event.session).toEqual({ id: SESSION_ID, type: 'user' })
-    expect(event.view).toEqual(VIEW)
+    // The view's start time dates the event; it is not one of the view's own fields on the wire.
+    expect(event.view).toEqual({ id: VIEW.id, url: VIEW.url, referrer: VIEW.referrer })
     expect(event.date).toBeGreaterThan(0)
     expect(event._dd.format_version).toBe(2)
   })
