@@ -1,5 +1,10 @@
 import type { Context, ClocksState } from '@flashcatcloud/browser-core'
-import { timeStampNow, ErrorSource, getFileFromStackTraceString, initReportObservable } from '@flashcatcloud/browser-core'
+import {
+  timeStampNow,
+  ErrorSource,
+  getFileFromStackTraceString,
+  initReportObservable,
+} from '@flashcatcloud/browser-core'
 import type { LogsConfiguration } from '../configuration'
 import type { LifeCycle } from '../lifeCycle'
 import { LifeCycleEventType } from '../lifeCycle'

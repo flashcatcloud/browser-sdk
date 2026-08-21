@@ -105,6 +105,24 @@ export interface RumInitConfiguration extends InitConfiguration {
    * See [Session Replay Usage](https://docs.datadoghq.com/real_user_monitoring/session_replay/browser/#usage) for further information.
    */
   startSessionReplayRecordingManually?: boolean | undefined
+  /**
+   * When the SDK runs inside a host application that injects an event bridge (an Electron renderer
+   * process, a mobile WebView...), Session Replay is normally handed over to the host application,
+   * and is not collected at all when the host does not implement it.
+   *
+   * Set this to `true` to keep collecting Session Replay in the page and upload it from here, over
+   * the same intake connection a regular web page uses. Use it when the host application does not
+   * record Session Replay itself.
+   *
+   * This has no effect outside of a host application (no event bridge), where Session Replay is
+   * always collected and uploaded by this SDK.
+   *
+   * Note: `sessionReplaySampleRate` defaults to 0, so it must be set explicitly as well, otherwise
+   * nothing is recorded.
+   *
+   * @default false
+   */
+  sessionReplayDirectUpload?: boolean | undefined
 
   /**
    * Enables privacy control for action names.
@@ -127,6 +145,14 @@ export interface RumInitConfiguration extends InitConfiguration {
    * Allows you to control RUM views creation. See [Override default RUM view names](https://docs.datadoghq.com/real_user_monitoring/browser/advanced_configuration/?tab=npm#override-default-rum-view-names) for further information.
    */
   trackViewsManually?: boolean | undefined
+  /**
+   * Enables collection of Web Vitals / initial view metrics (FCP, LCP, FID, loading time) on the
+   * initial load view. Disable it for pages that are loaded in the background or pre-warmed (e.g. a
+   * hidden Electron window) where these metrics would be measured from an irrelevant navigation
+   * start and reported as abnormally large values.
+   * @default true
+   */
+  trackWebVitals?: boolean | undefined
   /**
    * Enables collection of resource events.
    * @default true
@@ -176,8 +202,10 @@ export interface RumConfiguration extends Configuration {
   enablePrivacyForActionName: boolean
   sessionReplaySampleRate: number
   startSessionReplayRecordingManually: boolean
+  sessionReplayDirectUpload: boolean
   trackUserInteractions: boolean
   trackViewsManually: boolean
+  trackWebVitals: boolean
   trackResources: boolean
   trackLongTasks: boolean
   version?: string
@@ -240,6 +268,7 @@ export function validateAndBuildRumConfiguration(
       initConfiguration.startSessionReplayRecordingManually !== undefined
         ? !!initConfiguration.startSessionReplayRecordingManually
         : sessionReplaySampleRate === 0,
+    sessionReplayDirectUpload: !!initConfiguration.sessionReplayDirectUpload,
     traceSampleRate: initConfiguration.traceSampleRate ?? 100,
     rulePsr: isNumber(initConfiguration.traceSampleRate) ? initConfiguration.traceSampleRate / 100 : undefined,
     allowedTracingUrls,
@@ -248,6 +277,7 @@ export function validateAndBuildRumConfiguration(
     compressIntakeRequests: !!initConfiguration.compressIntakeRequests,
     trackUserInteractions: !!(initConfiguration.trackUserInteractions ?? true),
     trackViewsManually: !!initConfiguration.trackViewsManually,
+    trackWebVitals: !!(initConfiguration.trackWebVitals ?? true),
     trackResources: !!(initConfiguration.trackResources ?? true),
     trackLongTasks: !!(initConfiguration.trackLongTasks ?? true),
     subdomain: initConfiguration.subdomain,

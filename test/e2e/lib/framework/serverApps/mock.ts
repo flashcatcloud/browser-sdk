@@ -117,7 +117,7 @@ export function createMockServerApp(servers: Servers, setup: string): MockServer
     res.end()
   })
 
-  app.get(/datadog-(?<packageName>[a-z-]*)\.js/, (req, res) => {
+  app.get(/(?:datadog|flashcat)-(?<packageName>[a-z-]*)\.js/, (req, res) => {
     const { originalUrl, params } = req
 
     if (process.env.CI) {

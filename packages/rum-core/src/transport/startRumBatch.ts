@@ -1,4 +1,11 @@
-import type { Context, TelemetryEvent, Observable, RawError, PageMayExitEvent, Encoder } from '@flashcatcloud/browser-core'
+import type {
+  Context,
+  TelemetryEvent,
+  Observable,
+  RawError,
+  PageMayExitEvent,
+  Encoder,
+} from '@flashcatcloud/browser-core'
 import {
   DeflateEncoderStreamId,
   combine,

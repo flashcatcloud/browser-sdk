@@ -1,7 +1,13 @@
 import { defineGlobal } from '../boot/global'
 import { makeRumLegacyPublicApi } from '../boot/publicApi'
 
-interface BrowserWindow extends Window {
+/*
+ * Deliberately not an extension of Window. A spec elsewhere in the repository augments the global
+ * Window with its own type for this property, and the repository-wide typecheck compiles them
+ * together, so extending it here would be two declarations of one global disagreeing. All this
+ * needs is somewhere to put the api.
+ */
+interface GlobalWithRum {
   FC_RUM?: unknown
 }
 
@@ -18,7 +24,7 @@ interface BrowserWindow extends Window {
 let api: ReturnType<typeof makeRumLegacyPublicApi> | undefined
 try {
   api = makeRumLegacyPublicApi()
-  defineGlobal(window as BrowserWindow, 'FC_RUM', api)
+  defineGlobal(window as unknown as GlobalWithRum, 'FC_RUM', api)
 } catch {
   // Deliberately silent: there may be no console to warn into, and warning is not worth risking.
 }

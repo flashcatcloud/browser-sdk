@@ -42,11 +42,13 @@ test.describe('rum sessions', () => {
     createTest("don't send events when session is expired")
       // prevent recording start to generate late events
       .withRum({ startSessionReplayRecordingManually: true })
-      .run(async ({ intakeRegistry, sendXhr, browserContext, page }) => {
+      .run(async ({ intakeRegistry, sendXhr, flushEvents, browserContext, page }) => {
+        await flushEvents()
         await expireSession(page, browserContext)
         intakeRegistry.empty()
         await sendXhr('/ok')
-        expect(intakeRegistry.isEmpty).toBe(true)
+        await waitForRequests(page)
+        expect(intakeRegistry.rumEvents).toHaveLength(0)
       })
   })
   test.describe('anonymous user id', () => {
@@ -134,7 +136,7 @@ test.describe('rum sessions', () => {
     createTest('flush events when the session expires')
       .withRum()
       .withLogs()
-      .run(async ({ intakeRegistry, page }) => {
+      .run(async ({ intakeRegistry, flushEvents, page }) => {
         expect(intakeRegistry.rumViewEvents).toHaveLength(0)
         expect(intakeRegistry.logsEvents).toHaveLength(0)
         expect(intakeRegistry.replaySegments).toHaveLength(0)
@@ -144,7 +146,7 @@ test.describe('rum sessions', () => {
           window.FC_RUM!.stopSession()
         })
 
-        await waitForRequests(page)
+        await flushEvents()
 
         expect(intakeRegistry.rumViewEvents).toHaveLength(1)
         expect(intakeRegistry.rumViewEvents[0].session.is_active).toBe(false)

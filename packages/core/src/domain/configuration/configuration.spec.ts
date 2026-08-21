@@ -184,7 +184,7 @@ describe('validateAndBuildConfiguration', () => {
     it('should validate the site parameter', () => {
       validateAndBuildConfiguration({ clientToken, site: 'foo.com' as any })
       expect(displaySpy).toHaveBeenCalledOnceWith(
-        `Site should be a valid Datadog site. ${MORE_DETAILS} ${DOCS_ORIGIN}/getting_started/site/.`
+        `Site should be a valid Flashcat site. ${MORE_DETAILS} ${DOCS_ORIGIN}/getting_started/site/.`
       )
     })
   })

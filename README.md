@@ -32,7 +32,6 @@ This project is modified and distributed by flashcat under the Apache License 2.
 For complete license information, please refer to the [LICENSE](./LICENSE) file.
 
 [18]: https://docs.flashcat.cloud/zh/flashduty/rum/introduction
-
 [01]: https://badge.fury.io/js/%40flashcatcloud%2Fbrowser-logs.svg
 [02]: https://badge.fury.io/js/%40flashcatcloud%2Fbrowser-logs
 

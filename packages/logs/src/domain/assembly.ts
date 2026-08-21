@@ -49,6 +49,7 @@ export function startLogsAssembly(
       }
 
       if (session && session.anonymousId && !commonContext.user.anonymous_id) {
+        commonContext.user.id = isEmptyObject(commonContext.user) ? session.anonymousId : commonContext.user.id
         commonContext.user.anonymous_id = session.anonymousId
       }
 
