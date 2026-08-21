@@ -83,8 +83,12 @@ describe('view manager', () => {
 
   it('measures time spent in nanoseconds', () => {
     jasmine.clock().install()
+    // Frozen before the view opens, not after: the view reads the wall clock when it starts, and a
+    // millisecond passing between that and the line below is enough to make the measurement drift.
+    const openedAt = Date.now()
+    jasmine.clock().mockDate(new Date(openedAt))
     const manager = start()
-    jasmine.clock().mockDate(new Date(Date.now() + 2000))
+    jasmine.clock().mockDate(new Date(openedAt + 2000))
     manager.endView()
     jasmine.clock().uninstall()
 
