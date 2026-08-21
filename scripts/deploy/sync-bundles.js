@@ -34,7 +34,7 @@ const ENTRY_BUNDLES = ['flashcat-logs.js', 'flashcat-rum.js', 'flashcat-rum-slim
  *
  * The script needs no credentials: it downloads over plain HTTPS from the same URLs a page would
  * load. The bucket cannot be listed that way, so the entry bundles are fetched by name (declared
- * next to the upload configuration in lib/deploymentUtils.js) and the hash-named chunk files are
+ * at the top of this file) and the hash-named chunk files are
  * recovered from the chunk table webpack embeds in each entry bundle. Downloading chunks by hand is
  * exactly the error-prone step this script exists to remove.
  */
@@ -77,6 +77,9 @@ async function main(directory, version, outputDir) {
    * leave the chunks of an older version alongside the new ones, and deleting a directory the
    * operator named is not this script's call to make.
    */
+  // Resolved first: a trailing slash would otherwise put the staging directory inside the output
+  // directory, where the rename cannot land and where the guard above then blocks every re-run.
+  outputDir = path.resolve(outputDir)
   if (fs.existsSync(outputDir)) {
     printError(`${outputDir} already exists. Remove it, or pass a different output directory.`)
     process.exit(1)
@@ -127,17 +130,38 @@ async function download(baseUrl, filePath, outputDir, failures) {
     return undefined
   }
 
-  const content = Buffer.from(await response.arrayBuffer())
   const outputPath = path.join(outputDir, filePath)
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true })
-  fs.writeFileSync(outputPath, content)
-  printLog(`✅ ${url} → ${outputPath} (${content.length} bytes)`)
-  return content.toString('utf-8')
+  // A chunk name is read out of a downloaded file, so it decides where this writes. Nothing may
+  // land outside the directory the operator named, however the name reached us.
+  if (path.relative(outputDir, outputPath).startsWith('..')) {
+    failures.push(`${url} (resolves outside the output directory)`)
+    return undefined
+  }
+
+  try {
+    // Reading the body and writing it are inside the same net as the request. A connection that
+    // drops mid-body, or a disk that fills up, is the same kind of trouble as one that never
+    // connects, and it has to reach the summary rather than end the run with a stack trace.
+    const content = Buffer.from(await response.arrayBuffer())
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true })
+    fs.writeFileSync(outputPath, content)
+    printLog(`✅ ${url} → ${outputPath} (${content.length} bytes)`)
+    return content.toString('utf-8')
+  } catch (error) {
+    failures.push(`${url} (${error.message})`)
+    return undefined
+  }
 }
 
 function extractChunkPaths(bundleContent) {
   const table = CHUNK_TABLE_RE.exec(bundleContent)
   if (!table) {
+    // No table and no chunks is the normal case for most of these bundles. No table in a bundle
+    // that plainly loads chunks means the pattern has fallen behind the emitted runtime, and the
+    // chunks would go missing without ever being attempted - and so without ever being reported.
+    if (bundleContent.indexOf('chunks/') !== -1) {
+      throw new Error('This bundle loads chunks but its chunk table did not match; the pattern needs updating')
+    }
     return []
   }
 
