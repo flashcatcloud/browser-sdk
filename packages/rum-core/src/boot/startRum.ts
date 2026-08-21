@@ -111,6 +111,9 @@ export function startRum(
     ? startRumSessionManager(configuration, lifeCycle, trackingConsentState)
     : startRumSessionManagerStub()
 
+  // Subscribed before the batch below, and it has to stay that way: the withheld event buffer runs
+  // on the same event, and only sees a session as released if this has already marked it. Reorder
+  // them and the release waits for whatever event happens to come next.
   const sessionErrorTracking = startSessionErrorTracking(lifeCycle, session)
   cleanupTasks.push(() => sessionErrorTracking.stop())
 
