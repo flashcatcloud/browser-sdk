@@ -15,6 +15,14 @@ const ONE_HOUR = 60 * ONE_MINUTE
 const SESSION_EXPIRATION_DELAY = 15 * ONE_MINUTE
 /** Hard cap on a session's lifetime, however active it is. */
 const SESSION_TIME_OUT_DELAY = 4 * ONE_HOUR
+/*
+ * How long the browser keeps the cookie itself, which is a different question from how long the
+ * session lasts: when a session ends, what outlives it stays in this cookie, the anonymous user id
+ * among them. The modern bundle persists it for a year for that reason, and a shorter life here
+ * would quietly reset an identifier it is keeping. Session lifetime is decided by the `expire`
+ * entry inside the value, not by this.
+ */
+const SESSION_COOKIE_PERSISTENCE_DELAY = 365 * 24 * ONE_HOUR
 
 /** Tracking decision, stored in the cookie using the same values as the modern bundle. */
 /** The modern bundle's marker for a session that has ended. */
@@ -225,7 +233,7 @@ function readSessionCookie(): SessionState | undefined {
 }
 
 function writeSessionCookie(state: SessionState): void {
-  const expires = new Date(dateNow() + SESSION_EXPIRATION_DELAY).toUTCString()
+  const expires = new Date(dateNow() + SESSION_COOKIE_PERSISTENCE_DELAY).toUTCString()
   // Written raw, not percent-encoded: the modern bundle reads this cookie without decoding it, and
   // an encoded value fails its validation, so the session would be dropped instead of shared. The
   // serialized value is already constrained to characters that are legal in a cookie value.

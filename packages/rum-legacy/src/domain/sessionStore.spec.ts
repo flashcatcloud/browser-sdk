@@ -79,6 +79,37 @@ describe('session store', () => {
     expect(state.id).not.toBe('old-session')
   })
 
+  it('keeps the cookie itself for as long as the modern bundle does', () => {
+    /*
+     * The expiry attribute cannot be read back from document.cookie, so the write is captured
+     * instead. It matters because a session that ends leaves the identifiers that outlive it in
+     * this cookie: a short-lived cookie would drop them the moment the browser cleaned it up, well
+     * before the modern bundle expects them gone.
+     */
+    const writes: string[] = []
+    const original = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie')!
+    Object.defineProperty(document, 'cookie', {
+      configurable: true,
+      get: () => original.get!.call(document),
+      set: (value: string) => {
+        writes.push(value)
+        original.set!.call(document, value)
+      },
+    })
+
+    try {
+      createSessionStore(100).getOrCreateSession()
+    } finally {
+      delete (document as any).cookie
+    }
+
+    const expires = /expires=([^;]+)/.exec(writes[writes.length - 1])
+    expect(expires).not.toBe(null)
+    // A year out, give or take; anything on the order of the session's own fifteen minutes is the
+    // bug this guards against.
+    expect(new Date(expires![1]).getTime() - Date.now()).toBeGreaterThan(300 * 24 * 60 * 60 * 1000)
+  })
+
   it('keeps the anonymous user id out of a session the modern bundle expired', () => {
     const anonymousId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
     // Exactly what the modern bundle writes when a session ends: no id, no tracking decision, and
