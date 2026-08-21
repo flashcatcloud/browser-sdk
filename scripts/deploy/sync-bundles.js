@@ -3,7 +3,23 @@
 const fs = require('fs')
 const path = require('path')
 const { printLog, printError, runMain } = require('../lib/executionUtils')
-const { packages, ossEnvironments } = require('./lib/deploymentUtils')
+
+/*
+ * Where the release lands, mirrored from deploy-oss.js rather than shared with it. This script only
+ * reads what that one publishes, and a download tool has no business editing the release path to
+ * get its bearings. If the bucket layout ever moves, these move with it.
+ */
+const CDN_HOST = 'static.flashcat.cloud'
+const CDN_DIRECTORIES = {
+  prod: '/browser-sdk',
+  staging: '/browser-sdk-staging',
+}
+
+/*
+ * The entry file each package emits, from its own webpack.config.js. Fetched by name because the
+ * bucket cannot be listed without credentials, which this script deliberately does not use.
+ */
+const ENTRY_BUNDLES = ['flashcat-logs.js', 'flashcat-rum.js', 'flashcat-rum-slim.js', 'fc-rum-legacy.js']
 
 /**
  * Download the deployed bundles from the CDN into a local directory, to serve them from another
@@ -36,19 +52,19 @@ if (require.main === module) {
   const version = process.argv[3] || `v${require('../../lerna.json').version.split('.')[0]}`
   const outputDir = process.argv[4] || './cdn-bundles'
 
-  const ossConfig = ossEnvironments[env]
-  if (!ossConfig) {
-    printError(`Unknown env "${env}", expected one of: ${Object.keys(ossEnvironments).join(', ')}`)
+  const directory = CDN_DIRECTORIES[env]
+  if (!directory) {
+    printError(`Unknown env "${env}", expected one of: ${Object.keys(CDN_DIRECTORIES).join(', ')}`)
     process.exit(1)
   }
 
   runMain(async () => {
-    await main(ossConfig, version, outputDir)
+    await main(directory, version, outputDir)
   })
 }
 
-async function main(ossConfig, version, outputDir) {
-  const baseUrl = `https://${ossConfig.cdnURL}${ossConfig.dir}/${version}`
+async function main(directory, version, outputDir) {
+  const baseUrl = `https://${CDN_HOST}${directory}/${version}`
   const failures = []
 
   /*
@@ -68,7 +84,7 @@ async function main(ossConfig, version, outputDir) {
   const stagingDir = `${outputDir}.incomplete`
   fs.rmSync(stagingDir, { recursive: true, force: true })
 
-  for (const { bundleFilename } of packages) {
+  for (const bundleFilename of ENTRY_BUNDLES) {
     const content = await download(baseUrl, bundleFilename, stagingDir, failures)
     if (content === undefined) {
       continue

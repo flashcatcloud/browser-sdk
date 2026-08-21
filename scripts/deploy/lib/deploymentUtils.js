@@ -1,27 +1,9 @@
-// bundleFilename is the entry file webpack emits (see packages/*/webpack.config.js). The upload
-// side never needs it — it walks the bundle folder — but sync-bundles.js downloads by name because
-// the bucket cannot be listed without credentials.
 const packages = [
-  { packageName: 'logs', service: 'browser-logs-sdk', bundleFilename: 'flashcat-logs.js' },
-  { packageName: 'rum', service: 'browser-rum-sdk', bundleFilename: 'flashcat-rum.js' },
-  { packageName: 'rum-slim', service: 'browser-rum-sdk', bundleFilename: 'flashcat-rum-slim.js' },
-  { packageName: 'rum-legacy', service: 'browser-rum-sdk', bundleFilename: 'fc-rum-legacy.js' },
+  { packageName: 'logs', service: 'browser-logs-sdk' },
+  { packageName: 'rum', service: 'browser-rum-sdk' },
+  { packageName: 'rum-slim', service: 'browser-rum-sdk' },
+  { packageName: 'rum-legacy', service: 'browser-rum-sdk' },
 ]
-
-// Bucket layout and public domain, shared by the upload (deploy-oss.js) and download
-// (sync-bundles.js) sides so the two cannot drift apart.
-const ossEnvironments = {
-  prod: {
-    dir: '/browser-sdk',
-    endpoint: 'flashduty-public.oss-cn-beijing.aliyuncs.com',
-    cdnURL: 'static.flashcat.cloud',
-  },
-  staging: {
-    dir: '/browser-sdk-staging',
-    endpoint: 'flashduty-public.oss-cn-beijing.aliyuncs.com',
-    cdnURL: 'static.flashcat.cloud',
-  },
-}
 
 // ex: datadog-rum-v4.js, chunks/recorder-8d8a8dfab6958424038f-datadog-rum.js
 const buildRootUploadPath = (filePath, version) => {
@@ -47,7 +29,6 @@ const buildBundleFolder = (packageName) => `packages/${packageName}/bundle`
 
 module.exports = {
   packages,
-  ossEnvironments,
   buildRootUploadPath,
   buildDatacenterUploadPath,
   buildBundleFolder,
