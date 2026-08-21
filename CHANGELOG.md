@@ -18,6 +18,72 @@
 
 ---
 
+## v0.1.0
+
+This release adds a separate ES5 build of the RUM Browser SDK for browsers without ES2015 support:
+`fc-rum-legacy.js`, distributed through the CDN only. It was verified on real IE 9, 10 and 11, and
+on IE 6 to IE 8 it loads and stays silent rather than disturbing the page it is on. See
+`packages/rum-legacy/README.md` for how to load it, what it collects, and what it does not.
+
+Releases now publish into a directory named for the release, `/browser-sdk/v0.1.0/`, rather than
+one named for the major version. A url pins the version it names, and updating a self-hosted copy
+means pointing at the next release. `scripts/deploy/sync-bundles.js` downloads a complete set.
+
+**Internal Changes:**
+
+- Merge pull request #27 from flashcatcloud/main
+- Merge pull request #26 from flashcatcloud/chore/reconcile-publish-into-main
+- test(rum-legacy): stop the time spent measurement drifting [RUM-LEGACY]
+- test(rum-legacy): assert the view fields that reach the wire [RUM-LEGACY]
+- fix(rum-legacy): survive the checks the merged CI actually runs [RUM-LEGACY]
+- fix(deploy): duplicate whole expectations, not just their command line
+- fix(deploy): teach the release tooling about the legacy bundle [RUM-LEGACY]
+- Merge branch 'publish' into main
+- Merge pull request #23 from flashcatcloud/feat/cdn-sync-and-delivery-docs
+- Merge pull request #22 from flashcatcloud/feat/rum-legacy-es5
+- chore(rum-legacy): satisfy the no-unsafe-return rule in the cookie spec [RUM-LEGACY]
+- fix(rum-legacy): keep the session cookie as long as the modern bundle does [RUM-LEGACY]
+- fix(rum-legacy): hold the session cookie contract across both builds [RUM-LEGACY]
+- fix(deploy): close the paths where the sync gave up quietly
+- refactor(deploy): leave the release path alone in the sync script
+- fix(deploy): make the bundle sync keep the promise it prints
+- fix(rum-legacy): rename the current view instead of starting a new one [RUM-LEGACY]
+- fix(rum-legacy): keep stopSession and init to their public contracts [RUM-LEGACY]
+- docs(rum-legacy): state what the page exit guard actually promises [RUM-LEGACY]
+- docs(rum-legacy): confirm page load timings on IE9 [RUM-LEGACY]
+- test(rum-legacy): make the harness answer the page load timing question [RUM-LEGACY]
+- docs(rum-legacy): name the remaining divergences from the standard bundle [RUM-LEGACY]
+- chore: keep the lockfile change to the dependency this adds
+- fix(rum-legacy): make the documented loader route and parse correctly [RUM-LEGACY]
+- fix(rum-legacy): stop losing consent, exits and view dates [RUM-LEGACY]
+- fix(rum-legacy): write the session cookie the modern bundle can read [RUM-LEGACY]
+- docs(rum-legacy): document bundle distribution and real-browser results [RUM-LEGACY]
+- feat(deploy): add sync-bundles script to download deployed bundles
+- fix(rum-legacy): survive the formatter and the pre-XHR engines in the harness [RUM-LEGACY]
+- fix(rum-legacy): harden the verification harness on real Trident engines [RUM-LEGACY]
+- feat(rum-legacy): guarantee silence on engines below the support floor [RUM-LEGACY]
+- fix(rum-legacy): make the verification run fit a metered device session [RUM-LEGACY]
+- feat(rum-legacy): add a real-browser verification harness [RUM-LEGACY]
+- fix(rum-legacy): declare the content type the intake requires [RUM-LEGACY]
+- fix(rum-legacy): reject a non-numeric sample rate, keep foreign cookie fields [RUM-LEGACY]
+- fix(rum-legacy): copy context and configuration on the way in as well [RUM-LEGACY]
+- fix(rum-legacy): recognise errors from other frames, stop leaking state [RUM-LEGACY]
+- fix(rum-legacy): correct wall-clock durations, exit ordering and session reuse [RUM-LEGACY]
+- fix(rum-legacy): guard browser callbacks and fix in-page referrer [RUM-LEGACY]
+- fix(rum-legacy): apply sessionSampleRate and honour trackingConsent [RUM-LEGACY]
+- fix(rum-legacy): send a closing view update when the page unloads [RUM-LEGACY]
+- refactor(rum-legacy): remove duplicated object and error helpers [RUM-LEGACY]
+- test(rum-legacy): verify behaviour without the modern browser APIs [RUM-LEGACY]
+- feat(rum-legacy): expose the full public API surface [RUM-LEGACY]
+- feat(rum-legacy): collect errors, page load timings and views [RUM-LEGACY]
+- feat(rum-legacy): send batched events over XMLHttpRequest [RUM-LEGACY]
+- feat(rum-legacy): add ES5 build target and compatibility gate [RUM-LEGACY]
+- Merge pull request #21 from flashcatcloud/fix/tag-triggered-release
+- fix(ci): make a pushed tag actually release again
+- Merge pull request #16 from flashcatcloud/fix/replay-intake-hardcoded-ip
+- fix(core): hardcode public staging intake host jira.flashcat.cloud [FLAGGING] [LOGS] [RUM] [RUM-REACT] [RUM-SLIM] [WORKER]
+- fix(core): remove hardcoded internal staging IP from intake sites [FLAGGING] [LOGS] [RUM] [RUM-REACT] [RUM-SLIM] [WORKER]
+
 ## v0.0.7
 
 **Internal Changes:**
