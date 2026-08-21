@@ -129,11 +129,17 @@ export function makeRumLegacyPublicApi() {
      * dismissal. The guard below keeps that from sending the synchronous request twice while the
      * page is closing, which would block the browser for a second time.
      *
-     * It is released again by the next event, because a page that is still recording was not
-     * closing after all: the user cancelled the navigation. Leaving the guard set there would drop
-     * everything buffered from that point on, since the real exit would find it already true.
-     * Events produced by the exit flush itself do not release it — they are part of the sequence
-     * being guarded.
+     * It is released again by the next event that actually reaches the buffer, and only by that:
+     * releaseExitGuard runs immediately after batch.add, so the guard falls exactly when there is
+     * new data an exit would have to carry. Events produced by the exit flush itself do not
+     * release it — they are part of the sequence being guarded.
+     *
+     * The rule is deliberately not "one exit per page". A cancelled navigation leaves the page
+     * running, and a guard that stayed set would drop everything recorded from that point on,
+     * because the real exit would find it already true. The cost is that an event arriving between
+     * beforeunload and unload on a genuine dismissal buys a second synchronous request — which is
+     * the right trade, since that request is what delivers the event instead of losing it. Do not
+     * "tighten" this back into a one-shot guard without restoring the data loss with it.
      */
     function onPageExit(): void {
       if (exited) {
