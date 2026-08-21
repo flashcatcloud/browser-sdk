@@ -28,6 +28,7 @@ describe('event assembly', () => {
     id: '22222222-aaaa-0000-aaaa-000000000000',
     url: 'https://example.com/checkout',
     referrer: 'https://example.com/',
+    startTime: 1600000000000,
   }
 
   function assemble(type: string, properties: object, context?: object) {
