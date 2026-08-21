@@ -147,11 +147,39 @@ describe('startWithheldEventBuffer', () => {
     expect(forwarded.map((event) => event.type)).toEqual([RumEventType.VIEW, RumEventType.RESOURCE])
   })
 
-  it('drops the buffer on page exit rather than uploading a session that never errored', () => {
+  it('keeps the buffer when the page is only hidden, since it comes back', () => {
+    collect(RumEventType.VIEW)
+    collect(RumEventType.RESOURCE, { date: 111 })
+
+    lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, { reason: PageExitReason.HIDDEN })
+    expect(forwarded.length).toBe(0)
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR)
+
+    const dates = releasedAfterJitter().map((event) => event.date)
+    expect(dates).toContain(111)
+  })
+
+  it('records on the session how far back the released detail reaches', () => {
+    const spy = spyOn(sessionManager, 'setSessionDetailSampledFrom').and.callThrough()
+    collect(RumEventType.VIEW)
+    collect(RumEventType.RESOURCE, { date: 4321 })
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR)
+    releasedAfterJitter()
+
+    // kept on the session, because the batch upserts views by id and the next ordinary view update
+    // would otherwise replace the stamped one before anything is sent
+    expect(spy).toHaveBeenCalledWith(4321)
+  })
+
+  it('drops the buffer when the session ends without ever having errored', () => {
     collect(RumEventType.VIEW)
     collect(RumEventType.RESOURCE)
 
-    lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, { reason: PageExitReason.UNLOADING })
+    lifeCycle.notify(LifeCycleEventType.SESSION_EXPIRED)
 
     expect(releasedAfterJitter().length).toBe(0)
   })

@@ -16,6 +16,7 @@ export interface RumSessionManagerMock extends RumSessionManager {
   setTrackedOnError(): RumSessionManagerMock
   setForcedReplay(): RumSessionManagerMock
   setSessionHasError(): RumSessionManagerMock
+  setSessionDetailSampledFrom(timestamp: number): RumSessionManagerMock
 }
 
 const DEFAULT_ID = 'session-id'
@@ -40,6 +41,7 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
   let sessionStatus: SessionStatus = SessionStatus.TRACKED_WITH_SESSION_REPLAY
   let forcedReplay: boolean = false
   let hasError: boolean = false
+  let detailSampledFrom: number | undefined
   return {
     findTrackedSession() {
       const trackingType = TRACKING_TYPES[sessionStatus]
@@ -52,6 +54,7 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
         sessionReplay: computeSessionReplayState(trackingType, hasError, forcedReplay),
         eventsWithheld: computeEventsWithheld(trackingType, hasError, forcedReplay),
         sampledOnError: withholdsEvents(trackingType),
+        detailSampledFrom,
         anonymousId: 'device-123',
       }
     },
@@ -90,6 +93,10 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
     },
     setSessionHasError() {
       hasError = true
+      return this
+    },
+    setSessionDetailSampledFrom(timestamp) {
+      detailSampledFrom = timestamp
       return this
     },
   }

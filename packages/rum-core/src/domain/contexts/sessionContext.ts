@@ -27,6 +27,7 @@ export function startSessionContext(
     let hasReplay
     let sampledForReplay
     let sampledForError
+    let detailSampledFrom
     let isActive
     if (eventType === RumEventType.VIEW) {
       hasReplay = !isReplayWithheld && recorderApi.getReplayStats(view.id) ? true : undefined
@@ -34,6 +35,7 @@ export function startSessionContext(
       // Tells the backend that this session's detail only starts where the buffer reached, so the
       // gap before it reads as "not collected" rather than as missing data.
       sampledForError = session.sampledOnError || undefined
+      detailSampledFrom = session.detailSampledFrom
       isActive = view.sessionIsActive ? undefined : false
     } else {
       hasReplay = !isReplayWithheld && recorderApi.isRecording() ? true : undefined
@@ -47,6 +49,7 @@ export function startSessionContext(
         has_replay: hasReplay,
         sampled_for_replay: sampledForReplay,
         sampled_for_error: sampledForError,
+        detail_sampled_from: detailSampledFrom,
         is_active: isActive,
       },
     }

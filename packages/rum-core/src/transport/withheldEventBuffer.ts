@@ -104,10 +104,14 @@ export function startWithheldEventBuffer(
   })
 
   /**
-   * Called when the session the buffer belongs to may be about to end - the page is going away, or
-   * the session expired (which is also how a withdrawn tracking consent arrives here).
+   * Called when what is held may not get another chance to leave: the page is going away, or the
+   * session ended (which is also how a withdrawn tracking consent arrives here).
+   *
+   * `discardIfUnreleased` says whether the buffer has anything left to wait for. A session that
+   * ended is over, so what it never released goes no further. A page being hidden is not: it comes
+   * back, and dropping the minute it had collected would leave the error that follows with nothing.
    */
-  function settleBuffer() {
+  function settleBuffer(discardIfUnreleased: boolean) {
     if (withheldForSessionId === undefined) {
       return
     }
@@ -120,15 +124,16 @@ export function startWithheldEventBuffer(
 
     if (releaseTimeoutId !== undefined || hasSinceErrored) {
       release()
-    } else {
-      // Nothing was ever released for this session, so what is held goes no further - and is not
-      // kept in memory either, which matters when the session ended because consent was withdrawn.
+    } else if (discardIfUnreleased) {
       clearBuffer()
     }
   }
 
-  const pageMayExitSubscription = lifeCycle.subscribe(LifeCycleEventType.PAGE_MAY_EXIT, settleBuffer)
-  const sessionExpireSubscription = lifeCycle.subscribe(LifeCycleEventType.SESSION_EXPIRED, settleBuffer)
+  // Kept on a page exit: switching tabs raises one and the page comes straight back, while a page
+  // that is really unloading takes the buffer with it either way - so there is nothing to gain by
+  // dropping it, and a minute of history to lose. The replay side reasons the same way.
+  const pageMayExitSubscription = lifeCycle.subscribe(LifeCycleEventType.PAGE_MAY_EXIT, () => settleBuffer(false))
+  const sessionExpireSubscription = lifeCycle.subscribe(LifeCycleEventType.SESSION_EXPIRED, () => settleBuffer(true))
 
   function hold(event: RumEvent & Context) {
     if (event.type === RumEventType.VIEW) {
@@ -231,9 +236,15 @@ export function startWithheldEventBuffer(
     const releasable = details.filter((held) => views.has(held.viewId))
     const detailSampledFrom = releasable.length > 0 ? releasable[0].event.date : undefined
 
+    if (detailSampledFrom !== undefined) {
+      // Recorded on the session so that every view update from here on carries it - the batch
+      // upserts views by id, so the next ordinary update would otherwise replace these ones before
+      // the batch is ever sent. These were assembled too early to pick it up, so they are given the
+      // same value directly, which is what the backend sees if the page goes before the next update.
+      sessionManager.setSessionDetailSampledFrom(detailSampledFrom)
+    }
+
     views.forEach((view) => {
-      // `sampled_for_error` is stamped at assembly for every view of the session; only the point the
-      // detail actually reaches back to is known here.
       if (detailSampledFrom !== undefined) {
         view.session.detail_sampled_from = detailSampledFrom
       }
