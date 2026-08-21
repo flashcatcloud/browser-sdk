@@ -90,7 +90,7 @@ describe('session store', () => {
     const original = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie')!
     Object.defineProperty(document, 'cookie', {
       configurable: true,
-      get: () => original.get!.call(document),
+      get: () => original.get!.call(document) as string,
       set: (value: string) => {
         writes.push(value)
         original.set!.call(document, value)
