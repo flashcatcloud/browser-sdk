@@ -19,6 +19,21 @@ export function addWroteData(viewId: string, additionalBytesCount: number) {
   getOrCreateReplayStats(viewId).segments_total_raw_size += additionalBytesCount
 }
 
+/**
+ * Rolls back what a segment contributed to the stats. Used when a withheld segment is dropped
+ * instead of sent: it never reached the intake, so it must leave no trace in the numbers reported
+ * on view events, and the next segment must reuse its `index_in_view`.
+ */
+export function discardSegment(viewId: string, rawBytesCount: number, recordsCount: number) {
+  const replayStats = statsPerView?.get(viewId)
+  if (!replayStats) {
+    return
+  }
+  replayStats.segments_count = Math.max(0, replayStats.segments_count - 1)
+  replayStats.records_count = Math.max(0, replayStats.records_count - recordsCount)
+  replayStats.segments_total_raw_size = Math.max(0, replayStats.segments_total_raw_size - rawBytesCount)
+}
+
 export function getReplayStats(viewId: string) {
   return statsPerView?.get(viewId)
 }

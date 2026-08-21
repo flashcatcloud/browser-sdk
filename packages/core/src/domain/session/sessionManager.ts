@@ -27,6 +27,12 @@ export interface SessionContext<TrackingType extends string> extends Context {
   id: string
   trackingType: TrackingType
   isReplayForced: boolean
+  /**
+   * Whether an error has already been reported during this session. Persisted in the session store
+   * so it survives page navigation: an error session must not go back to withholding its replay
+   * just because the user moved to another page.
+   */
+  hasError: boolean
   anonymousId: string | undefined
 }
 
@@ -92,6 +98,7 @@ export function startSessionManager<TrackingType extends string>(
       id: sessionStore.getSession().id!,
       trackingType: sessionStore.getSession()[productKey] as TrackingType,
       isReplayForced: !!sessionStore.getSession().forcedReplay,
+      hasError: !!sessionStore.getSession().hasError,
       anonymousId: sessionStore.getSession().anonymousId,
     }
   }

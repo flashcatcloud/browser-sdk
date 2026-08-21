@@ -1,7 +1,7 @@
 import type { RawError, HttpRequest, DeflateEncoder } from '@flashcatcloud/browser-core'
-import { createHttpRequest, addTelemetryDebug, canUseEventBridge } from '@flashcatcloud/browser-core'
+import { createHttpRequest, addTelemetryDebug, canUseEventBridge, noop } from '@flashcatcloud/browser-core'
 import type { LifeCycle, ViewHistory, RumConfiguration, RumSessionManager } from '@flashcatcloud/browser-rum-core'
-import { LifeCycleEventType } from '@flashcatcloud/browser-rum-core'
+import { LifeCycleEventType, SessionReplayState } from '@flashcatcloud/browser-rum-core'
 
 import { record } from '../domain/record'
 import { startSegmentCollection, SEGMENT_BYTES_LIMIT } from '../domain/segmentCollection'
@@ -28,6 +28,10 @@ export function startRecording(
 
   let addRecord: (record: BrowserRecord) => void
 
+  // Assigned once recording has started. Segment collection is created first because `record()`
+  // emits into it, so the buffer reaches for the snapshot through this holder rather than directly.
+  let takeSubsequentFullSnapshot: () => void = noop
+
   if (!canUseEventBridge()) {
     const segmentCollection = startSegmentCollection(
       lifeCycle,
@@ -35,7 +39,18 @@ export function startRecording(
       sessionManager,
       viewHistory,
       replayRequest,
-      encoder
+      encoder,
+      {
+        getWithholdingSessionId: () => {
+          const session = sessionManager.findTrackedSession()
+          return session?.sessionReplay === SessionReplayState.BUFFERED_ON_ERROR ? session.id : undefined
+        },
+        isReleased: (sessionId) => {
+          const session = sessionManager.findTrackedSession()
+          return !!session && session.id === sessionId && session.sessionReplay !== SessionReplayState.BUFFERED_ON_ERROR
+        },
+        restartFromFullSnapshot: () => takeSubsequentFullSnapshot(),
+      }
     )
     addRecord = segmentCollection.addRecord
     cleanupTasks.push(segmentCollection.stop)
@@ -43,13 +58,14 @@ export function startRecording(
     ;({ addRecord } = startRecordBridge(viewHistory))
   }
 
-  const { stop: stopRecording } = record({
+  const recording = record({
     emit: addRecord,
     configuration,
     lifeCycle,
     viewHistory,
   })
-  cleanupTasks.push(stopRecording)
+  takeSubsequentFullSnapshot = recording.takeSubsequentFullSnapshot
+  cleanupTasks.push(recording.stop)
 
   return {
     stop: () => {

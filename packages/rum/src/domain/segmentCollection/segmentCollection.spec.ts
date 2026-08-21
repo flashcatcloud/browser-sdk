@@ -9,7 +9,9 @@ import type { BrowserRecord, SegmentContext } from '../../types'
 import { RecordType } from '../../types'
 import { MockWorker, readMetadataFromReplayPayload } from '../../../test'
 import { createDeflateEncoder } from '../deflate'
+import * as replayStats from '../replayStats'
 import {
+  BUFFER_CHECKOUT_TIME,
   computeSegmentContext,
   doStartSegmentCollection,
   SEGMENT_BYTES_LIMIT,
@@ -311,4 +313,266 @@ describe('computeSegmentContext', () => {
       },
     } as any
   }
+})
+
+describe('startSegmentCollection withholding (error session replay)', () => {
+  let clock: Clock
+  let lifeCycle: LifeCycle
+  let worker: MockWorker
+  let httpRequestSpy: {
+    sendOnExit: jasmine.Spy<HttpRequest['sendOnExit']>
+    send: jasmine.Spy<HttpRequest['send']>
+  }
+  let addRecord: (record: BrowserRecord) => void
+  let withholdingSessionId: string | undefined
+  let releasedSessionId: string | undefined
+  let restartFromFullSnapshotSpy: jasmine.Spy<() => void>
+
+  function reportError() {
+    releasedSessionId = withholdingSessionId
+    withholdingSessionId = undefined
+  }
+
+  beforeEach(() => {
+    clock = mockClock()
+    lifeCycle = new LifeCycle()
+    worker = new MockWorker()
+    httpRequestSpy = { sendOnExit: jasmine.createSpy(), send: jasmine.createSpy() }
+    withholdingSessionId = CONTEXT.session.id
+    releasedSessionId = undefined
+    restartFromFullSnapshotSpy = jasmine.createSpy()
+    replayStats.resetReplayStats()
+
+    const { stop, addRecord: add } = doStartSegmentCollection(
+      lifeCycle,
+      () => CONTEXT,
+      httpRequestSpy,
+      createDeflateEncoder({} as RumConfiguration, worker, DeflateEncoderStreamId.REPLAY),
+      {
+        getWithholdingSessionId: () => withholdingSessionId,
+        isReleased: (sessionId) => releasedSessionId === sessionId,
+        restartFromFullSnapshot: restartFromFullSnapshotSpy,
+      }
+    )
+    addRecord = add
+
+    registerCleanupTask(() => {
+      stop()
+      clock.cleanup()
+      replayStats.resetReplayStats()
+    })
+  })
+
+  it('does not send anything while the session has not reported an error', () => {
+    addRecord(RECORD)
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+    expect(httpRequestSpy.sendOnExit).not.toHaveBeenCalled()
+  })
+
+  it('keeps buffering across several duration limits instead of cutting the segment', () => {
+    addRecord(RECORD)
+    clock.tick(SEGMENT_DURATION_LIMIT * 3)
+    addRecord(RECORD)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+    // still the same buffer: dropping it would have asked for a fresh full snapshot
+    expect(restartFromFullSnapshotSpy).not.toHaveBeenCalled()
+  })
+
+  it('sends the withheld buffer once the session reports an error', async () => {
+    addRecord(RECORD)
+    addRecord(RECORD)
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+
+    reportError()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).toHaveBeenCalledTimes(1)
+    // the records collected before the error are part of what is sent
+    expect((await readMetadataFromReplayPayload(httpRequestSpy.send.calls.mostRecent().args[0])).records_count).toBe(2)
+  })
+
+  it('drops the buffer and restarts from a full snapshot once it spans the checkout time', () => {
+    addRecord(RECORD)
+    clock.tick(BUFFER_CHECKOUT_TIME)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops the buffer and restarts from a full snapshot when it grows past the bytes limit', () => {
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not restart in a hot loop when the full snapshot alone exceeds the bytes limit', () => {
+    // every restart would blow the limit again straight away on such a document
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the buffer when the page is only hidden, so the replay can still start from its snapshot', () => {
+    // switching tabs is ordinary; dropping here would take the only full snapshot with it
+    addRecord(RECORD)
+    addRecord(RECORD)
+    lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, { reason: PageExitReason.HIDDEN })
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.sendOnExit).not.toHaveBeenCalled()
+    expect(restartFromFullSnapshotSpy).not.toHaveBeenCalled()
+
+    reportError()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends nothing on page exit for a session that never errored', () => {
+    addRecord(RECORD)
+    lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, { reason: PageExitReason.UNLOADING })
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.sendOnExit).not.toHaveBeenCalled()
+  })
+
+  it('does not let a dropped buffer leave its index_in_view behind for the next one to collide with', async () => {
+    // the restart emits records, exactly as taking a fresh full snapshot does in production
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(RECORD))
+
+    addRecord(RECORD)
+    clock.tick(BUFFER_CHECKOUT_TIME)
+    worker.processAllMessages()
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+
+    reportError()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    // the dropped buffer never reached the intake, so the first segment that does is index 0
+    expect((await readMetadataFromReplayPayload(httpRequestSpy.send.calls.mostRecent().args[0])).index_in_view).toBe(0)
+  })
+
+  it('leaves no trace of a dropped buffer in the replay stats', () => {
+    addRecord(RECORD)
+    clock.tick(BUFFER_CHECKOUT_TIME)
+    worker.processAllMessages()
+
+    const stats = replayStats.getReplayStats(CONTEXT.view.id)
+    expect(stats?.segments_count ?? 0).toBe(0)
+    expect(stats?.segments_total_raw_size ?? 0).toBe(0)
+  })
+
+  it('sends normally once released, without withholding the following segments', () => {
+    reportError()
+    addRecord(RECORD)
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+    addRecord(RECORD)
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('startSegmentCollection withholding, session lifecycle', () => {
+  let clock: Clock
+  let lifeCycle: LifeCycle
+  let worker: MockWorker
+  let httpRequestSpy: {
+    sendOnExit: jasmine.Spy<HttpRequest['sendOnExit']>
+    send: jasmine.Spy<HttpRequest['send']>
+  }
+  let addRecord: (record: BrowserRecord) => void
+  let stopSegmentCollection: () => void
+  let withholdingSessionId: string | undefined
+  let releasedSessionId: string | undefined
+
+  beforeEach(() => {
+    clock = mockClock()
+    lifeCycle = new LifeCycle()
+    worker = new MockWorker()
+    httpRequestSpy = { sendOnExit: jasmine.createSpy(), send: jasmine.createSpy() }
+    withholdingSessionId = CONTEXT.session.id
+    releasedSessionId = undefined
+
+    const { stop, addRecord: add } = doStartSegmentCollection(
+      lifeCycle,
+      () => CONTEXT,
+      httpRequestSpy,
+      createDeflateEncoder({} as RumConfiguration, worker, DeflateEncoderStreamId.REPLAY),
+      {
+        getWithholdingSessionId: () => withholdingSessionId,
+        isReleased: (sessionId) => releasedSessionId === sessionId,
+        restartFromFullSnapshot: () => undefined,
+      }
+    )
+    addRecord = add
+    stopSegmentCollection = stop
+
+    registerCleanupTask(() => {
+      stopSegmentCollection()
+      clock.cleanup()
+    })
+  })
+
+  it('drops the buffer when the session expires without ever reporting an error', () => {
+    addRecord(RECORD)
+    // the session is gone, so nothing answers for these records any more
+    withholdingSessionId = undefined
+    releasedSessionId = undefined
+
+    stopSegmentCollection()
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+    expect(httpRequestSpy.sendOnExit).not.toHaveBeenCalled()
+  })
+
+  it('drops the buffer when the session is renewed into a different one', () => {
+    addRecord(RECORD)
+    withholdingSessionId = undefined
+    releasedSessionId = 'a-different-session'
+
+    stopSegmentCollection()
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+    expect(httpRequestSpy.sendOnExit).not.toHaveBeenCalled()
+  })
+
+  it('sends the buffer when its own session reports the error', () => {
+    addRecord(RECORD)
+    releasedSessionId = withholdingSessionId
+    withholdingSessionId = undefined
+
+    stopSegmentCollection()
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).toHaveBeenCalledTimes(1)
+  })
 })

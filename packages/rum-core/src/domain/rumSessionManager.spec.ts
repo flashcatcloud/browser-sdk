@@ -209,6 +209,66 @@ describe('rum session manager', () => {
     )
   })
 
+  describe('error session replay sampling', () => {
+    it('draws the error-replay type only when the plain replay draw missed', () => {
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 100, sessionReplayOnErrorSampleRate: 100 },
+      })
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
+    it('stores the error-replay type when only that rate is hit', () => {
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnErrorSampleRate: 100 },
+      })
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(
+        RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+      )
+    })
+
+    it('withholds the replay until the session reports an error', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnErrorSampleRate: 100 },
+      })
+
+      expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.BUFFERED_ON_ERROR)
+
+      sessionManager.setSessionHasError()
+
+      expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.SAMPLED)
+    })
+
+    it('keeps the released state across a page load, since it is persisted in the session store', () => {
+      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=3&hasError=1', DURATION)
+
+      const sessionManager = startRumSessionManagerWithDefaults()
+
+      expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.SAMPLED)
+    })
+
+    it('releases the replay when it is forced, rather than waiting for an error that may never come', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnErrorSampleRate: 100 },
+      })
+      expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.BUFFERED_ON_ERROR)
+
+      sessionManager.setForcedReplay()
+
+      expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.FORCED)
+    })
+
+    it('tracks the session even when no replay rate is hit at all', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnErrorSampleRate: 0 },
+      })
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY)
+      expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.OFF)
+    })
+  })
+
   function startRumSessionManagerWithDefaults({ configuration }: { configuration?: Partial<RumConfiguration> } = {}) {
     return startRumSessionManager(
       mockRumConfiguration({

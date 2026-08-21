@@ -1,6 +1,9 @@
 import type { InitConfiguration } from '@flashcatcloud/browser-core'
 import { DefaultPrivacyLevel, display, TraceContextInjection } from '@flashcatcloud/browser-core'
-import { EXHAUSTIVE_INIT_CONFIGURATION, SERIALIZED_EXHAUSTIVE_INIT_CONFIGURATION } from '@flashcatcloud/browser-core/test'
+import {
+  EXHAUSTIVE_INIT_CONFIGURATION,
+  SERIALIZED_EXHAUSTIVE_INIT_CONFIGURATION,
+} from '@flashcatcloud/browser-core/test'
 import type {
   ExtractTelemetryConfiguration,
   CamelToSnakeCase,
@@ -529,6 +532,7 @@ describe('serializeRumConfiguration', () => {
       enablePrivacyForActionName: false,
       subdomain: 'foo',
       sessionReplaySampleRate: 60,
+      sessionReplayOnErrorSampleRate: 40,
       startSessionReplayRecordingManually: true,
       trackUserInteractions: true,
       actionNameAttribute: 'test-id',
@@ -554,6 +558,8 @@ describe('serializeRumConfiguration', () => {
                 | 'remoteConfigurationId'
                 | 'profilingSampleRate'
                 | 'propagateTraceBaggage'
+                // not reported yet: needs a rum-events-format schema change first
+                | 'sessionReplayOnErrorSampleRate'
             ? never
             : CamelToSnakeCase<Key>
     // By specifying the type here, we can ensure that serializeConfiguration is returning an
