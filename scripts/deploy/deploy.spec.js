@@ -70,6 +70,10 @@ void describe('deploy', () => {
       {
         command:
           'aws s3 cp --cache-control max-age=14400, s-maxage=60 packages/rum-slim/bundle/flashcat-rum-slim.js s3://browser-agent-artifacts-prod/flashcat-rum-slim-v6.js',
+        env,
+      },
+      {
+        command:
           'aws s3 cp --cache-control max-age=14400, s-maxage=60 packages/rum-legacy/bundle/fc-rum-legacy.js s3://browser-agent-artifacts-prod/fc-rum-legacy-v6.js',
         env,
       },
@@ -109,6 +113,10 @@ void describe('deploy', () => {
       {
         command:
           'aws s3 cp --cache-control max-age=14400, s-maxage=60 packages/rum-slim/bundle/flashcat-rum-slim.js s3://browser-agent-artifacts-prod/us1/v6/flashcat-rum-slim.js',
+        env,
+      },
+      {
+        command:
           'aws s3 cp --cache-control max-age=14400, s-maxage=60 packages/rum-legacy/bundle/fc-rum-legacy.js s3://browser-agent-artifacts-prod/us1/v6/fc-rum-legacy.js',
         env,
       },
@@ -147,6 +155,10 @@ void describe('deploy', () => {
       {
         command:
           'aws s3 cp --cache-control max-age=900, s-maxage=60 packages/rum-slim/bundle/flashcat-rum-slim.js s3://browser-agent-artifacts-staging/flashcat-rum-slim-staging.js',
+        env,
+      },
+      {
+        command:
           'aws s3 cp --cache-control max-age=900, s-maxage=60 packages/rum-legacy/bundle/fc-rum-legacy.js s3://browser-agent-artifacts-staging/fc-rum-legacy-staging.js',
         env,
       },
@@ -189,6 +201,10 @@ void describe('deploy', () => {
       {
         command:
           'aws s3 cp --cache-control max-age=900, s-maxage=60 packages/rum-slim/bundle/flashcat-rum-slim.js s3://browser-agent-artifacts-staging/pull-request/123/flashcat-rum-slim.js',
+        env,
+      },
+      {
+        command:
           'aws s3 cp --cache-control max-age=900, s-maxage=60 packages/rum-legacy/bundle/fc-rum-legacy.js s3://browser-agent-artifacts-staging/pull-request/123/fc-rum-legacy.js',
         env,
       },
