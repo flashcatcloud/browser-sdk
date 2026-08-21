@@ -13,7 +13,7 @@ test.describe('API calls and events around init', () => {
       withBrowserLogs((logs) => {
         expect(logs).toHaveLength(1)
         expect(logs[0].message).toEqual(expect.stringContaining('Datadog Browser SDK'))
-        expect(logs[0].message).toEqual(expect.stringContaining('Missing configuration'))
+        expect(logs[0].message).toEqual(expect.stringContaining('Application ID is not configured'))
       })
     })
 
@@ -38,14 +38,22 @@ test.describe('API calls and events around init', () => {
     .run(async ({ intakeRegistry, flushEvents }) => {
       await flushEvents()
 
-      const initialView = intakeRegistry.rumViewEvents[0]
+      // a view can emit several update events; pick the latest one per view as it carries the
+      // cumulative state (e.g. custom_timings added after the first update)
+      const latestViewUpdate = (viewId: string) =>
+        intakeRegistry.rumViewEvents
+          .filter((event) => event.view.id === viewId)
+          .sort((a, b) => a._dd.document_version - b._dd.document_version)
+          .at(-1)!
+
+      const initialView = latestViewUpdate(intakeRegistry.rumViewEvents[0].view.id)
       expect(initialView.view.name).toBeUndefined()
       expect(initialView.view.custom_timings).toEqual({
         before_manual_view: expect.any(Number),
       })
 
-      const manualView = intakeRegistry.rumViewEvents[1]
-      expect(manualView.view.name).toBe('manual view')
+      const manualViewId = intakeRegistry.rumViewEvents.find((event) => event.view.name === 'manual view')!.view.id
+      const manualView = latestViewUpdate(manualViewId)
       expect(manualView.view.custom_timings).toEqual({
         after_manual_view: expect.any(Number),
       })
@@ -141,36 +149,37 @@ test.describe('API calls and events around init', () => {
     .run(async ({ intakeRegistry, flushEvents }) => {
       await flushEvents()
 
-      const initialView = intakeRegistry.rumViewEvents[0]
-      const nextView = intakeRegistry.rumViewEvents[1]
+      const customAction = intakeRegistry.rumActionEvents.find(
+        (event) => event.action.target?.name === 'custom action'
+      )!
+      const afterManualViewAction = intakeRegistry.rumActionEvents.find(
+        (event) => event.action.target?.name === 'after manual view'
+      )!
+      const customError = intakeRegistry.rumErrorEvents.find(
+        (event) => event.error.message === 'Provided "custom error"'
+      )!
+      const afterManualViewError = intakeRegistry.rumErrorEvents.find(
+        (event) => event.error.message === 'Provided "after manual view"'
+      )!
 
-      expect(initialView.context).toEqual(expect.objectContaining({ foo: 'bar', bar: 'foo' }))
-      expect(nextView.context!.foo).toBeUndefined()
+      const initialViewId = customAction.view.id
+      const nextViewId = afterManualViewAction.view.id
 
-      expectToHaveActions(
-        intakeRegistry,
-        {
-          name: 'custom action',
-          viewId: initialView.view.id,
-          context: { foo: 'bar', bar: 'foo' },
-        },
-        {
-          name: 'after manual view',
-          viewId: nextView.view.id,
-        }
-      )
-      expectToHaveErrors(
-        intakeRegistry,
-        {
-          message: 'Provided "custom error"',
-          viewId: initialView.view.id,
-          context: { foo: 'bar', bar: 'foo' },
-        },
-        {
-          message: 'Provided "after manual view"',
-          viewId: nextView.view.id,
-        }
-      )
+      expect(
+        intakeRegistry.rumViewEvents.some(
+          (event) => event.view.id === initialViewId && event.context?.foo === 'bar' && event.context?.bar === 'foo'
+        )
+      ).toBe(true)
+      expect(intakeRegistry.rumViewEvents.find((event) => event.view.id === nextViewId)!.context!.foo).toBeUndefined()
+
+      expect(customAction.context).toEqual(expect.objectContaining({ foo: 'bar', bar: 'foo' }))
+      expect(customError.view.id).toBe(initialViewId)
+      expect(customError.context).toEqual(expect.objectContaining({ foo: 'bar', bar: 'foo' }))
+
+      expect(afterManualViewAction.view.id).toBe(nextViewId)
+      expect(afterManualViewAction.context?.foo).toBeUndefined()
+      expect(afterManualViewError.view.id).toBe(nextViewId)
+      expect(afterManualViewError.context?.foo).toBeUndefined()
     })
 
   createTest('get the view context')

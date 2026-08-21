@@ -28,7 +28,10 @@ export function startRecording(
 
   let addRecord: (record: BrowserRecord) => void
 
-  if (!canUseEventBridge()) {
+  // FLASHCAT FORK (2/4) - see `sessionReplayDirectUpload` in RumInitConfiguration.
+  // Without the option, records are handed over to the host application through the bridge. With
+  // it, they go through the regular segment collection and are uploaded from this page.
+  if (!canUseEventBridge() || configuration.sessionReplayDirectUpload) {
     const segmentCollection = startSegmentCollection(
       lifeCycle,
       configuration,

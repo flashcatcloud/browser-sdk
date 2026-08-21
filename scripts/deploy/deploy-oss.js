@@ -30,14 +30,14 @@ const client = new OSS({
  * Deploy SDK files to ali OSS
  * Usage:
  * node deploy-oss.js ${env} ${version}
- *      env = prod|staging
- *      version = vXXX
+ * env = prod|staging
+ * version = vXXX
  */
 
 if (require.main === module) {
   const env = process.argv[2]
   const version = process.argv[3]
-  if (env === 'prod' && (version.includes('beta') || version.includes('alpha'))) {
+  if (env === 'prod' && isPrereleaseVersion(version)) {
     printError('❌❌❌❌检测到非正式版本，跳过CDN发布，当前版本为：', version)
     process.exit(1)
   }
@@ -109,6 +109,11 @@ async function refreshCdnCache(ossFilePath) {
   }
 }
 
+function isPrereleaseVersion(version) {
+  return version.includes('-')
+}
+
 module.exports = {
   main,
+  isPrereleaseVersion,
 }

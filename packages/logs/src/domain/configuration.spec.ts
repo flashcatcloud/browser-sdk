@@ -1,5 +1,5 @@
 import type { InitConfiguration } from '@flashcatcloud/browser-core'
-import { display } from '@flashcatcloud/browser-core'
+import { display, INTAKE_SITE_STAGING } from '@flashcatcloud/browser-core'
 import {
   EXHAUSTIVE_INIT_CONFIGURATION,
   type CamelToSnakeCase,
@@ -84,7 +84,7 @@ describe('validateAndBuildLogsConfiguration', () => {
     it('should display warning with wrong PCI intake configuration', () => {
       validateAndBuildLogsConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
-        site: 'us3.datadoghq.com',
+        site: INTAKE_SITE_STAGING,
         usePciIntake: true,
       })
       expect(warnSpy).toHaveBeenCalledOnceWith(

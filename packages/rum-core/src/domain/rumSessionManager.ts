@@ -2,9 +2,13 @@ import type { RelativeTime, TrackingConsentState } from '@flashcatcloud/browser-
 import {
   BridgeCapability,
   Observable,
+  STORAGE_POLL_DELAY,
   bridgeSupports,
+  clearInterval,
+  getEventBridge,
   noop,
   performDraw,
+  setInterval,
   startSessionManager,
 } from '@flashcatcloud/browser-core'
 import type { RumConfiguration } from './configuration'
@@ -96,18 +100,107 @@ export function startRumSessionManager(
 }
 
 /**
+ * Session id used when the host application does not answer for one, because it was built against
+ * an SDK that predates `getSessionId()`. Such a host is expected to override the session id of the
+ * events it forwards, so the placeholder never reaches the intake for RUM events.
+ *
+ * It would reach the intake for Session Replay segments, which this page uploads directly, and the
+ * placeholder is a constant shared by every application — so a host that DOES answer for the
+ * session id must never end up on it. See `startRumSessionManagerStub`.
+ */
+export const STUB_SESSION_ID = '00000000-aaaa-0000-aaaa-000000000000'
+
+/**
+ * What `getSessionId()` answers when the host application owns the session id and has none right
+ * now. Distinct from `undefined`, which is a host that does not answer for it at all.
+ */
+const NO_HOST_SESSION = ''
+
+export interface RumSessionManagerStub extends RumSessionManager {
+  stop: () => void
+}
+
+/**
  * Start a tracked replay session stub
  */
-export function startRumSessionManagerStub(): RumSessionManager {
-  const session: RumSession = {
-    id: '00000000-aaaa-0000-aaaa-000000000000',
-    sessionReplay: bridgeSupports(BridgeCapability.RECORDS) ? SessionReplayState.SAMPLED : SessionReplayState.OFF,
+export function startRumSessionManagerStub(
+  configuration: RumConfiguration,
+  lifeCycle: LifeCycle
+): RumSessionManagerStub {
+  // FLASHCAT FORK - the host application owns the session id and the anonymous id, and answers for
+  // them through `DatadogEventBridge`. Both getters are absent on hosts built against an older SDK,
+  // hence the fallbacks below.
+  const bridge = getEventBridge()
+
+  // FLASHCAT FORK (3/4) - see `sessionReplayDirectUpload` in RumInitConfiguration.
+  // Upstream only ever samples the stub for replay when the host declares the `records` capability,
+  // meaning the host records for us. With the option, this page records itself, so the draw is ours
+  // to make.
+  const sessionReplay =
+    bridgeSupports(BridgeCapability.RECORDS) ||
+    (configuration.sessionReplayDirectUpload && performDraw(configuration.sessionReplaySampleRate))
+      ? SessionReplayState.SAMPLED
+      : SessionReplayState.OFF
+
+  const expireObservable = new Observable<void>()
+  expireObservable.subscribe(() => lifeCycle.notify(LifeCycleEventType.SESSION_EXPIRED))
+
+  // FLASHCAT FORK - the host session ends and is renewed while this page keeps running, and the
+  // bridge is pull-only: reading it again is the only way to notice. That is how the regular
+  // session manager learns the same thing — it polls its own store every `STORAGE_POLL_DELAY` and
+  // turns the transitions it sees into expire/renew notifications — so the stub mirrors it here
+  // rather than inventing a second lifecycle. Everything already subscribed to those two events
+  // then does the right thing: the recorder flushes its pending segment and stops, and starts
+  // again on a fresh view (and so a fresh full snapshot) once the host has a session again.
+  let lastSeenSessionId = readHostSessionId()
+  const watchIntervalId =
+    lastSeenSessionId === undefined
+      ? undefined
+      : setInterval(() => {
+          const sessionId = readHostSessionId()!
+          if (sessionId === lastSeenSessionId) {
+            return
+          }
+          const hadSession = lastSeenSessionId !== NO_HOST_SESSION
+          lastSeenSessionId = sessionId
+          // A host may go straight from one session to the next without ever reporting a gap, so
+          // both notifications can fire in the same tick. Order matters: subscribers read the
+          // session back, and by now the bridge already answers with the new one.
+          if (hadSession) {
+            expireObservable.notify()
+          }
+          if (sessionId !== NO_HOST_SESSION) {
+            lifeCycle.notify(LifeCycleEventType.SESSION_RENEWED)
+          }
+        }, STORAGE_POLL_DELAY)
+
+  function readHostSessionId() {
+    return bridge?.getSessionId()
   }
+
   return {
-    findTrackedSession: () => session,
+    // Read from the bridge on each call rather than from `lastSeenSessionId`: the poll above only
+    // exists to spot transitions, and an event assembled between two polls must still carry the id
+    // the host holds right now.
+    findTrackedSession: (): RumSession | undefined => {
+      const sessionId = readHostSessionId()
+      if (sessionId === NO_HOST_SESSION) {
+        // The host owns the session and currently has none. There is nothing to attribute this
+        // page's data to, so it has no tracked session either — falling back to the placeholder
+        // would pile Session Replay segments onto a fake session shared across applications, and
+        // reusing the id the host had a moment ago would pile them onto a session that ended.
+        return
+      }
+      return {
+        id: sessionId ?? STUB_SESSION_ID,
+        sessionReplay,
+        anonymousId: bridge?.getAnonymousId(),
+      }
+    },
     expire: noop,
-    expireObservable: new Observable(),
+    expireObservable,
     setForcedReplay: noop,
+    stop: () => clearInterval(watchIntervalId),
   }
 }
 

@@ -37,6 +37,14 @@ describe('startFullSnapshots', () => {
     expect(fullSnapshotCallback).toHaveBeenCalledTimes(2)
   })
 
+  it('takes a full snapshot when the page is re-activated', () => {
+    lifeCycle.notify(LifeCycleEventType.PAGE_REACTIVATED)
+
+    expect(fullSnapshotCallback).toHaveBeenCalledTimes(2) // 1 on init + 1 on re-activation
+    const records = fullSnapshotCallback.calls.mostRecent().args[0]
+    expect(records.some((record) => record.type === RecordType.FullSnapshot)).toBe(true)
+  })
+
   it('full snapshot related records should have the view change date', () => {
     lifeCycle.notify(LifeCycleEventType.VIEW_CREATED, {
       startClocks: viewStartClock,

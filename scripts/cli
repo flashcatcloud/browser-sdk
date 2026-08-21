@@ -2,7 +2,8 @@
 
 set -euo pipefail
 
-PATH="$PATH:node_modules/.bin"
+# prepend so the repo-pinned binaries (tsc, eslint, ...) win over any globally installed ones
+PATH="node_modules/.bin:$PATH"
 
 main () {
   if [[ $# -lt 1 ]]; then
@@ -62,6 +63,15 @@ cmd_build_json2type () {
 
 cmd_release () {
   [[ `git branch --show-current` != "main" ]] || fail 'please do not release from `main` branch'
+
+  # `lerna version` starts with `git remote update`, which fetches every remote and recurses into
+  # their submodules. Branches on the upstream fork reference `rum-events-format` commits its own
+  # remote does not serve, so that fetch fails and takes the release down before anything is
+  # tagged. Nothing here reads upstream, so keep it out of the update. Idempotent, and a no-op for
+  # anyone without that remote.
+  if git remote get-url upstream > /dev/null 2>&1; then
+    git config remote.upstream.skipDefaultUpdate true
+  fi
   # We should publish all packages regardless of if there are changes in each.
   # --force-publish will skip the `lerna changed` check for changed packages
   # https://github.com/lerna/lerna/tree/main/libs/commands/version#--force-publish

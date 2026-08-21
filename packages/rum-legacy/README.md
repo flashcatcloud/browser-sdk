@@ -42,15 +42,16 @@ names, which those engines cannot even parse and no runtime guard could catch.
 
 ## Getting the bundles
 
-Released bundles are served from the CDN under a major-version directory:
+Released bundles are served from the CDN under the directory of the release they belong to:
 
 ```
-https://static.flashcat.cloud/browser-sdk/v0/fc-rum-legacy.js
-https://static.flashcat.cloud/browser-sdk/v0/flashcat-rum.js
+https://static.flashcat.cloud/browser-sdk/v0.0.8/fc-rum-legacy.js
+https://static.flashcat.cloud/browser-sdk/v0.0.8/flashcat-rum.js
 ```
 
-The directory always holds the latest release of that major version, so re-downloading the same url
-is how a self-hosted copy is updated.
+Each release gets its own directory and earlier ones are left as they were, so a url pins the
+version it names. Updating a self-hosted copy means pointing at the next release, not
+re-downloading the same url.
 
 Environments that self-host — the norm for the networks this build targets, where the public CDN is
 often unreachable at all — should not pick files by hand: the standard RUM bundle loads hash-named

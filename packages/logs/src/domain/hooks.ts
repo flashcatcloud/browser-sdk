@@ -1,4 +1,10 @@
-import type { DISCARDED, HookNamesAsConst, RecursivePartialExcept, RelativeTime, SKIPPED } from '@flashcatcloud/browser-core'
+import type {
+  DISCARDED,
+  HookNamesAsConst,
+  RecursivePartialExcept,
+  RelativeTime,
+  SKIPPED,
+} from '@flashcatcloud/browser-core'
 import { abstractHooks } from '@flashcatcloud/browser-core'
 import type { LogsEvent } from '../logsEvent.types'
 

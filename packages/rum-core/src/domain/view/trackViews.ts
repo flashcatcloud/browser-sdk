@@ -252,7 +252,7 @@ function newView(
   )
 
   const { stop: stopInitialViewMetricsTracking, initialViewMetrics } =
-    loadingType === ViewLoadingType.INITIAL_LOAD
+    loadingType === ViewLoadingType.INITIAL_LOAD && configuration.trackWebVitals
       ? trackInitialViewMetrics(configuration, setLoadEvent, scheduleViewUpdate)
       : { stop: noop, initialViewMetrics: {} as InitialViewMetrics }
 

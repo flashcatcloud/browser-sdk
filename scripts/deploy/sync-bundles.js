@@ -29,7 +29,7 @@ const ENTRY_BUNDLES = ['flashcat-logs.js', 'flashcat-rum.js', 'flashcat-rum-slim
  * Usage:
  * node sync-bundles.js [env] [version] [outputDir]
  * env = prod|staging, defaults to prod
- * version = the major-version directory, ex: v0. Defaults to v<major> from lerna.json
+ * version = the release directory, ex: v0.0.8. Defaults to the version in lerna.json
  * outputDir = defaults to ./cdn-bundles
  *
  * The script needs no credentials: it downloads over plain HTTPS from the same URLs a page would
@@ -49,7 +49,7 @@ const CHUNK_ENTRY_RE = /(?:"([^"]+)"|([\w$]+)):"([a-f0-9]+)"/g
 
 if (require.main === module) {
   const env = process.argv[2] || 'prod'
-  const version = process.argv[3] || `v${require('../../lerna.json').version.split('.')[0]}`
+  const version = process.argv[3] || `v${require('../../lerna.json').version}`
   const outputDir = process.argv[4] || './cdn-bundles'
 
   const directory = CDN_DIRECTORIES[env]

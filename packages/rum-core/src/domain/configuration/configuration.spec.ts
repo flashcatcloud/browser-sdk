@@ -1,6 +1,9 @@
 import type { InitConfiguration } from '@flashcatcloud/browser-core'
 import { DefaultPrivacyLevel, display, TraceContextInjection } from '@flashcatcloud/browser-core'
-import { EXHAUSTIVE_INIT_CONFIGURATION, SERIALIZED_EXHAUSTIVE_INIT_CONFIGURATION } from '@flashcatcloud/browser-core/test'
+import {
+  EXHAUSTIVE_INIT_CONFIGURATION,
+  SERIALIZED_EXHAUSTIVE_INIT_CONFIGURATION,
+} from '@flashcatcloud/browser-core/test'
 import type {
   ExtractTelemetryConfiguration,
   CamelToSnakeCase,
@@ -172,7 +175,7 @@ describe('validateAndBuildRumConfiguration', () => {
           allowedTracingUrls: [
             42 as any,
             undefined,
-            { match: 42 as any, propagatorTypes: ['datadog'] },
+            { match: 42 as any, propagatorTypes: ['tracecontext'] },
             { match: 'toto' },
           ],
         })!.allowedTracingUrls
@@ -366,6 +369,28 @@ describe('validateAndBuildRumConfiguration', () => {
     })
   })
 
+  describe('trackWebVitals', () => {
+    it('defaults to true', () => {
+      expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.trackWebVitals).toBeTrue()
+    })
+
+    it('is set to provided value', () => {
+      expect(
+        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, trackWebVitals: true })!.trackWebVitals
+      ).toBeTrue()
+      expect(
+        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, trackWebVitals: false })!.trackWebVitals
+      ).toBeFalse()
+    })
+
+    it('the provided value is cast to boolean', () => {
+      expect(
+        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, trackWebVitals: 'foo' as any })!
+          .trackWebVitals
+      ).toBeTrue()
+    })
+  })
+
   describe('trackResources', () => {
     it('defaults to true', () => {
       expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.trackResources).toBeTrue()
@@ -431,14 +456,13 @@ describe('validateAndBuildRumConfiguration', () => {
           ...DEFAULT_INIT_CONFIGURATION,
           allowedTracingUrls: [
             'foo',
-            { match: 'first', propagatorTypes: ['datadog'] },
-            { match: 'test', propagatorTypes: ['tracecontext'] },
+            { match: 'first', propagatorTypes: ['tracecontext'] },
             { match: 'other', propagatorTypes: ['b3'] },
             { match: 'final', propagatorTypes: ['b3multi'] },
           ],
         }
         expect(serializeRumConfiguration(complexTracingConfig).selected_tracing_propagators).toEqual(
-          jasmine.arrayWithExactContents(['datadog', 'b3', 'b3multi', 'tracecontext'])
+          jasmine.arrayWithExactContents(['b3', 'b3multi', 'tracecontext'])
         )
       })
 
@@ -530,9 +554,11 @@ describe('serializeRumConfiguration', () => {
       subdomain: 'foo',
       sessionReplaySampleRate: 60,
       startSessionReplayRecordingManually: true,
+      sessionReplayDirectUpload: true,
       trackUserInteractions: true,
       actionNameAttribute: 'test-id',
       trackViewsManually: true,
+      trackWebVitals: true,
       trackResources: true,
       trackLongTasks: true,
       remoteConfigurationId: '123',
@@ -554,6 +580,9 @@ describe('serializeRumConfiguration', () => {
                 | 'remoteConfigurationId'
                 | 'profilingSampleRate'
                 | 'propagateTraceBaggage'
+                | 'trackWebVitals'
+                // FLASHCAT FORK: not reported to telemetry
+                | 'sessionReplayDirectUpload'
             ? never
             : CamelToSnakeCase<Key>
     // By specifying the type here, we can ensure that serializeConfiguration is returning an
@@ -568,7 +597,7 @@ describe('serializeRumConfiguration', () => {
       trace_sample_rate: 50,
       trace_context_injection: TraceContextInjection.ALL,
       use_allowed_tracing_urls: true,
-      selected_tracing_propagators: ['tracecontext', 'datadog'],
+      selected_tracing_propagators: ['tracecontext'],
       use_excluded_activity_urls: true,
       track_user_interactions: true,
       track_views_manually: true,
