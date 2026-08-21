@@ -51,6 +51,19 @@ export function createSessionStore(sessionSampleRate: number) {
   let lastCookieAccess: number | undefined
 
   return {
+    /**
+     * Ends the current session without stopping anything. The next event draws a fresh session,
+     * with a fresh sampling decision, exactly as the modern bundle does when a session expires.
+     *
+     * The in-memory copy and the throttle timestamp go with the cookie: leaving either behind
+     * would keep handing out the session that just ended for up to the throttle window.
+     */
+    expire(): void {
+      inMemoryState = undefined
+      lastCookieAccess = undefined
+      deleteSessionCookie()
+    },
+
     getOrCreateSession(): LegacySession {
       const now = dateNow()
 

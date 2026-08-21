@@ -846,6 +846,16 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@flashcatcloud/browser-rum-legacy@workspace:packages/rum-legacy":
+  version: 0.0.0-use.local
+  resolution: "@flashcatcloud/browser-rum-legacy@workspace:packages/rum-legacy"
+  dependencies:
+    ajv: "npm:8.17.1"
+    terser-webpack-plugin: "npm:5.3.14"
+    webpack: "npm:5.99.8"
+  languageName: unknown
+  linkType: soft
+
 "@flashcatcloud/browser-rum-slim@workspace:packages/rum-slim":
   version: 0.0.0-use.local
   resolution: "@flashcatcloud/browser-rum-slim@workspace:packages/rum-slim"

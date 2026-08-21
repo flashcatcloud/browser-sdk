@@ -375,6 +375,25 @@ describe('public api', () => {
       expect('account' in eventsOfType('error')[0]).toBe(false)
     })
 
+    it('refuses a second init while the first is waiting for consent', () => {
+      const freshApi = makeRumLegacyPublicApi()
+      freshApi.setTrackingConsent('not-granted')
+      freshApi.init({ ...VALID_CONFIGURATION, applicationId: '00000000-aaaa-0000-aaaa-00000000000f' })
+
+      // Nothing is running yet, which is exactly when the second call used to be allowed through
+      // and replace the configuration the first one was waiting on.
+      freshApi.init({ ...VALID_CONFIGURATION, applicationId: '00000000-bbbb-0000-bbbb-00000000000b' })
+      // Cleared here so what follows is this instance's output, not the suite's shared one.
+      payloads = []
+      freshApi.setTrackingConsent('granted')
+      flush()
+
+      const applicationIds = sentEvents().map((event) => event.application.id as string)
+      expect(applicationIds).toContain('00000000-aaaa-0000-aaaa-00000000000f')
+      expect(applicationIds).not.toContain('00000000-bbbb-0000-bbbb-00000000000b')
+      ;(freshApi as unknown as { _stop: () => void })._stop()
+    })
+
     it('keeps a stable session id across events', () => {
       api.addError(new Error('first'))
       api.addAction('checkout')
@@ -384,14 +403,20 @@ describe('public api', () => {
       expect(new Set(ids).size).toBe(1)
     })
 
-    it('stops reporting after the session is stopped', () => {
+    it('starts a new session, and keeps collecting, after the session is stopped', () => {
+      api.addError(new Error('first'))
+      flush()
+      const before = sentEvents()[0].session.id as string
       api.stopSession()
       payloads = []
 
-      api.addError(new Error('boom'))
+      // The contract the standard bundles offer: stopSession ends the session, not the SDK.
+      api.addAction('checkout')
       flush()
 
-      expect(payloads).toEqual([])
+      const after = eventsOfType('action')
+      expect(after.length).toBe(1)
+      expect(after[0].session.id).not.toBe(before)
     })
 
     /*

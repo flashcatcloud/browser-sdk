@@ -49,6 +49,7 @@ export function makeRumLegacyPublicApi() {
   // gives is the user's, not the page's. The configuration only supplies a default for a page that
   // has not answered yet.
   let trackingConsentSetExplicitly = false
+  let initialized = false
   let globalContext: Context = {}
   let userContext: Context = {}
   let accountContext: Context = {}
@@ -164,6 +165,9 @@ export function makeRumLegacyPublicApi() {
     addEventListener.call(window, 'unload', guardedOnPageExit)
 
     return {
+      expireSession() {
+        sessionStore.expire()
+      },
       stop(flushPending: boolean) {
         viewManager.stop()
         errorCollection.stop()
@@ -220,13 +224,17 @@ export function makeRumLegacyPublicApi() {
     },
 
     init: monitor((configuration: LegacyInitConfiguration) => {
-      if (running) {
+      // Not `running`: between init and a consent grant nothing is running yet, and using it as the
+      // initialised flag let a second init replace the configuration the first one was waiting on.
+      if (initialized) {
         displayWarn('SDK is already initialized, ignoring this call.')
         return
       }
       if (!validate(configuration)) {
+        // A rejected configuration leaves the SDK uninitialised, so a corrected call still works.
         return
       }
+      initialized = true
       // Copied on the way in: pages commonly keep the object they passed, and this one is what a
       // later consent grant starts from.
       initConfiguration = shallowMerge(configuration, {}) as LegacyInitConfiguration
@@ -310,9 +318,12 @@ export function makeRumLegacyPublicApi() {
       accountContext = {}
     }),
 
+    // Ends the session, not the SDK. Collection carries on and the next event opens a new session,
+    // which is the contract the standard bundles offer. The current view carries on too: there is
+    // no session renewal signal here to hang a new one off, and the alternative — tearing the
+    // pipeline down — leaves the page with an SDK that never records again.
     stopSession: monitor(() => {
-      running?.stop(true)
-      running = undefined
+      running?.expireSession()
     }),
 
     /*
@@ -367,6 +378,7 @@ export function makeRumLegacyPublicApi() {
   const stop = () => {
     running?.stop(true)
     running = undefined
+    initialized = false
   }
   try {
     // IE8 and the IE8 document mode only accept DOM objects here and throw for plain ones. Our own

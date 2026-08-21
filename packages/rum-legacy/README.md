@@ -207,9 +207,11 @@ Guarantees that could be asserted vacuously are checked by removing the implemen
 confirming a spec fails: the ES5 gate, the event schema validation, the page exit ordering, the
 sampling and consent gates, and the listener guards.
 
-That covers missing runtime APIs and unsupported syntax. It does not cover the behaviour of an
-actual old browser engine. **This package has not been verified on real hardware**, and that
-verification is a separate step before any support commitment is made.
+That covers missing runtime APIs and unsupported syntax. The behaviour of the actual engines was
+verified separately, on real browsers through a cloud device farm (BrowserStack): IE 9, 10 and 11
+pass every check in the verification page below, including the two that only mean anything on a
+real Trident engine, and IE 6 and IE 8 were confirmed to degrade to a silent no-op that leaves the
+hosting page untouched.
 
 ## Verifying on a real browser
 
