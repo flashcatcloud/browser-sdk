@@ -459,6 +459,23 @@ describe('startSegmentCollection withholding (error session replay)', () => {
     expect(httpRequestSpy.sendOnExit).not.toHaveBeenCalled()
   })
 
+  it('does not let a dropped buffer leave its index_in_view behind for the next one to collide with', async () => {
+    // the restart emits records, exactly as taking a fresh full snapshot does in production
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(RECORD))
+
+    addRecord(RECORD)
+    clock.tick(BUFFER_CHECKOUT_TIME)
+    worker.processAllMessages()
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+
+    reportError()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    // the dropped buffer never reached the intake, so the first segment that does is index 0
+    expect((await readMetadataFromReplayPayload(httpRequestSpy.send.calls.mostRecent().args[0])).index_in_view).toBe(0)
+  })
+
   it('leaves no trace of a dropped buffer in the replay stats', () => {
     addRecord(RECORD)
     clock.tick(BUFFER_CHECKOUT_TIME)

@@ -175,10 +175,9 @@ export function doStartSegmentCollection(
         // it either way. Keeping it is never worse than dropping it.
         if (flushReason === 'segment_duration_limit') {
           // Re-armed, so the buffer is flushed normally within one rotation of the session erroring.
-          // That rotation is also the only thing that notices the release, which leaves a window of
-          // one rotation in which a session that expires right after its own error takes the buffer
-          // with it. Closing it would mean asking the session manager on every record, which is far
-          // too hot a path for a window this narrow.
+          // An expiring session does not lose it: the session history entry is still open when the
+          // recorder is stopped (`sessionManager.ts` notifies before closing it), so the stop flush
+          // still sees the session as released and sends. Only losing the page outright loses it.
           state.expirationTimeoutId = setTimeout(() => flushSegment('segment_duration_limit'), SEGMENT_DURATION_LIMIT)
         }
         return
@@ -190,6 +189,10 @@ export function doStartSegmentCollection(
           // stats keeps `has_replay` and the replay counters reported on view events honest.
           discardSegment(metadata.view.id, encoderResult.rawBytesCount, metadata.records_count)
           droppedBufferCount += 1
+          // Restarted from here rather than synchronously below: this callback is where the rollback
+          // lands, and a segment created before it would take an `index_in_view` this one still
+          // occupies - two uploaded segments would end up claiming the same index.
+          restartBuffer(flushReason)
           return
         }
 
@@ -226,18 +229,24 @@ export function doStartSegmentCollection(
         status: SegmentCollectionStatus.Stopped,
       }
     }
+  }
 
-    // A dropped buffer leaves no full snapshot behind, so the next one would not be replayable on
-    // its own. A view change does not need this: the new view emits its own full snapshot.
-    if (isWithheld && (flushReason === 'buffer_checkout' || flushReason === 'segment_bytes_limit')) {
-      // On a document whose full snapshot alone exceeds the segment limit, every restart would blow
-      // the limit again straight away and restart once more. Spacing restarts out keeps that case at
-      // the cost of an ordinary segment rotation instead of a hot loop.
-      const now = relativeNow()
-      if (lastBufferRestartAt === undefined || now - lastBufferRestartAt >= SEGMENT_DURATION_LIMIT) {
-        lastBufferRestartAt = now
-        buffering.restartFromFullSnapshot()
-      }
+  /**
+   * A dropped buffer leaves no full snapshot behind, so the next one would not be replayable on its
+   * own. A view change does not need this: the new view emits its own full snapshot.
+   */
+  function restartBuffer(flushReason: InternalFlushReason) {
+    if (flushReason !== 'buffer_checkout' && flushReason !== 'segment_bytes_limit') {
+      return
+    }
+    // On a document whose full snapshot alone exceeds the segment limit, every restart would blow
+    // the limit again straight away and restart once more. Spacing restarts out avoids that hot
+    // loop, at the cost of a buffer that carries no full snapshot until the next restart is allowed
+    // - if the error lands in that window, what is released cannot be played from its start.
+    const now = relativeNow()
+    if (lastBufferRestartAt === undefined || now - lastBufferRestartAt >= SEGMENT_DURATION_LIMIT) {
+      lastBufferRestartAt = now
+      buffering.restartFromFullSnapshot()
     }
   }
 
