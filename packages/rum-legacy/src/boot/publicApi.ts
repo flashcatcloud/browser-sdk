@@ -169,6 +169,16 @@ export function makeRumLegacyPublicApi() {
         sessionStore.expire()
       },
       stop(flushPending: boolean) {
+        if (!flushPending) {
+          /*
+           * Consent was withdrawn, so nothing more may reach the wire — including anything the
+           * teardown below produces. Closing the view buffers one more event, and the buffer sends
+           * itself the moment it crosses its size or message limit, which would put everything
+           * collected before the withdrawal on the wire straight after it. Stopping the batch first
+           * makes those adds no-ops.
+           */
+          batch.stop()
+        }
         viewManager.stop()
         errorCollection.stop()
         if (flushPending) {

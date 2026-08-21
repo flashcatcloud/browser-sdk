@@ -17,6 +17,8 @@ const SESSION_EXPIRATION_DELAY = 15 * ONE_MINUTE
 const SESSION_TIME_OUT_DELAY = 4 * ONE_HOUR
 
 /** Tracking decision, stored in the cookie using the same values as the modern bundle. */
+/** The modern bundle's marker for a session that has ended. */
+const EXPIRED = '1'
 const NOT_TRACKED = '0'
 const TRACKED_WITH_SESSION_REPLAY = '1'
 const TRACKED_WITHOUT_SESSION_REPLAY = '2'
@@ -61,7 +63,12 @@ export function createSessionStore(sessionSampleRate: number) {
     expire(): void {
       inMemoryState = undefined
       lastCookieAccess = undefined
-      deleteSessionCookie()
+      // Written rather than deleted, in the shape the modern bundle writes for an expired session:
+      // the entries that outlive a session — the anonymous user id among them — are kept, and the
+      // next event here draws a new session because there is no tracking decision left.
+      const expired = extractForeignFields(readSessionCookie())
+      expired.isExpired = EXPIRED
+      writeSessionCookie(expired)
     },
 
     getOrCreateSession(): LegacySession {
@@ -154,7 +161,10 @@ function isExpired(state: SessionState, now: number): boolean {
  * /^([a-zA-Z]+)=([a-z0-9-]+)$/. Uppercase characters or padding would make it discard the whole
  * cookie, silently restarting the session on every page load.
  */
-const KNOWN_FIELDS = ['id', 'created', 'expire', 'rum']
+// `isExpired` belongs to the modern bundle's vocabulary, not to ours, but it has to be listed here
+// all the same: carried forward as an unknown field it would mark every session this build writes
+// as expired, and the modern bundle would start a new one on every page load.
+const KNOWN_FIELDS = ['id', 'created', 'expire', 'rum', 'isExpired']
 
 function serialize(state: SessionState): string {
   const entries: string[] = []
@@ -187,9 +197,19 @@ function deserialize(value: string): SessionState | undefined {
       state[match[1]] = match[2]
     }
   }
-  // Returned even without an id: an untracked session has none, and discarding the state here
-  // would also discard the foreign entries stored alongside it.
-  return entries.length > 0 && (state.id || state.rum || state.expire) ? state : undefined
+  /*
+   * Any entry that parsed is enough. An untracked session has no id, and the state the modern
+   * bundle writes when a session expires has neither an id nor a tracking decision — it is
+   * `isExpired=1` next to the anonymous user id it deliberately carries across the expiry.
+   * Requiring one of our own fields here threw that cookie away and reset an identifier the other
+   * build was keeping.
+   */
+  for (const key in state) {
+    if (Object.prototype.hasOwnProperty.call(state, key)) {
+      return state
+    }
+  }
+  return undefined
 }
 
 function readSessionCookie(): SessionState | undefined {

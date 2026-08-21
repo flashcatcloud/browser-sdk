@@ -141,11 +141,15 @@ describe('error collection', () => {
     expect('stack' in collected[0]).toBe(false)
   })
 
-  it('does not install itself twice over its own handler', () => {
-    start()
-    const installed = window.onerror
+  it('leaves a handler the page installed after us alone when stopped', () => {
+    const collection = startErrorCollection((error) => collected.push(error))
+    // The page replaces the handler while collection is running, which is its right.
+    const pageHandler = () => true
+    window.onerror = pageHandler
 
-    expect(installed).not.toBe(null)
-    expect(typeof installed).toBe('function')
+    collection.stop()
+
+    // Restoring blindly here would uninstall the page's own error handling on the way out.
+    expect(window.onerror).toBe(pageHandler)
   })
 })

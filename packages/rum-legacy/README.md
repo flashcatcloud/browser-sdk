@@ -151,8 +151,15 @@ object can be shared between the two.
 
 ## Differences from the standard bundles
 
-Beyond the capability table above, two details differ and are worth knowing before porting a page:
+Beyond the capability table above, a few details differ and are worth knowing before porting a
+page:
 
+- Calls made before `init`, or while consent is withheld, are dropped rather than replayed later.
+  The standard bundles keep them and send them once collection starts, so an error reported during
+  a consent dialog survives there and is lost here.
+- A view outlives the session it started in. When a session ends — `stopSession()`, or the fifteen
+  minute idle expiry — the current view carries on under the new session id, where the standard
+  bundles start a new view. The view's closing update therefore lands only in the newer session.
 - `startView()` takes the view name and ignores the rest. The standard bundles let a view carry its
   own `service`, `version` and context; here those stay as they were configured for the page.
 - A relative `proxy` is resolved against the document base url, which a `<base href>` tag changes.

@@ -79,6 +79,45 @@ describe('session store', () => {
     expect(state.id).not.toBe('old-session')
   })
 
+  it('keeps the anonymous user id out of a session the modern bundle expired', () => {
+    const anonymousId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    // Exactly what the modern bundle writes when a session ends: no id, no tracking decision, and
+    // the identifier it deliberately carries across the expiry.
+    document.cookie = `${SESSION_COOKIE_NAME}=isExpired=1&aid=${anonymousId};path=/`
+
+    const session = createSessionStore(100).getOrCreateSession()
+
+    expect(session.id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(toSessionState(readRawCookie()).anonymousId).toBe(anonymousId)
+  })
+
+  it('does not carry the expired marker into the session it starts', () => {
+    document.cookie = `${SESSION_COOKIE_NAME}=isExpired=1;path=/`
+
+    createSessionStore(100).getOrCreateSession()
+
+    // The modern bundle reads any session carrying this marker as expired, so leaving it in place
+    // would make it start a new session on every single page load.
+    expect(readRawCookie()).not.toContain('isExpired')
+  })
+
+  it('ends a session the way the modern bundle ends one', () => {
+    const anonymousId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+    document.cookie = `${SESSION_COOKIE_NAME}=id=old-session&rum=2&created=${Date.now()}&expire=${
+      Date.now() + ONE_MINUTE
+    }&aid=${anonymousId};path=/`
+    const store = createSessionStore(100)
+    store.getOrCreateSession()
+
+    store.expire()
+
+    const state = toSessionState(readRawCookie())
+    expect(state.isExpired).toBe('1')
+    expect(state.id).toBeUndefined()
+    // The session ended; the user behind it did not.
+    expect(state.anonymousId).toBe(anonymousId)
+  })
+
   it('writes the fields the modern bundle expects to find', () => {
     const session = createSessionStore(100).getOrCreateSession()
 
@@ -167,17 +206,13 @@ describe('session store', () => {
       // Both builds share one cookie jar per domain, and IE enterprise site lists routinely put
       // some urls of a site in compatibility mode and others not. Reading '1' as untracked would
       // silence the whole session, for up to its four hour lifetime.
-      document.cookie = `${SESSION_COOKIE_NAME}=${encodeURIComponent(
-        `id=00000000-aaaa-0000-aaaa-000000000000&created=${Date.now()}&expire=${Date.now() + 60000}&rum=1`
-      )};path=/`
+      document.cookie = `${SESSION_COOKIE_NAME}=id=00000000-aaaa-0000-aaaa-000000000000&created=${Date.now()}&expire=${Date.now() + 60000}&rum=1;path=/`
 
       expect(createSessionStore(100).getOrCreateSession().isTracked).toBe(true)
     })
 
     it('honours a session marked as not tracked', () => {
-      document.cookie = `${SESSION_COOKIE_NAME}=${encodeURIComponent(
-        `id=00000000-aaaa-0000-aaaa-000000000000&created=${Date.now()}&expire=${Date.now() + 60000}&rum=0`
-      )};path=/`
+      document.cookie = `${SESSION_COOKIE_NAME}=id=00000000-aaaa-0000-aaaa-000000000000&created=${Date.now()}&expire=${Date.now() + 60000}&rum=0;path=/`
 
       expect(createSessionStore(100).getOrCreateSession().isTracked).toBe(false)
     })
@@ -245,9 +280,7 @@ describe('session store', () => {
     it('preserves fields it does not understand instead of destroying them', () => {
       // The standard bundles store the anonymous user id as `aid` in this same cookie, and track it
       // by default. Rewriting the cookie without it would reset anonymous user continuity for them.
-      document.cookie = `${SESSION_COOKIE_NAME}=${encodeURIComponent(
-        `id=00000000-aaaa-0000-aaaa-000000000000&created=${Date.now()}&expire=${Date.now() + 60000}&rum=2&aid=11111111-bbbb-0000-bbbb-000000000000`
-      )};path=/`
+      document.cookie = `${SESSION_COOKIE_NAME}=id=00000000-aaaa-0000-aaaa-000000000000&created=${Date.now()}&expire=${Date.now() + 60000}&rum=2&aid=11111111-bbbb-0000-bbbb-000000000000;path=/`
 
       createSessionStore(100).getOrCreateSession()
 
@@ -256,9 +289,7 @@ describe('session store', () => {
     })
 
     it('ignores unknown fields injected into the session cookie', () => {
-      document.cookie = `${SESSION_COOKIE_NAME}=${encodeURIComponent(
-        `id=00000000-aaaa-0000-aaaa-000000000000&created=${Date.now()}&expire=${Date.now() + 60000}&rum=2&evil=payload`
-      )};path=/`
+      document.cookie = `${SESSION_COOKIE_NAME}=id=00000000-aaaa-0000-aaaa-000000000000&created=${Date.now()}&expire=${Date.now() + 60000}&rum=2&evil=payload;path=/`
 
       const session = createSessionStore(100).getOrCreateSession()
 

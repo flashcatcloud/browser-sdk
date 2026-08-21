@@ -229,6 +229,21 @@ describe('public api', () => {
       expect(payloads).toEqual([])
     })
 
+    it('sends nothing on withdrawal even when the buffer is one event from flushing itself', () => {
+      api.init(VALID_CONFIGURATION)
+      // The buffer sends what it holds as soon as an incoming event would take it past its size
+      // limit. One event just under that limit means the closing view update the teardown produces
+      // is the one that tips it over — so a withdrawal that tears down before stopping the batch
+      // puts everything collected before the withdrawal on the wire straight after it.
+      api.addAction('bulky', { blob: 'x'.repeat(15800) })
+      payloads = []
+
+      api.setTrackingConsent('not-granted')
+      flush()
+
+      expect(payloads).toEqual([])
+    })
+
     it('does not send what was buffered before consent was withdrawn', () => {
       api.init(VALID_CONFIGURATION)
       api.addError(new Error('boom'))
