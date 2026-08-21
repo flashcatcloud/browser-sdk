@@ -1,0 +1,559 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>RUM legacy build verification</title>
+    <style>
+      body {
+        font: 13px/1.5 monospace;
+        margin: 16px;
+        color: #222;
+      }
+      h1 {
+        font-size: 15px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin-top: 12px;
+      }
+      td,
+      th {
+        border: 1px solid #ccc;
+        padding: 4px 6px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: #eee;
+      }
+      .pass {
+        background: #d8f5d8;
+      }
+      .fail {
+        background: #f8d4d4;
+      }
+      .skip {
+        background: #e8e8e8;
+        color: #666;
+      }
+      .env td {
+        background: #f4f4f4;
+      }
+      button {
+        font: inherit;
+        padding: 4px 10px;
+        margin-right: 6px;
+      }
+      #note {
+        margin-top: 12px;
+        color: #555;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>RUM legacy build verification</h1>
+    <div>
+      <button id="run" type="button">Run checks</button>
+      <button id="exit" type="button">Check page exit (reloads)</button>
+    </div>
+    <!-- Whole tables are rendered into these divs. IE9 and earlier make innerHTML read-only on
+         table sections, so writing into a tbody throws "Invalid target element" there. -->
+    <div id="envBox"></div>
+    <div id="resultsBox"></div>
+    <div id="note"></div>
+
+    <script>
+      /*
+       * Kept in its own script block: a syntax error in the main block below would kill that whole
+       * block including any handler it installs, and on these browsers there is often no console to
+       * see it in. This one survives and paints the error into the page.
+       */
+      window.__pageErrors = []
+      window.__paintErrors = function () {
+        try {
+          var target = document.getElementById('note')
+          if (target && window.__pageErrors.length > 0) {
+            target.innerHTML = 'PAGE ERROR: ' + window.__pageErrors.join(' | ')
+          }
+        } catch (ignored) {}
+      }
+      window.onerror = function (message, url, line) {
+        window.__pageErrors.push(message + ' @ ' + (url || '?') + ':' + (line || '?'))
+        window.__paintErrors()
+        return false
+      }
+    </script>
+
+    <script>
+      /*
+       * Everything here is ES5 and writes its output into the page, because the browsers this
+       * verifies often have no usable developer tools.
+       *
+       * The run finishes in seconds rather than minutes: cloud device sessions are metered, so the
+       * batch is filled to its message limit to flush over the asynchronous path immediately, and
+       * results survive the exit-check reload in sessionStorage (native since IE8).
+       *
+       * This file must never be run through a formatter that adds trailing commas: they are legal
+       * ES5, but IE8 counts a trailing comma in an array literal as one more (undefined) element,
+       * and IE6/7 reject them outright. It is listed in .prettierignore for exactly that reason.
+       */
+      var pageErrorHandlerCalls = 0
+      window.onerror = function (message, url, line) {
+        pageErrorHandlerCalls++
+        window.__pageErrors.push(message + ' @ ' + (url || '?') + ':' + (line || '?'))
+        window.__paintErrors()
+        return false
+      }
+
+      var ROWS_KEY = 'verificationRows'
+      var PRE_EXIT_KEY = 'verificationPreExitCount'
+
+      var rows = []
+      function record(name, state, observed) {
+        rows.push({ name: name, state: state, observed: String(observed) })
+        render()
+        try {
+          window.sessionStorage.setItem(ROWS_KEY, JSON.stringify(rows))
+        } catch (error) {}
+      }
+      function render() {
+        // Built with DOM calls rather than innerHTML. Old IE restricts table markup through
+        // innerHTML in several ways (read-only sections on IE9, "Unknown runtime error" on IE8),
+        // and element-by-element construction is the one route that behaves identically from IE8
+        // through modern engines. createTextNode also makes escaping unnecessary.
+        var box = document.getElementById('resultsBox')
+        while (box.firstChild) {
+          box.removeChild(box.firstChild)
+        }
+        var table = document.createElement('table')
+        table.id = 'results'
+        var thead = document.createElement('thead')
+        var headRow = document.createElement('tr')
+        var headers = ['#', 'Check', 'Result', 'Observed']
+        var widths = ['26px', '40%', '70px', '']
+        for (var h = 0; h < headers.length; h++) {
+          var th = document.createElement('th')
+          if (widths[h]) {
+            th.style.width = widths[h]
+          }
+          th.appendChild(document.createTextNode(headers[h]))
+          headRow.appendChild(th)
+        }
+        thead.appendChild(headRow)
+        table.appendChild(thead)
+        var tbody = document.createElement('tbody')
+        for (var i = 0; i < rows.length; i++) {
+          var tr = document.createElement('tr')
+          tr.className = rows[i].state
+          var cells = [String(i + 1), rows[i].name, rows[i].state.toUpperCase(), rows[i].observed]
+          for (var c = 0; c < cells.length; c++) {
+            var td = document.createElement('td')
+            td.appendChild(document.createTextNode(cells[c]))
+            tr.appendChild(td)
+          }
+          tbody.appendChild(tr)
+        }
+        table.appendChild(tbody)
+        box.appendChild(table)
+      }
+      function note(text) {
+        document.getElementById('note').innerHTML = text
+      }
+      /* Reads one Navigation Timing value without assuming the API exists. Whether it does is the
+         question this page is answering, so nothing here may take it for granted. */
+      function describeTiming(name) {
+        if (!window.performance || !window.performance.timing) {
+          return '(no timing object)'
+        }
+        var value = window.performance.timing[name]
+        return typeof value === 'undefined' ? '(undefined)' : String(value)
+      }
+      function showEnvironment() {
+        var mode =
+          typeof document.documentMode === 'undefined' ? '(none - documentMode needs IE8+, or not Trident at all)' : document.documentMode
+        var pairs = [
+          ['document.documentMode', String(mode)],
+          ['navigator.userAgent', navigator.userAgent],
+          [
+            'has fetch / Promise',
+            (typeof window.fetch === 'function') + ' / ' + (typeof window.Promise === 'function')
+          ],
+          ['window.performance', typeof window.performance],
+          [
+            'performance.timing',
+            window.performance && window.performance.timing ? 'present' : 'absent'
+          ],
+          ['timing.navigationStart', describeTiming('navigationStart')],
+          ['timing.responseStart', describeTiming('responseStart')],
+          ['timing.domComplete', describeTiming('domComplete')]
+        ]
+        var box = document.getElementById('envBox')
+        while (box.firstChild) {
+          box.removeChild(box.firstChild)
+        }
+        var table = document.createElement('table')
+        table.id = 'env'
+        var tbody = document.createElement('tbody')
+        for (var i = 0; i < pairs.length; i++) {
+          var tr = document.createElement('tr')
+          tr.className = 'env'
+          for (var c = 0; c < 2; c++) {
+            var td = document.createElement('td')
+            if (i === 0 && c === 0) {
+              td.style.width = '26%'
+            }
+            td.appendChild(document.createTextNode(pairs[i][c]))
+            tr.appendChild(td)
+          }
+          tbody.appendChild(tr)
+        }
+        table.appendChild(tbody)
+        box.appendChild(table)
+      }
+
+      function createXhr() {
+        if (typeof window.XMLHttpRequest !== 'undefined') {
+          return new XMLHttpRequest()
+        }
+        // IE6 has only the ActiveX flavour.
+        return new ActiveXObject('Microsoft.XMLHTTP')
+      }
+
+      function request(method, url, onDone) {
+        var xhr = createXhr()
+        xhr.open(method, url, true)
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState === 4) {
+            onDone(xhr.status, xhr.responseText)
+          }
+        }
+        xhr.send(null)
+      }
+
+      function readReceived(onDone) {
+        request('GET', '/received?cache=' + new Date().getTime(), function (status, text) {
+          var arrived = []
+          try {
+            arrived = JSON.parse(text)
+          } catch (error) {}
+          onDone(arrived)
+        })
+      }
+
+      function loadBundle(onDone) {
+        var script = document.createElement('script')
+        var finished = false
+        // IE9 fires only onreadystatechange; IE10 and 11 fire BOTH it and onload, so without this
+        // guard everything after the load runs twice and every row appears in duplicate.
+        function finish(loaded) {
+          if (finished) {
+            return
+          }
+          finished = true
+          onDone(loaded)
+        }
+        script.src = 'fc-rum-legacy.js?cache=' + new Date().getTime()
+        script.onload = function () {
+          finish(true)
+        }
+        script.onerror = function () {
+          finish(false)
+        }
+        script.onreadystatechange = function () {
+          if (script.readyState === 'loaded' || script.readyState === 'complete') {
+            finish(true)
+          }
+        }
+        document.getElementsByTagName('head')[0].appendChild(script)
+      }
+
+      function runChecks() {
+        rows = []
+        render()
+        showEnvironment()
+        try {
+          window.sessionStorage.removeItem(ROWS_KEY)
+          window.sessionStorage.removeItem(PRE_EXIT_KEY)
+        } catch (error) {}
+        note('running...')
+
+        // A previous run in the same session leaves its SDK instance alive; stop it so two
+        // instances do not both report into the assertions below.
+        try {
+          if (window.FC_RUM && window.FC_RUM._stop) {
+            window.FC_RUM._stop()
+          }
+        } catch (error) {}
+
+        request('GET', '/reset?cache=' + new Date().getTime(), function () {
+          loadBundle(function (loaded) {
+            if (!loaded || !window.FC_RUM) {
+              record('The bundle parses and loads', 'fail', 'window.FC_RUM is ' + typeof window.FC_RUM)
+              note('Stopped: nothing else can be checked while the script does not load.')
+              return
+            }
+            record('The bundle parses and loads', 'pass', 'FC_RUM.version = ' + window.FC_RUM.version)
+
+            var initFailed = null
+            try {
+              window.FC_RUM.init({
+                applicationId: '00000000-aaaa-0000-aaaa-000000000000',
+                clientToken: 'verification_token',
+                proxy: '/rum-intake/'
+              })
+            } catch (error) {
+              initFailed = error && error.message ? error.message : String(error)
+            }
+            record('init() does not throw into the page', initFailed ? 'fail' : 'pass', initFailed || 'no exception')
+
+            try {
+              window.FC_RUM.addError(new Error('verification error'))
+              window.FC_RUM.addAction('verification action')
+              // Filling the batch to its message limit flushes it over the asynchronous path right
+              // now, instead of waiting out the 30 second timer a metered session cannot afford.
+              for (var filler = 0; filler < 60; filler++) {
+                window.FC_RUM.addAction('flush-filler')
+              }
+              record('addError / addAction do not throw', 'pass', 'no exception')
+            } catch (error2) {
+              record('addError / addAction do not throw', 'fail', String(error2))
+            }
+
+            var before = pageErrorHandlerCalls
+            setTimeout(function () {
+              throwUncaught()
+              setTimeout(function () {
+                record(
+                  'An uncaught error still reaches the page handler',
+                  pageErrorHandlerCalls > before ? 'pass' : 'fail',
+                  'page handler calls: ' + before + ' -> ' + pageErrorHandlerCalls
+                )
+                record(
+                  'Session cookie is written',
+                  document.cookie.indexOf('_dd_s=') !== -1 ? 'pass' : 'fail',
+                  sessionCookieOnly()
+                )
+                pollServer()
+              }, 300)
+            }, 100)
+          })
+        })
+      }
+
+      function throwUncaught() {
+        setTimeout(function () {
+          throw new Error('verification uncaught error')
+        }, 0)
+      }
+
+      function pollServer() {
+        note('waiting for the batch...')
+        var attempts = 0
+        function poll() {
+          attempts++
+          readReceived(function (arrived) {
+            if (arrived.length === 0 && attempts < 15) {
+              setTimeout(poll, 1000)
+              return
+            }
+            assertServerView(arrived)
+          })
+        }
+        poll()
+      }
+
+      function assertServerView(arrived) {
+        if (arrived.length === 0) {
+          record('The intake received a request', 'fail', 'nothing arrived within 15s')
+          recordCleanliness()
+          note(
+            'Done. Below the support floor this is the expected shape: collection rows red, ' +
+              'and "No unexpected uncaught page errors" green means the page was left untouched.'
+          )
+          return
+        }
+        var first = arrived[0]
+        record('The intake received a request', 'pass', first.method + ' ' + first.url.substring(0, 60) + '...')
+        record(
+          'The request carries text/plain, which the intake requires',
+          first.contentType && first.contentType.indexOf('text/plain') === 0 ? 'pass' : 'fail',
+          'Content-Type: ' + (first.contentType || '(none sent)')
+        )
+        var forwarded = decodeURIComponent((first.url.split('?ddforward=')[1] || '').split('&')[0])
+        record(
+          'The intake path travels inside ddforward',
+          forwarded.indexOf('/api/v2/rum') === 0 ? 'pass' : 'fail',
+          forwarded.split('?')[0] || '(no ddforward)'
+        )
+        // Aggregated across every request: the async flushes travel the tunnel independently and
+        // can arrive out of order, so the view and the error are not always in the first one.
+        var types = []
+        for (var r = 0; r < arrived.length; r++) {
+          var lines = arrived[r].body.split('\n')
+          for (var i = 0; i < lines.length; i++) {
+            if (lines[i].length === 0) {
+              continue
+            }
+            var match = /"type":"([a-z_]+)"/.exec(lines[i])
+            types.push(match ? match[1] : '?')
+          }
+        }
+        record(
+          'The payload carries a view and an error',
+          indexOf(types, 'view') !== -1 && indexOf(types, 'error') !== -1 ? 'pass' : 'fail',
+          summarize(types) + '  (across ' + arrived.length + ' request(s))'
+        )
+        recordPageLoadTimings(arrived)
+        recordCleanliness()
+        note(
+          'Done. ' +
+            arrived.length +
+            ' request(s) reached the intake. ' +
+            'Press "Check page exit" to also verify the synchronous request sent while the page unloads.'
+        )
+      }
+
+      /*
+       * Page load timings are the one capability claimed for IE9 that the checks above never look
+       * at, and on the IE9 device used for verification none of them arrived. This row separates
+       * the two explanations, which need opposite responses: an engine without Navigation Timing
+       * cannot report them and never promised to, while an engine that has it and still sends none
+       * is a bug in this build.
+       */
+      /* Only the session cookie is shown. This page is meant to be run inside the customer's own
+         environment and its results screenshotted, and the rest of document.cookie belongs to
+         whatever else lives on that host - sign-in tokens among it. */
+      function sessionCookieOnly() {
+        var parts = document.cookie.split(';')
+        for (var i = 0; i < parts.length; i++) {
+          var part = parts[i]
+          while (part.charAt(0) === ' ') {
+            part = part.substring(1)
+          }
+          if (part.indexOf('_dd_s=') === 0) {
+            return part
+          }
+        }
+        return '(no _dd_s cookie)'
+      }
+
+      function recordPageLoadTimings(arrived) {
+        var fields = ['first_byte', 'dom_interactive', 'dom_content_loaded', 'dom_complete', 'load_event']
+        var bodies = ''
+        for (var r = 0; r < arrived.length; r++) {
+          bodies = bodies + arrived[r].body
+        }
+        var found = []
+        for (var f = 0; f < fields.length; f++) {
+          if (bodies.indexOf('"' + fields[f] + '"') !== -1) {
+            found.push(fields[f])
+          }
+        }
+
+        var timing = window.performance && window.performance.timing
+        if (!timing || !timing.navigationStart) {
+          record(
+            'Page load timings reached the intake',
+            'skip',
+            'this browser has no usable Navigation Timing, so there is nothing to report' +
+              (found.length > 0 ? ' - yet ' + found.length + ' arrived, which should not happen' : '')
+          )
+          return
+        }
+        record(
+          'Page load timings reached the intake',
+          found.length > 0 ? 'pass' : 'fail',
+          found.length > 0
+            ? summarize(found)
+            : 'none, although navigationStart is ' + timing.navigationStart + ' - the SDK should have sent them'
+        )
+      }
+
+      function recordCleanliness() {
+        var foreign = []
+        for (var e = 0; e < window.__pageErrors.length; e++) {
+          if (window.__pageErrors[e].indexOf('verification uncaught error') === -1) {
+            foreign.push(window.__pageErrors[e])
+          }
+        }
+        record(
+          'No unexpected uncaught page errors',
+          foreign.length === 0 ? 'pass' : 'fail',
+          foreign.length === 0 ? 'none (the one deliberate test error is excluded)' : foreign.join(' | ')
+        )
+      }
+
+      function summarize(types) {
+        var counts = {}
+        for (var i = 0; i < types.length; i++) {
+          counts[types[i]] = (counts[types[i]] || 0) + 1
+        }
+        var parts = []
+        for (var key in counts) {
+          if (Object.prototype.hasOwnProperty.call(counts, key)) {
+            parts.push(key + ' x' + counts[key])
+          }
+        }
+        return parts.join(', ')
+      }
+
+      function indexOf(list, value) {
+        for (var i = 0; i < list.length; i++) {
+          if (list[i] === value) {
+            return i
+          }
+        }
+        return -1
+      }
+
+      document.getElementById('run').onclick = runChecks
+      document.getElementById('exit').onclick = function () {
+        // Remember how many requests the intake had, reload to fire beforeunload, and let the
+        // reloaded page prove the exit added one more, sent synchronously or lost.
+        readReceived(function (arrived) {
+          try {
+            window.sessionStorage.setItem(PRE_EXIT_KEY, String(arrived.length))
+          } catch (error) {}
+          window.location.href = 'index.html?after-exit=1'
+        })
+      }
+
+      showEnvironment()
+      if (window.location.search.indexOf('after-exit=1') !== -1) {
+        try {
+          var stored = window.sessionStorage.getItem(ROWS_KEY)
+          if (stored) {
+            rows = JSON.parse(stored)
+            render()
+          }
+        } catch (error) {}
+        note('Checking what the exit sent...')
+        readReceived(function (arrived) {
+          var preExit = 0
+          try {
+            preExit = Number(window.sessionStorage.getItem(PRE_EXIT_KEY) || '0')
+          } catch (error) {}
+          var delivered = arrived.length > preExit
+          // Modern engines block synchronous XHR during page dismissal by design, so on anything
+          // that is not Trident this check cannot pass regardless of the SDK. Only a real IE run
+          // can prove or disprove it, which is why it is here at all.
+          var isTrident = typeof document.documentMode !== 'undefined'
+          record(
+            'The page exit delivered a final synchronous request',
+            delivered ? 'pass' : isTrident ? 'fail' : 'skip',
+            preExit +
+              ' request(s) before the reload, ' +
+              arrived.length +
+              ' after' +
+              (delivered || isTrident ? '' : ' - modern engines block sync XHR at unload; needs Trident')
+          )
+          note('Exit check done. Press "Run checks" to start over.')
+        })
+      } else if (window.location.search.indexOf('autorun=1') !== -1) {
+        // Lets the page be opened as ?autorun=1 on a metered session, saving a click.
+        runChecks()
+      }
+    </script>
+  </body>
+</html>

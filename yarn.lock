@@ -623,6 +623,16 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@flashcatcloud/browser-rum-legacy@workspace:packages/rum-legacy":
+  version: 0.0.0-use.local
+  resolution: "@flashcatcloud/browser-rum-legacy@workspace:packages/rum-legacy"
+  dependencies:
+    ajv: "npm:8.17.1"
+    terser-webpack-plugin: "npm:5.3.14"
+    webpack: "npm:5.99.8"
+  languageName: unknown
+  linkType: soft
+
 "@flashcatcloud/browser-rum-react@workspace:packages/rum-react":
   version: 0.0.0-use.local
   resolution: "@flashcatcloud/browser-rum-react@workspace:packages/rum-react"
@@ -2671,7 +2681,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"acorn@npm:^8.11.0, acorn@npm:^8.14.0, acorn@npm:^8.4.1":
+"acorn@npm:8.14.1, acorn@npm:^8.11.0, acorn@npm:^8.14.0, acorn@npm:^8.4.1":
   version: 8.14.1
   resolution: "acorn@npm:8.14.1"
   bin:
@@ -3338,6 +3348,7 @@ __metadata:
     "@types/express": "npm:5.0.2"
     "@types/jasmine": "npm:3.10.18"
     "@types/node": "npm:22.15.19"
+    acorn: "npm:8.14.1"
     ajv: "npm:8.17.1"
     ali-oss: "npm:6.22.0"
     browserstack-local: "npm:1.5.6"

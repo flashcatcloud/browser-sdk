@@ -73,6 +73,13 @@ void describe('upload-source-maps', () => {
           command:
             'mv packages/rum-slim/bundle/flashcat-rum-slim.js.map packages/rum-slim/bundle/flashcat-rum-slim-v6.js.map',
         },
+        {
+          command: 'mv packages/rum-legacy/bundle/fc-rum-legacy.js packages/rum-legacy/bundle/fc-rum-legacy-v6.js',
+        },
+        {
+          command:
+            'mv packages/rum-legacy/bundle/fc-rum-legacy.js.map packages/rum-legacy/bundle/fc-rum-legacy-v6.js.map',
+        },
       ])
 
       // no telemetry org yet
@@ -98,6 +105,11 @@ void describe('upload-source-maps', () => {
             'datadog-ci sourcemaps upload packages/rum-slim/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum-slim/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
           env,
         },
+        {
+          command:
+            'datadog-ci sourcemaps upload packages/rum-legacy/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum-legacy/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
+          env,
+        },
       ])
     })
   })
@@ -119,6 +131,11 @@ void describe('upload-source-maps', () => {
       {
         command:
           'datadog-ci sourcemaps upload packages/rum-slim/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix /us1/v6 --project-path @flashcatcloud/browser-rum-slim/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
+        env: ENV_PROD,
+      },
+      {
+        command:
+          'datadog-ci sourcemaps upload packages/rum-legacy/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix /us1/v6 --project-path @flashcatcloud/browser-rum-legacy/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
         env: ENV_PROD,
       },
     ])
@@ -149,6 +166,13 @@ void describe('upload-source-maps', () => {
         command:
           'mv packages/rum-slim/bundle/flashcat-rum-slim.js.map packages/rum-slim/bundle/flashcat-rum-slim-staging.js.map',
       },
+      {
+        command: 'mv packages/rum-legacy/bundle/fc-rum-legacy.js packages/rum-legacy/bundle/fc-rum-legacy-staging.js',
+      },
+      {
+        command:
+          'mv packages/rum-legacy/bundle/fc-rum-legacy.js.map packages/rum-legacy/bundle/fc-rum-legacy-staging.js.map',
+      },
     ])
 
     // upload the source maps
@@ -181,6 +205,16 @@ void describe('upload-source-maps', () => {
       {
         command:
           'datadog-ci sourcemaps upload packages/rum-slim/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum-slim/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
+        env: ENV_PROD,
+      },
+      {
+        command:
+          'datadog-ci sourcemaps upload packages/rum-legacy/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum-legacy/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
+        env: ENV_STAGING,
+      },
+      {
+        command:
+          'datadog-ci sourcemaps upload packages/rum-legacy/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum-legacy/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
         env: ENV_PROD,
       },
     ])
@@ -211,6 +245,13 @@ void describe('upload-source-maps', () => {
         command:
           'mv packages/rum-slim/bundle/flashcat-rum-slim.js.map packages/rum-slim/bundle/flashcat-rum-slim-canary.js.map',
       },
+      {
+        command: 'mv packages/rum-legacy/bundle/fc-rum-legacy.js packages/rum-legacy/bundle/fc-rum-legacy-canary.js',
+      },
+      {
+        command:
+          'mv packages/rum-legacy/bundle/fc-rum-legacy.js.map packages/rum-legacy/bundle/fc-rum-legacy-canary.js.map',
+      },
     ])
 
     // upload the source maps
@@ -228,6 +269,11 @@ void describe('upload-source-maps', () => {
       {
         command:
           'datadog-ci sourcemaps upload packages/rum-slim/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum-slim/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
+        env: ENV_PROD,
+      },
+      {
+        command:
+          'datadog-ci sourcemaps upload packages/rum-legacy/bundle --service browser-rum-sdk --release-version dev --minified-path-prefix / --project-path @flashcatcloud/browser-rum-legacy/ --repository-url https://www.github.com/flashcatcloud/browser-sdk',
         env: ENV_PROD,
       },
     ])

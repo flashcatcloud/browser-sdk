@@ -59,6 +59,9 @@ jobs:
       - name: Build bundle
         run: yarn build:bundle
 
+      - name: Verify ES5 compatibility of the legacy bundle
+        run: yarn test:compat:es5
+
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
         with:

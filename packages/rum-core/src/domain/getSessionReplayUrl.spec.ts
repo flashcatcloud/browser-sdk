@@ -7,7 +7,7 @@ describe('getDatadogSiteUrl', () => {
   const parameters: Array<[string, string | undefined, string]> = [
     [INTAKE_SITE_US1, undefined, 'app.browser.flashcat.cloud'],
     ['datadoghq.com', 'toto', 'toto.datadoghq.com'],
-    [INTAKE_SITE_STAGING, undefined, 'dd.http://10.99.1.110:11300'],
+    [INTAKE_SITE_STAGING, undefined, `dd.${INTAKE_SITE_STAGING}`],
     ['datad0g.com', 'toto', 'toto.datad0g.com'],
     ['us3.datadoghq.com', undefined, 'us3.datadoghq.com'],
     ['us3.datadoghq.com', 'toto', 'toto.us3.datadoghq.com'],
