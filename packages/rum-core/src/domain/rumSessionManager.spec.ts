@@ -248,6 +248,27 @@ describe('rum session manager', () => {
       expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.SAMPLED)
     })
 
+    it('marks the session so a replay kept only because it errored can be told apart', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnErrorSampleRate: 100 },
+      })
+
+      expect(sessionManager.findTrackedSession()!.sampledOnErrorReplay).toBeTrue()
+
+      // still true once released, so what was stored can be told apart afterwards
+      sessionManager.setSessionHasError()
+
+      expect(sessionManager.findTrackedSession()!.sampledOnErrorReplay).toBeTrue()
+    })
+
+    it('does not mark a session whose replay is collected unconditionally', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 100 },
+      })
+
+      expect(sessionManager.findTrackedSession()!.sampledOnErrorReplay).toBeFalse()
+    })
+
     it('releases the replay when it is forced, rather than waiting for an error that may never come', () => {
       const sessionManager = startRumSessionManagerWithDefaults({
         configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnErrorSampleRate: 100 },

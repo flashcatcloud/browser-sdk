@@ -26,10 +26,14 @@ export function startSessionContext(
 
     let hasReplay
     let sampledForReplay
+    let sampledForErrorReplay
     let isActive
     if (eventType === RumEventType.VIEW) {
       hasReplay = !isReplayWithheld && recorderApi.getReplayStats(view.id) ? true : undefined
       sampledForReplay = session.sessionReplay === SessionReplayState.SAMPLED
+      // Tells a replay collected only because the session errored apart from one collected
+      // unconditionally - the two cost differently and are answered by different questions.
+      sampledForErrorReplay = session.sampledOnErrorReplay || undefined
       isActive = view.sessionIsActive ? undefined : false
     } else {
       hasReplay = !isReplayWithheld && recorderApi.isRecording() ? true : undefined
@@ -42,6 +46,7 @@ export function startSessionContext(
         type: SessionType.USER,
         has_replay: hasReplay,
         sampled_for_replay: sampledForReplay,
+        sampled_for_error_replay: sampledForErrorReplay,
         is_active: isActive,
       },
     }

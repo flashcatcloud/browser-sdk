@@ -1,5 +1,10 @@
 import { Observable } from '@flashcatcloud/browser-core'
-import { RumTrackingType, computeSessionReplayState, type RumSessionManager } from '../src/domain/rumSessionManager'
+import {
+  RumTrackingType,
+  computeSessionReplayState,
+  withholdsReplay,
+  type RumSessionManager,
+} from '../src/domain/rumSessionManager'
 
 export interface RumSessionManagerMock extends RumSessionManager {
   setId(id: string): RumSessionManagerMock
@@ -41,6 +46,7 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
         id,
         // Derived the same way as in production, so the mock cannot drift from the real state machine
         sessionReplay: computeSessionReplayState(trackingType, hasError, forcedReplay),
+        sampledOnErrorReplay: withholdsReplay(trackingType),
         anonymousId: 'device-123',
       }
     },

@@ -34,6 +34,12 @@ export interface RumSessionManager {
 export type RumSession = {
   id: string
   sessionReplay: SessionReplayState
+  /**
+   * Whether the replay of this session is only kept if it reports an error. Unlike
+   * {@link sessionReplay} this stays true once the error has been reported, so a replay collected
+   * that way can be told apart from one collected unconditionally.
+   */
+  sampledOnErrorReplay: boolean
   anonymousId?: string
 }
 
@@ -99,6 +105,7 @@ export function startRumSessionManager(
       return {
         id: session.id,
         sessionReplay: computeSessionReplayState(session.trackingType, session.hasError, session.isReplayForced),
+        sampledOnErrorReplay: withholdsReplay(session.trackingType),
         anonymousId: session.anonymousId,
       }
     },
@@ -109,6 +116,10 @@ export function startRumSessionManager(
   }
 }
 
+export function withholdsReplay(trackingType: RumTrackingType) {
+  return trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+}
+
 export function computeSessionReplayState(
   trackingType: RumTrackingType,
   hasError: boolean,
@@ -117,7 +128,7 @@ export function computeSessionReplayState(
   if (trackingType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY) {
     return SessionReplayState.SAMPLED
   }
-  if (trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY && hasError) {
+  if (withholdsReplay(trackingType) && hasError) {
     return SessionReplayState.SAMPLED
   }
   // A forced replay wins over withholding: the host explicitly asked for this user's replay, so it
@@ -125,7 +136,7 @@ export function computeSessionReplayState(
   if (isReplayForced) {
     return SessionReplayState.FORCED
   }
-  if (trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY) {
+  if (withholdsReplay(trackingType)) {
     return SessionReplayState.BUFFERED_ON_ERROR
   }
   return SessionReplayState.OFF
@@ -138,6 +149,7 @@ export function startRumSessionManagerStub(): RumSessionManager {
   const session: RumSession = {
     id: '00000000-aaaa-0000-aaaa-000000000000',
     sessionReplay: bridgeSupports(BridgeCapability.RECORDS) ? SessionReplayState.SAMPLED : SessionReplayState.OFF,
+    sampledOnErrorReplay: false,
   }
   return {
     findTrackedSession: () => session,
