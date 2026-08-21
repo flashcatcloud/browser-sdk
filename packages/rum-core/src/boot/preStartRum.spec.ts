@@ -460,7 +460,7 @@ describe('preStartRum', () => {
         strategy.init({ ...DEFAULT_INIT_CONFIGURATION, remoteConfiguration: true }, PUBLIC_API)
 
         expect(doStartRumSpy).toHaveBeenCalled()
-        expect(doStartRumSpy.calls.mostRecent().args[0].remoteSampling).toBeDefined()
+        expect(doStartRumSpy.calls.mostRecent().args[0].remoteConfig).toBeDefined()
       })
 
       it('resolves no remote sampling setup at all when the site did not opt in', () => {
@@ -472,7 +472,7 @@ describe('preStartRum', () => {
         )
         strategy.init(DEFAULT_INIT_CONFIGURATION, PUBLIC_API)
 
-        expect(doStartRumSpy.calls.mostRecent().args[0].remoteSampling).toBeUndefined()
+        expect(doStartRumSpy.calls.mostRecent().args[0].remoteConfig).toBeUndefined()
       })
     })
 

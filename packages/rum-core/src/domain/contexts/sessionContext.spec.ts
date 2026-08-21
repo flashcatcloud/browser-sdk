@@ -128,7 +128,13 @@ describe('session context', () => {
   })
 
   it('should report the configuration the session was drawn under', () => {
-    sessionManager.setDrawnConfiguration({ version: 12, sessionSampleRate: 100, sessionReplaySampleRate: 25 })
+    sessionManager.setDrawnConfiguration({
+      version: 12,
+      sessionSampleRate: 100,
+      sessionReplaySampleRate: 25,
+      traceSampleRate: 100,
+      defaultPrivacyLevel: 'mask',
+    })
 
     const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {
       eventType: 'action',

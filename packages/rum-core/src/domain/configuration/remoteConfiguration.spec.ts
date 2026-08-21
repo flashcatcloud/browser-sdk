@@ -4,7 +4,7 @@ import { interceptRequests, mockClock, registerCleanupTask } from '@flashcatclou
 import { mockRumConfiguration } from '../../../test'
 import { LifeCycle, LifeCycleEventType } from '../lifeCycle'
 import type { RumConfiguration, RumInitConfiguration } from './configuration'
-import { buildRemoteSamplingSetup, readRemoteSampling, startRemoteConfiguration } from './remoteConfiguration'
+import { buildRemoteConfigSetup, readRemoteConfig, startRemoteConfiguration } from './remoteConfiguration'
 
 const INIT_CONFIGURATION = {
   clientToken: 'token',
@@ -19,13 +19,13 @@ function configurationWith(partial: Partial<RumConfiguration> = {}) {
   return mockRumConfiguration({
     sessionSampleRate: 10,
     sessionReplaySampleRate: 20,
-    remoteSampling: buildRemoteSamplingSetup(INIT_CONFIGURATION),
+    remoteConfig: buildRemoteConfigSetup(INIT_CONFIGURATION),
     ...partial,
   })
 }
 
 function body({
-  rum = {} as Record<string, number>,
+  rum = {} as Record<string, unknown>,
   enabled = true,
   custom = undefined as Record<string, unknown> | undefined,
 } = {}) {
@@ -41,12 +41,12 @@ function body({
 
 describe('remoteConfiguration', () => {
   let interceptor: ReturnType<typeof interceptRequests>
-  let setup: ReturnType<typeof buildRemoteSamplingSetup>
+  let setup: ReturnType<typeof buildRemoteConfigSetup>
   let lifeCycle: LifeCycle
 
   beforeEach(() => {
     interceptor = interceptRequests()
-    setup = buildRemoteSamplingSetup(INIT_CONFIGURATION)
+    setup = buildRemoteConfigSetup(INIT_CONFIGURATION)
     lifeCycle = new LifeCycle()
     registerCleanupTask(() => localStorage.removeItem(setup!.storeKey))
   })
@@ -64,11 +64,11 @@ describe('remoteConfiguration', () => {
         requested = true
       })
 
-      start(mockRumConfiguration({ remoteSampling: undefined }))
+      start(mockRumConfiguration({ remoteConfig: undefined }))
 
       expect(requested).toBeFalse()
-      expect(buildRemoteSamplingSetup({ ...INIT_CONFIGURATION, remoteConfiguration: false })).toBeUndefined()
-      expect(readRemoteSampling(undefined)).toEqual({})
+      expect(buildRemoteConfigSetup({ ...INIT_CONFIGURATION, remoteConfiguration: false })).toBeUndefined()
+      expect(readRemoteConfig(undefined)).toEqual({})
     })
   })
 
@@ -77,7 +77,7 @@ describe('remoteConfiguration', () => {
       interceptor.withMockXhr((xhr) => {
         xhr.complete(200, body({ rum: { sessionSampleRate: 42, sessionReplaySampleRate: 7 } }))
 
-        expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 42, sessionReplaySampleRate: 7, version: 3 })
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 42, sessionReplaySampleRate: 7, version: 3 })
         done()
       })
       start(configurationWith())
@@ -87,7 +87,7 @@ describe('remoteConfiguration', () => {
       interceptor.withMockXhr((xhr) => {
         xhr.complete(200, body({ rum: { sessionSampleRate: 0 } }))
 
-        expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 0, version: 3 })
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 0, version: 3 })
         done()
       })
       start(configurationWith())
@@ -97,7 +97,29 @@ describe('remoteConfiguration', () => {
       interceptor.withMockXhr((xhr) => {
         xhr.complete(200, body({ rum: { sessionSampleRate: 42 } }))
 
-        expect(readRemoteSampling(setup).sessionReplaySampleRate).toBeUndefined()
+        expect(readRemoteConfig(setup).sessionReplaySampleRate).toBeUndefined()
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('keeps the trace rate and the privacy level the server reports', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: { traceSampleRate: 25, defaultPrivacyLevel: 'allow' } }))
+
+        expect(readRemoteConfig(setup)).toEqual({ traceSampleRate: 25, defaultPrivacyLevel: 'allow', version: 3 })
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('drops a privacy level it does not recognise rather than passing it on', (done) => {
+      // A typo must not reach the recorders: an unknown value there falls through to recording
+      // everything, which is the one outcome nobody asks for by accident.
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: { sessionSampleRate: 50, defaultPrivacyLevel: 'masked' } }))
+
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 50, version: 3 })
         done()
       })
       start(configurationWith())
@@ -107,7 +129,7 @@ describe('remoteConfiguration', () => {
       interceptor.withMockXhr((xhr) => {
         xhr.complete(200, body({ rum: {}, custom: { viplist: ['u-1', 'u-2'], debug: true } }))
 
-        expect(readRemoteSampling(setup).custom).toEqual({ viplist: ['u-1', 'u-2'], debug: true })
+        expect(readRemoteConfig(setup).custom).toEqual({ viplist: ['u-1', 'u-2'], debug: true })
         done()
       })
       start(configurationWith())
@@ -119,7 +141,7 @@ describe('remoteConfiguration', () => {
       interceptor.withMockXhr((xhr) => {
         xhr.complete(200, body({ enabled: false, custom: { debug: true } }))
 
-        expect(readRemoteSampling(setup).custom).toBeUndefined()
+        expect(readRemoteConfig(setup).custom).toBeUndefined()
         done()
       })
       start(configurationWith())
@@ -133,7 +155,7 @@ describe('remoteConfiguration', () => {
 
         // The rates are gone, but the version is kept: the console still needs to see that this
         // client is up to date with the change that turned them off.
-        expect(readRemoteSampling(setup)).toEqual({ version: 3 })
+        expect(readRemoteConfig(setup)).toEqual({ version: 3 })
         done()
       })
       start(configurationWith())
@@ -209,7 +231,7 @@ describe('remoteConfiguration', () => {
       interceptor.withMockXhr((xhr) => {
         xhr.complete(500)
 
-        expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 42 })
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 42 })
         done()
       })
       start(configurationWith())
@@ -221,7 +243,7 @@ describe('remoteConfiguration', () => {
       interceptor.withMockXhr((xhr) => {
         xhr.complete(200, 'not json')
 
-        expect(readRemoteSampling(setup)).toEqual({ sessionSampleRate: 42 })
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 42 })
         done()
       })
       start(configurationWith())
@@ -253,7 +275,7 @@ describe('remoteConfiguration', () => {
   describe('the storage key', () => {
     it('separates applications, environments and versions', () => {
       const keyOf = (partial: Partial<RumInitConfiguration>) =>
-        buildRemoteSamplingSetup({ ...INIT_CONFIGURATION, ...partial })!.storeKey
+        buildRemoteConfigSetup({ ...INIT_CONFIGURATION, ...partial })!.storeKey
 
       expect(keyOf({})).not.toEqual(keyOf({ applicationId: 'other' }))
       expect(keyOf({})).not.toEqual(keyOf({ env: 'production' }))
@@ -261,7 +283,7 @@ describe('remoteConfiguration', () => {
     })
 
     it('carries the storage format version, so only a format change orphans the cache', () => {
-      expect(buildRemoteSamplingSetup(INIT_CONFIGURATION)!.storeKey.startsWith('_fc_rc_1_')).toBeTrue()
+      expect(buildRemoteConfigSetup(INIT_CONFIGURATION)!.storeKey.startsWith('_fc_rc_1_')).toBeTrue()
     })
   })
 })

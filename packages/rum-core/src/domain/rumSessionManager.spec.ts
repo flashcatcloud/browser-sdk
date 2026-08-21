@@ -215,16 +215,22 @@ describe('rum session manager', () => {
     const STORE_KEY = 'test-remote-sampling'
     const REMOTE_SAMPLING_SETUP = { url: 'https://example.com/config', storeKey: STORE_KEY, fetchTimeout: 3000 }
 
-    function storeRemoteSampling(rates: { sessionSampleRate?: number; sessionReplaySampleRate?: number }) {
-      localStorage.setItem(STORE_KEY, JSON.stringify(rates))
+    function storeRemoteConfigValues(values: {
+      version?: number
+      sessionSampleRate?: number
+      sessionReplaySampleRate?: number
+      traceSampleRate?: number
+      defaultPrivacyLevel?: string
+    }) {
+      localStorage.setItem(STORE_KEY, JSON.stringify(values))
       registerCleanupTask(() => localStorage.removeItem(STORE_KEY))
     }
 
     it('draws a new session on the remote rate rather than the one passed to init', () => {
-      storeRemoteSampling({ sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+      storeRemoteConfigValues({ sessionSampleRate: 100, sessionReplaySampleRate: 100 })
 
       startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP },
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 
@@ -232,10 +238,10 @@ describe('rum session manager', () => {
     })
 
     it('draws replay on the remote replay rate', () => {
-      storeRemoteSampling({ sessionReplaySampleRate: 100 })
+      storeRemoteConfigValues({ sessionReplaySampleRate: 100 })
 
       startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP },
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 
@@ -243,10 +249,10 @@ describe('rum session manager', () => {
     })
 
     it('falls back to the rate passed to init for a knob the console did not set', () => {
-      storeRemoteSampling({ sessionReplaySampleRate: 100 })
+      storeRemoteConfigValues({ sessionReplaySampleRate: 100 })
 
       startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP },
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 
@@ -255,10 +261,10 @@ describe('rum session manager', () => {
 
     it('leaves a session already under way on the decision it was created with', () => {
       setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
-      storeRemoteSampling({ sessionSampleRate: 0, sessionReplaySampleRate: 0 })
+      storeRemoteConfigValues({ sessionSampleRate: 0, sessionReplaySampleRate: 0 })
 
       startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 100, remoteSampling: REMOTE_SAMPLING_SETUP },
+        configuration: { sessionSampleRate: 100, remoteConfig: REMOTE_SAMPLING_SETUP },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 
@@ -267,7 +273,7 @@ describe('rum session manager', () => {
     })
 
     it('ignores anything in storage when the site did not opt in', () => {
-      storeRemoteSampling({ sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+      storeRemoteConfigValues({ sessionSampleRate: 100, sessionReplaySampleRate: 100 })
 
       startRumSessionManagerWithDefaults({ configuration: { sessionSampleRate: 0 } })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
@@ -303,7 +309,7 @@ describe('rum session manager', () => {
       const beforeSampling = jasmine.createSpy('beforeSampling')
 
       startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP, beforeSampling },
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, beforeSampling },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 
@@ -418,7 +424,7 @@ describe('rum session manager', () => {
       storeRemote({ version: 12, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
 
       const rumSessionManager = startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP },
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 
@@ -426,6 +432,8 @@ describe('rum session manager', () => {
         version: 12,
         sessionSampleRate: 100,
         sessionReplaySampleRate: 100,
+        traceSampleRate: 100,
+        defaultPrivacyLevel: 'mask',
       })
     })
 
@@ -435,7 +443,7 @@ describe('rum session manager', () => {
       const rumSessionManager = startRumSessionManagerWithDefaults({
         configuration: {
           sessionSampleRate: 0,
-          remoteSampling: REMOTE_SAMPLING_SETUP,
+          remoteConfig: REMOTE_SAMPLING_SETUP,
           beforeSampling: () => ({ sessionSampleRate: 100, sessionReplaySampleRate: 100 }),
         },
       })
@@ -445,6 +453,8 @@ describe('rum session manager', () => {
         version: 3,
         sessionSampleRate: 100,
         sessionReplaySampleRate: 100,
+        traceSampleRate: 100,
+        defaultPrivacyLevel: 'mask',
       })
     })
 
@@ -452,7 +462,7 @@ describe('rum session manager', () => {
       storeRemote({ version: 5, sessionSampleRate: 0, sessionReplaySampleRate: 0 })
 
       const rumSessionManager = startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP },
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP },
       })
       rumSessionManager.setForcedSession()
       clock.tick(STORAGE_POLL_DELAY)
@@ -462,6 +472,8 @@ describe('rum session manager', () => {
         version: 5,
         sessionSampleRate: 100,
         sessionReplaySampleRate: 100,
+        traceSampleRate: 100,
+        defaultPrivacyLevel: 'mask',
       })
     })
 
@@ -469,20 +481,99 @@ describe('rum session manager', () => {
       storeRemote({ version: 7, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
 
       startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP },
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
       stopSessionManager()
 
       const restartedManager = startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 0, remoteSampling: REMOTE_SAMPLING_SETUP },
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP },
       })
 
       expect(restartedManager.findTrackedSession()!.drawnConfiguration).toEqual({
         version: 7,
         sessionSampleRate: 100,
         sessionReplaySampleRate: 100,
+        traceSampleRate: 100,
+        defaultPrivacyLevel: 'mask',
       })
+    })
+
+    it('latches the delivered trace rate and privacy level, not just the sampling rates', () => {
+      storeRemote({
+        version: 21,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: 10,
+        defaultPrivacyLevel: 'allow',
+      })
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 0,
+          traceSampleRate: 100,
+          defaultPrivacyLevel: 'mask',
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toEqual({
+        version: 21,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: 10,
+        defaultPrivacyLevel: 'allow',
+      })
+    })
+
+    it('keeps the drawn trace rate and privacy level when a later delivery changes them', () => {
+      storeRemote({ version: 1, sessionSampleRate: 100, sessionReplaySampleRate: 100, traceSampleRate: 10 })
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 0,
+          traceSampleRate: 100,
+          defaultPrivacyLevel: 'mask',
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      // A new configuration lands while the session is still running.
+      storeRemote({
+        version: 2,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: 90,
+        defaultPrivacyLevel: 'allow',
+      })
+
+      const drawn = rumSessionManager.findTrackedSession()!.drawnConfiguration!
+      expect(drawn.traceSampleRate).toBe(10)
+      expect(drawn.defaultPrivacyLevel).toBe('mask')
+      expect(drawn.version).toBe(1)
+    })
+
+    it('falls back to init for a record written before these two were stored', () => {
+      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      localStorage.setItem(
+        `${STORE_KEY}_draw`,
+        JSON.stringify({ id: 'abcdef', version: 4, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+      )
+      registerCleanupTask(() => localStorage.removeItem(`${STORE_KEY}_draw`))
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: {
+          traceSampleRate: 42,
+          defaultPrivacyLevel: 'mask-user-input',
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+        },
+      })
+
+      const drawn = rumSessionManager.findTrackedSession()!.drawnConfiguration!
+      expect(drawn.traceSampleRate).toBe(42)
+      expect(drawn.defaultPrivacyLevel).toBe('mask-user-input')
     })
 
     it('never matches a session the record was not written for', () => {
@@ -494,7 +585,7 @@ describe('rum session manager', () => {
       registerCleanupTask(() => localStorage.removeItem(`${STORE_KEY}_draw`))
 
       const rumSessionManager = startRumSessionManagerWithDefaults({
-        configuration: { remoteSampling: REMOTE_SAMPLING_SETUP },
+        configuration: { remoteConfig: REMOTE_SAMPLING_SETUP },
       })
 
       expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toBeUndefined()

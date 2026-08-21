@@ -8,6 +8,7 @@ import {
   mockPageStateHistory,
   mockPerformanceObserver,
   mockRumConfiguration,
+  createRumSessionManagerMock,
 } from '../../../test'
 import type { RawRumEvent, RawRumResourceEvent } from '../../rawRumEvent.types'
 import { RumEventType } from '../../rawRumEvent.types'
@@ -19,6 +20,7 @@ import { validateAndBuildRumConfiguration } from '../configuration'
 import type { RumPerformanceEntry } from '../../browser/performanceObservable'
 import { RumPerformanceEntryType } from '../../browser/performanceObservable'
 import { createSpanIdentifier, createTraceIdentifier } from '../tracing/identifier'
+import type { RumSessionManager } from '../rumSessionManager'
 import { startResourceCollection } from './resourceCollection'
 
 const HANDLING_STACK_REGEX = /^Error: \n\s+at <anonymous> @/
@@ -32,7 +34,10 @@ describe('resourceCollection', () => {
   let rawRumEvents: Array<RawRumEventCollectedData<RawRumEvent>> = []
   let taskQueuePushSpy: jasmine.Spy<TaskQueue['push']>
 
-  function setupResourceCollection(partialConfig: Partial<RumConfiguration> = { trackResources: true }) {
+  function setupResourceCollection(
+    partialConfig: Partial<RumConfiguration> = { trackResources: true },
+    sessionManager: RumSessionManager = createRumSessionManagerMock()
+  ) {
     lifeCycle = new LifeCycle()
     const taskQueue = createTaskQueue()
     // Run tasks immediately to simplify general tests
@@ -41,6 +46,7 @@ describe('resourceCollection', () => {
       lifeCycle,
       { ...baseConfiguration, ...partialConfig },
       pageStateHistory,
+      sessionManager,
       taskQueue,
       noop
     )
@@ -352,6 +358,35 @@ describe('resourceCollection', () => {
       )
       const privateFields = (rawRumEvents[0].rawRumEvent as RawRumResourceEvent)._dd
       expect(privateFields.rule_psr).toEqual(0.6)
+    })
+
+    it('should report the trace rate the session was drawn with, not the one init passed', () => {
+      // The backend extrapolates from rule_psr, so it has to be the rate the tracer actually drew
+      // on. With the console able to move the trace rate, the init value is a different number.
+      const config = validateAndBuildRumConfiguration({
+        clientToken: 'xxx',
+        applicationId: 'xxx',
+        traceSampleRate: 60,
+      })!
+      const sessionManager = createRumSessionManagerMock().setDrawnConfiguration({
+        version: 8,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: 20,
+        defaultPrivacyLevel: 'mask',
+      })
+      setupResourceCollection(config, sessionManager)
+
+      lifeCycle.notify(
+        LifeCycleEventType.REQUEST_COMPLETED,
+        createCompletedRequest({
+          traceSampled: true,
+          spanId: createSpanIdentifier(),
+          traceId: createTraceIdentifier(),
+        })
+      )
+      const privateFields = (rawRumEvents[0].rawRumEvent as RawRumResourceEvent)._dd
+      expect(privateFields.rule_psr).toEqual(0.2)
     })
 
     it('should not define rule_psr if traceSampleRate is undefined', () => {

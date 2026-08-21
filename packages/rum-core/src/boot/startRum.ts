@@ -35,7 +35,7 @@ import { startRumEventBridge } from '../transport/startRumEventBridge'
 import { startUrlContexts } from '../domain/contexts/urlContexts'
 import { createLocationChangeObservable } from '../browser/locationChangeObservable'
 import type { RumConfiguration } from '../domain/configuration'
-import { startRemoteConfiguration, readRemoteSampling } from '../domain/configuration'
+import { startRemoteConfiguration, readRemoteConfig } from '../domain/configuration'
 import type { ViewOptions } from '../domain/view/trackViews'
 import { startFeatureFlagContexts } from '../domain/contexts/featureFlagContext'
 import { startCustomerDataTelemetry } from '../domain/startCustomerDataTelemetry'
@@ -206,7 +206,7 @@ export function startRum(
 
   cleanupTasks.push(stopViewCollection)
 
-  const { stop: stopResourceCollection } = startResourceCollection(lifeCycle, configuration, pageStateHistory)
+  const { stop: stopResourceCollection } = startResourceCollection(lifeCycle, configuration, pageStateHistory, session)
   cleanupTasks.push(stopResourceCollection)
 
   if (configuration.trackLongTasks) {
@@ -248,7 +248,7 @@ export function startRum(
     viewHistory,
     session,
     stopSession: () => session.expire(),
-    getRemoteConfig: () => readRemoteSampling(configuration.remoteSampling).custom,
+    getRemoteConfig: () => readRemoteConfig(configuration.remoteConfig).custom,
     setForcedSession: () => {
       session.setForcedSession()
       // A session that was collected without replay needs the recorder actually started on top of

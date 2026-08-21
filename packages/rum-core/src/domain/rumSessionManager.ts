@@ -1,4 +1,4 @@
-import type { RelativeTime, TrackingConsentState } from '@flashcatcloud/browser-core'
+import type { DefaultPrivacyLevel, RelativeTime, TrackingConsentState } from '@flashcatcloud/browser-core'
 import {
   BridgeCapability,
   Observable,
@@ -13,7 +13,7 @@ import {
   startSessionManager,
 } from '@flashcatcloud/browser-core'
 import type { RumConfiguration } from './configuration'
-import { readRemoteSampling } from './configuration'
+import { readRemoteConfig } from './configuration'
 import type { LifeCycle } from './lifeCycle'
 import { LifeCycleEventType } from './lifeCycle'
 
@@ -44,6 +44,12 @@ export interface DrawnConfiguration {
   version?: number
   sessionSampleRate: number
   sessionReplaySampleRate: number
+  // Not drawn like the rates, but latched the same way and for the same reason: both are read
+  // repeatedly for as long as the session lives — the trace rate on every request, the privacy
+  // level on every recorded node — so both have to answer with what this session started under
+  // rather than with whatever the console has since delivered.
+  traceSampleRate: number
+  defaultPrivacyLevel: DefaultPrivacyLevel
 }
 
 export type RumSession = {
@@ -154,6 +160,11 @@ export function startRumSessionManager(
                 version: drawnForSession.version,
                 sessionSampleRate: drawnForSession.sessionSampleRate,
                 sessionReplaySampleRate: drawnForSession.sessionReplaySampleRate,
+                // A record written before these two existed has neither. Falling back to init is
+                // the same answer the session was already getting, so an SDK upgrade mid-session
+                // changes nothing about how it is traced or masked.
+                traceSampleRate: drawnForSession.traceSampleRate ?? configuration.traceSampleRate,
+                defaultPrivacyLevel: drawnForSession.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
               }
             : undefined,
       }
@@ -301,11 +312,17 @@ function computeSessionState(
     // FLASHCAT FORK - a forced draw skips both lotteries. It sits in the draw branch on purpose:
     // an existing session keeps the decision it was created with, forcing only shapes new ones.
     trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
-    if (configuration.remoteSampling && onDraw) {
+    if (configuration.remoteConfig && onDraw) {
+      const remote = readRemoteConfig(configuration.remoteConfig)
+      // Forcing is about whether this visitor is collected at all. It says nothing about which of
+      // their requests carry trace headers or how their page is masked, so those two keep the
+      // delivered values rather than being pinned like the rates.
       onDraw({
-        version: readRemoteSampling(configuration.remoteSampling).version,
+        version: remote.version,
         sessionSampleRate: 100,
         sessionReplaySampleRate: 100,
+        traceSampleRate: remote.traceSampleRate ?? configuration.traceSampleRate,
+        defaultPrivacyLevel: remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
       })
     }
   } else {
@@ -313,7 +330,7 @@ function computeSessionState(
     // are read here, inside the only branch that draws, so a session restored from the store keeps
     // the decision it was created with: settings arriving mid-session never start or stop
     // collecting for a visitor already on the site.
-    const remote = readRemoteSampling(configuration.remoteSampling)
+    const remote = readRemoteConfig(configuration.remoteConfig)
 
     let sessionSampleRate = remote.sessionSampleRate ?? configuration.sessionSampleRate
     let sessionReplaySampleRate = remote.sessionReplaySampleRate ?? configuration.sessionReplaySampleRate
@@ -343,8 +360,14 @@ function computeSessionState(
       }
     }
 
-    if (configuration.remoteSampling && onDraw) {
-      onDraw({ version: remote.version, sessionSampleRate, sessionReplaySampleRate })
+    if (configuration.remoteConfig && onDraw) {
+      onDraw({
+        version: remote.version,
+        sessionSampleRate,
+        sessionReplaySampleRate,
+        traceSampleRate: remote.traceSampleRate ?? configuration.traceSampleRate,
+        defaultPrivacyLevel: remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
+      })
     }
 
     if (!performDraw(sessionSampleRate)) {
@@ -367,7 +390,7 @@ function computeSessionState(
  * checked on every read, so a stale record is inert rather than wrong.
  */
 function drawRecordStoreKey(configuration: RumConfiguration) {
-  return configuration.remoteSampling && `${configuration.remoteSampling.storeKey}_draw`
+  return configuration.remoteConfig && `${configuration.remoteConfig.storeKey}_draw`
 }
 
 function readDrawRecord(configuration: RumConfiguration): ({ id: string } & DrawnConfiguration) | undefined {

@@ -23,8 +23,8 @@ import type { RumEvent } from '../../rumEvent.types'
 import type { RumPlugin } from '../plugins'
 import { isTracingOption } from '../tracing/tracer'
 import type { PropagatorType, TracingOption } from '../tracing/tracer.types'
-import type { BeforeSamplingCallback, RemoteSamplingSetup } from './remoteConfiguration'
-import { buildRemoteSamplingSetup } from './remoteConfiguration'
+import type { BeforeSamplingCallback, RemoteConfigSetup } from './remoteConfiguration'
+import { buildRemoteConfigSetup } from './remoteConfiguration'
 
 export const DEFAULT_PROPAGATOR_TYPES: PropagatorType[] = ['tracecontext']
 
@@ -249,7 +249,7 @@ export interface RumConfiguration extends Configuration {
    * did not opt into remote configuration. Resolved once here because the sampling draw needs it,
    * and the draw only has the built configuration to work from.
    */
-  remoteSampling: RemoteSamplingSetup | undefined
+  remoteConfig: RemoteConfigSetup | undefined
   beforeSampling: BeforeSamplingCallback | undefined
 }
 
@@ -333,7 +333,7 @@ export function validateAndBuildRumConfiguration(
     trackFeatureFlagsForEvents: initConfiguration.trackFeatureFlagsForEvents || [],
     profilingSampleRate: profilingEnabled ? (initConfiguration.profilingSampleRate ?? 0) : 0, // Enforce 0 if profiling is not enabled, and set 0 as default when not set.
     propagateTraceBaggage: !!initConfiguration.propagateTraceBaggage,
-    remoteSampling: buildRemoteSamplingSetup(initConfiguration),
+    remoteConfig: buildRemoteConfigSetup(initConfiguration),
     beforeSampling: initConfiguration.beforeSampling,
     ...baseConfiguration,
   }

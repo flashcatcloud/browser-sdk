@@ -6,14 +6,15 @@ import {
   setTimeout,
   ONE_SECOND,
 } from '@flashcatcloud/browser-core'
-import type { TimeoutId } from '@flashcatcloud/browser-core'
+import type { DefaultPrivacyLevel, TimeoutId } from '@flashcatcloud/browser-core'
 import type { LifeCycle } from '../lifeCycle'
 import { LifeCycleEventType } from '../lifeCycle'
 import type { RumConfiguration, RumInitConfiguration } from './configuration'
 
 /**
- * Sampling rates the application owner can change from the console, without the customer shipping a
- * new release of their site.
+ * SDK settings the application owner can change from the console, without the customer shipping a
+ * new release of their site: the sampling rates, the trace sample rate, and how Session Replay
+ * masks a page by default.
  *
  * A change only affects sessions created after it arrives, so a visitor is never dropped halfway
  * through and never starts being recorded halfway through. Fetching follows the same rhythm: once
@@ -43,9 +44,21 @@ const DEFAULT_FETCH_TIMEOUT = 3 * ONE_SECOND
  */
 const RETRY_DELAYS = [5 * ONE_SECOND, 60 * ONE_SECOND]
 
-export interface RemoteSampling {
+export interface RemoteConfigValues {
   sessionSampleRate?: number
   sessionReplaySampleRate?: number
+  /**
+   * Which requests carry trace headers. Drawn from the session id like the other rates, so a
+   * session traces all of its requests or none of them.
+   */
+  traceSampleRate?: number
+  /**
+   * How Session Replay masks a page by default. Latched at the draw with the rates, never applied
+   * to a recording already running: the recorders read this value live, so changing it mid-way
+   * would leave one replay partly masked and partly not, and an upload cannot be masked after the
+   * fact.
+   */
+  defaultPrivacyLevel?: DefaultPrivacyLevel
   /**
    * Which version of the settings these rates came from. Reported back on the next request so the
    * console can say how far a change has actually reached — a question the events cannot answer,
@@ -82,11 +95,11 @@ export type BeforeSamplingCallback = (
 ) => { sessionSampleRate?: number; sessionReplaySampleRate?: number } | void
 
 /**
- * Everything needed to fetch and store the rates, resolved once at init. Undefined on the
+ * Everything needed to fetch and store the settings, resolved once at init. Undefined on the
  * configuration means the site did not opt in, and is what switches every read, write and request
  * off in one place.
  */
-export interface RemoteSamplingSetup {
+export interface RemoteConfigSetup {
   url: string
   storeKey: string
   fetchTimeout: number
@@ -95,23 +108,23 @@ export interface RemoteSamplingSetup {
 interface RemoteConfigurationResponse {
   version: number
   enabled: boolean
-  rum: RemoteSampling
+  rum: RemoteConfigValues
   custom?: Record<string, unknown>
 }
 
 /**
- * Read the rates that apply right now. Reading straight from storage rather than from a value held
- * in memory is what lets a rate fetched by one page load apply to the very first session of the
- * next one, instead of every visit starting on the local settings until a request comes back.
+ * Read the settings that apply right now. Reading straight from storage rather than from a value
+ * held in memory is what lets a value fetched by one page load apply to the very first session of
+ * the next one, instead of every visit starting on the local settings until a request comes back.
  */
-export function readRemoteSampling(setup: RemoteSamplingSetup | undefined): RemoteSampling {
+export function readRemoteConfig(setup: RemoteConfigSetup | undefined): RemoteConfigValues {
   if (!setup) {
     return {}
   }
 
   try {
     const stored = localStorage.getItem(setup.storeKey)
-    return stored ? (JSON.parse(stored) as RemoteSampling) : {}
+    return stored ? (JSON.parse(stored) as RemoteConfigValues) : {}
   } catch {
     // Storage unavailable or holding something we did not write: fall back to the local settings.
     return {}
@@ -119,7 +132,7 @@ export function readRemoteSampling(setup: RemoteSamplingSetup | undefined): Remo
 }
 
 /**
- * Keep the stored rates as fresh as the sessions that read them.
+ * Keep the stored settings as fresh as the sessions that read them.
  *
  * A fetch is issued at start-up and on every session renewal, and nothing ever waits for it —
  * initialisation is never delayed and collection never pauses, whatever the endpoint does. The
@@ -128,11 +141,11 @@ export function readRemoteSampling(setup: RemoteSamplingSetup | undefined): Remo
  * console promises.
  */
 export function startRemoteConfiguration(configuration: RumConfiguration, lifeCycle: LifeCycle) {
-  const setup = configuration.remoteSampling
-  return setup ? keepSamplingFresh(configuration, setup, lifeCycle) : noop
+  const setup = configuration.remoteConfig
+  return setup ? keepConfigFresh(configuration, setup, lifeCycle) : noop
 }
 
-function keepSamplingFresh(configuration: RumConfiguration, setup: RemoteSamplingSetup, lifeCycle: LifeCycle) {
+function keepConfigFresh(configuration: RumConfiguration, setup: RemoteConfigSetup, lifeCycle: LifeCycle) {
   let retryTimeoutId: TimeoutId | undefined
   let failedAttempts = 0
   let inFlight = false
@@ -143,7 +156,7 @@ function keepSamplingFresh(configuration: RumConfiguration, setup: RemoteSamplin
     }
     inFlight = true
 
-    fetchRemoteConfiguration(configuration, setup, readRemoteSampling(setup).version, (response) => {
+    fetchRemoteConfiguration(configuration, setup, readRemoteConfig(setup).version, (response) => {
       inFlight = false
       if (response) {
         failedAttempts = 0
@@ -154,7 +167,7 @@ function keepSamplingFresh(configuration: RumConfiguration, setup: RemoteSamplin
         retryTimeoutId = setTimeout(fetchNow, jittered(RETRY_DELAYS[failedAttempts]))
         failedAttempts += 1
       }
-      // Out of retries: give up until the next trigger. The stored rates stay as they were.
+      // Out of retries: give up until the next trigger. The stored settings stay as they were.
     })
   }
 
@@ -184,8 +197,8 @@ function jittered(delay: number) {
 }
 
 /**
- * Any failure — network error, timeout, non-200, unparseable body — leaves the stored rates exactly
- * as they were. Clearing them on failure would swing a whole fleet back to its local settings the
+ * Any failure — network error, timeout, non-200, unparseable body — leaves the stored settings
+ * exactly as they were. Clearing them on failure would swing a whole fleet back to its local settings the
  * moment the endpoint had a bad minute, which is the opposite of what a customer wants from a knob
  * they turned deliberately.
  *
@@ -195,7 +208,7 @@ function jittered(delay: number) {
  */
 function fetchRemoteConfiguration(
   configuration: RumConfiguration,
-  setup: RemoteSamplingSetup,
+  setup: RemoteConfigSetup,
   appliedVersion: number | undefined,
   callback: (response: RemoteConfigurationResponse | undefined) => void
 ) {
@@ -222,36 +235,44 @@ function fetchRemoteConfiguration(
   xhr.send()
 }
 
-function store(setup: RemoteSamplingSetup, response: RemoteConfigurationResponse) {
-  const rates: RemoteSampling = { version: response.version }
+function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) {
+  const values: RemoteConfigValues = { version: response.version }
   if (response.enabled && response.rum) {
-    // Each rate is copied only when the server actually sent it. A rate nobody configured must stay
-    // with whatever the site passed to init: writing a 0 in its place would silently switch off
-    // collection the customer never asked to switch off.
+    // Each value is copied only when the server actually sent it. A knob nobody configured must
+    // stay with whatever the site passed to init: writing a 0 in its place would silently switch
+    // off collection the customer never asked to switch off.
     if (isRate(response.rum.sessionSampleRate)) {
-      rates.sessionSampleRate = response.rum.sessionSampleRate
+      values.sessionSampleRate = response.rum.sessionSampleRate
     }
     if (isRate(response.rum.sessionReplaySampleRate)) {
-      rates.sessionReplaySampleRate = response.rum.sessionReplaySampleRate
+      values.sessionReplaySampleRate = response.rum.sessionReplaySampleRate
+    }
+    if (isRate(response.rum.traceSampleRate)) {
+      values.traceSampleRate = response.rum.traceSampleRate
+    }
+    // An unknown level is dropped rather than stored: a typo must not reach the recorders, where it
+    // would fall through to "record everything" — the one outcome nobody asks for by accident.
+    if (isPrivacyLevel(response.rum.defaultPrivacyLevel)) {
+      values.defaultPrivacyLevel = response.rum.defaultPrivacyLevel
     }
   }
   // The custom bag rides along untouched — the platform's job is delivery, its meaning belongs to
   // the host application. Gone from the response (or the kill switch off) means gone from storage.
   if (response.enabled && response.custom && typeof response.custom === 'object') {
-    rates.custom = response.custom
+    values.custom = response.custom
   }
 
   try {
-    // Written even with no rates in it — that is what "remote configuration is off, use your own
+    // Written even with nothing in it — that is what "remote configuration is off, use your own
     // settings" looks like — so that the version is kept either way and the console can still see
     // that this client is up to date with the change that turned it off.
-    localStorage.setItem(setup.storeKey, JSON.stringify(rates))
+    localStorage.setItem(setup.storeKey, JSON.stringify(values))
   } catch {
-    // Storage unavailable: the rates simply do not survive this page load.
+    // Storage unavailable: the values simply do not survive this page load.
   }
 }
 
-export function buildRemoteSamplingSetup(initConfiguration: RumInitConfiguration): RemoteSamplingSetup | undefined {
+export function buildRemoteConfigSetup(initConfiguration: RumInitConfiguration): RemoteConfigSetup | undefined {
   if (!initConfiguration.remoteConfiguration) {
     return undefined
   }
@@ -296,4 +317,8 @@ function buildParameters(initConfiguration: RumInitConfiguration) {
 
 function isRate(value: unknown): value is number {
   return typeof value === 'number' && value >= 0 && value <= 100
+}
+
+function isPrivacyLevel(value: unknown): value is DefaultPrivacyLevel {
+  return value === 'mask' || value === 'mask-user-input' || value === 'allow'
 }

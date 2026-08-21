@@ -20,6 +20,7 @@ import { RumEventType } from '../../rawRumEvent.types'
 import { LifeCycleEventType } from '../lifeCycle'
 import type { RawRumEventCollectedData, LifeCycle } from '../lifeCycle'
 import type { RequestCompleteEvent } from '../requestCollection'
+import type { RumSessionManager } from '../rumSessionManager'
 import type { PageStateHistory } from '../contexts/pageStateHistory'
 import { PageState } from '../contexts/pageStateHistory'
 import { createSpanIdentifier } from '../tracing/identifier'
@@ -41,11 +42,12 @@ export function startResourceCollection(
   lifeCycle: LifeCycle,
   configuration: RumConfiguration,
   pageStateHistory: PageStateHistory,
+  sessionManager: RumSessionManager,
   taskQueue = createTaskQueue(),
   retrieveInitialDocumentResourceTimingImpl = retrieveInitialDocumentResourceTiming
 ) {
   lifeCycle.subscribe(LifeCycleEventType.REQUEST_COMPLETED, (request: RequestCompleteEvent) => {
-    handleResource(() => processRequest(request, configuration, pageStateHistory))
+    handleResource(() => processRequest(request, configuration, pageStateHistory, sessionManager))
   })
 
   const performanceResourceSubscription = createPerformanceObservable(configuration, {
@@ -54,13 +56,13 @@ export function startResourceCollection(
   }).subscribe((entries) => {
     for (const entry of entries) {
       if (!isResourceEntryRequestType(entry)) {
-        handleResource(() => processResourceEntry(entry, configuration))
+        handleResource(() => processResourceEntry(entry, configuration, sessionManager))
       }
     }
   })
 
   retrieveInitialDocumentResourceTimingImpl(configuration, (timing) => {
-    handleResource(() => processResourceEntry(timing, configuration))
+    handleResource(() => processResourceEntry(timing, configuration, sessionManager))
   })
 
   function handleResource(computeRawEvent: () => RawRumEventCollectedData<RawRumResourceEvent> | undefined) {
@@ -82,11 +84,12 @@ export function startResourceCollection(
 function processRequest(
   request: RequestCompleteEvent,
   configuration: RumConfiguration,
-  pageStateHistory: PageStateHistory
+  pageStateHistory: PageStateHistory,
+  sessionManager: RumSessionManager
 ): RawRumEventCollectedData<RawRumResourceEvent> | undefined {
   const matchingTiming = matchRequestResourceEntry(request)
   const startClocks = matchingTiming ? relativeToClocks(matchingTiming.startTime) : request.startClocks
-  const tracingInfo = computeRequestTracingInfo(request, configuration)
+  const tracingInfo = computeRequestTracingInfo(request, configuration, sessionManager)
   if (!configuration.trackResources && !tracingInfo) {
     return
   }
@@ -140,10 +143,11 @@ function processRequest(
 
 function processResourceEntry(
   entry: RumPerformanceResourceTiming,
-  configuration: RumConfiguration
+  configuration: RumConfiguration,
+  sessionManager: RumSessionManager
 ): RawRumEventCollectedData<RawRumResourceEvent> | undefined {
   const startClocks = relativeToClocks(entry.startTime)
-  const tracingInfo = computeResourceEntryTracingInfo(entry, configuration)
+  const tracingInfo = computeResourceEntryTracingInfo(entry, configuration, sessionManager)
   if (!configuration.trackResources && !tracingInfo) {
     return
   }
@@ -193,7 +197,22 @@ function computeResourceEntryMetrics(entry: RumPerformanceResourceTiming) {
   }
 }
 
-function computeRequestTracingInfo(request: RequestCompleteEvent, configuration: RumConfiguration) {
+/**
+ * FLASHCAT FORK - the rate reported on the event has to be the rate the decision was made under.
+ * The console can change the trace rate, and a session keeps the value it was drawn with, so
+ * reading it back off the init configuration would report one number while a different one was
+ * used — and the backend extrapolates from this field.
+ */
+function effectiveRulePsr(configuration: RumConfiguration, sessionManager: RumSessionManager) {
+  const drawn = sessionManager.findTrackedSession()?.drawnConfiguration
+  return drawn ? drawn.traceSampleRate / 100 : configuration.rulePsr
+}
+
+function computeRequestTracingInfo(
+  request: RequestCompleteEvent,
+  configuration: RumConfiguration,
+  sessionManager: RumSessionManager
+) {
   const hasBeenTraced = request.traceSampled && request.traceId && request.spanId
   if (!hasBeenTraced) {
     return undefined
@@ -202,12 +221,16 @@ function computeRequestTracingInfo(request: RequestCompleteEvent, configuration:
     _dd: {
       span_id: request.spanId!.toString(),
       trace_id: request.traceId!.toString(),
-      rule_psr: configuration.rulePsr,
+      rule_psr: effectiveRulePsr(configuration, sessionManager),
     },
   }
 }
 
-function computeResourceEntryTracingInfo(entry: RumPerformanceResourceTiming, configuration: RumConfiguration) {
+function computeResourceEntryTracingInfo(
+  entry: RumPerformanceResourceTiming,
+  configuration: RumConfiguration,
+  sessionManager: RumSessionManager
+) {
   const hasBeenTraced = entry.traceId
   if (!hasBeenTraced) {
     return undefined
@@ -216,7 +239,7 @@ function computeResourceEntryTracingInfo(entry: RumPerformanceResourceTiming, co
     _dd: {
       trace_id: entry.traceId,
       span_id: createSpanIdentifier().toString(),
-      rule_psr: configuration.rulePsr,
+      rule_psr: effectiveRulePsr(configuration, sessionManager),
     },
   }
 }
