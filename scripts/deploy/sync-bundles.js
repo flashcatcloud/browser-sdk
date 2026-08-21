@@ -26,7 +26,10 @@ const { packages, ossEnvironments } = require('./lib/deploymentUtils')
 // Matches the webpack runtime's chunk url construction, ex:
 // "chunks/"+t+"-"+{recorder:"1d21...",profiler:"617a..."}[t]+"-flashcat-rum.js"
 const CHUNK_TABLE_RE = /"chunks\/"\+\w+\+"-"\+(\{[^{}]*\})\[\w+\]\+"-([\w.-]+\.js)"/
-const CHUNK_ENTRY_RE = /([\w$]+):"([a-f0-9]+)"/g
+// Webpack quotes a key that is not a valid identifier, so both shapes have to match. A chunk this
+// misses would be silently absent from the output rather than reported, which is the one failure
+// this script must not have.
+const CHUNK_ENTRY_RE = /(?:"([^"]+)"|([\w$]+)):"([a-f0-9]+)"/g
 
 if (require.main === module) {
   const env = process.argv[2] || 'prod'
@@ -48,14 +51,31 @@ async function main(ossConfig, version, outputDir) {
   const baseUrl = `https://${ossConfig.cdnURL}${ossConfig.dir}/${version}`
   const failures = []
 
+  /*
+   * Downloaded into a directory named for being unfinished, and moved into place only once every
+   * file is there. A run that is interrupted — Ctrl-C, a CI timeout, a killed process — never gets
+   * to print its warning, so the only thing left to tell a complete set from a half-written one is
+   * the name on disk. An entry bundle without its chunks looks entirely normal otherwise.
+   *
+   * An existing output directory is refused rather than merged into or deleted: merging would
+   * leave the chunks of an older version alongside the new ones, and deleting a directory the
+   * operator named is not this script's call to make.
+   */
+  if (fs.existsSync(outputDir)) {
+    printError(`${outputDir} already exists. Remove it, or pass a different output directory.`)
+    process.exit(1)
+  }
+  const stagingDir = `${outputDir}.incomplete`
+  fs.rmSync(stagingDir, { recursive: true, force: true })
+
   for (const { bundleFilename } of packages) {
-    const content = await download(baseUrl, bundleFilename, outputDir, failures)
+    const content = await download(baseUrl, bundleFilename, stagingDir, failures)
     if (content === undefined) {
       continue
     }
 
     for (const chunkPath of extractChunkPaths(content)) {
-      await download(baseUrl, chunkPath, outputDir, failures)
+      await download(baseUrl, chunkPath, stagingDir, failures)
     }
   }
 
@@ -64,16 +84,27 @@ async function main(ossConfig, version, outputDir) {
     for (const failure of failures) {
       printError(`  - ${failure}`)
     }
-    printError('The output directory is incomplete, do not deploy it.')
+    printError(`Left in ${stagingDir}, which is incomplete. Do not deploy it.`)
     process.exit(1)
   }
 
+  fs.renameSync(stagingDir, outputDir)
   printLog(`\nDone. Serve the content of ${outputDir} and load the bundles from that origin.`)
 }
 
 async function download(baseUrl, filePath, outputDir, failures) {
   const url = `${baseUrl}/${filePath}`
-  const response = await fetch(url)
+
+  let response
+  try {
+    response = await fetch(url)
+  } catch (error) {
+    // A refused connection or a DNS failure is the expected shape of trouble here: this script runs
+    // for people whose network cannot reach much. Letting it throw would skip the summary below and
+    // the "do not deploy" warning, leaving a stack trace as the only thing the operator sees.
+    failures.push(`${url} (${error.message})`)
+    return undefined
+  }
 
   if (!response.ok) {
     failures.push(`${url} (HTTP ${response.status})`)
@@ -96,8 +127,19 @@ function extractChunkPaths(bundleContent) {
 
   const [, entries, entryFilename] = table
   const chunkPaths = []
-  for (const [, chunkName, hash] of entries.matchAll(CHUNK_ENTRY_RE)) {
-    chunkPaths.push(`chunks/${chunkName}-${hash}-${entryFilename}`)
+  for (const [, quotedName, bareName, hash] of entries.matchAll(CHUNK_ENTRY_RE)) {
+    chunkPaths.push(`chunks/${quotedName ?? bareName}-${hash}-${entryFilename}`)
   }
+
+  // A chunk the pattern above failed to read would go missing without ever being attempted, and so
+  // without ever reaching the failure list. Counting the entries in the table is the cheap way to
+  // notice that, and this is a directory someone is about to serve to their users.
+  const declared = (entries.match(/:"/g) || []).length
+  if (chunkPaths.length !== declared) {
+    throw new Error(
+      `Read ${chunkPaths.length} of ${declared} chunk names from ${entryFilename}; the pattern needs updating`
+    )
+  }
+
   return chunkPaths
 }
