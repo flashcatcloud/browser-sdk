@@ -40,6 +40,30 @@ hosting page stays untouched. `Object.defineProperty` on plain objects, which IE
 guarded individually, and the build gate additionally rejects ES3 reserved words used as property
 names, which those engines cannot even parse and no runtime guard could catch.
 
+## Getting the bundles
+
+Released bundles are served from the CDN under a major-version directory:
+
+```
+https://static.flashcat.cloud/browser-sdk/v0/fc-rum-legacy.js
+https://static.flashcat.cloud/browser-sdk/v0/flashcat-rum.js
+```
+
+The directory always holds the latest release of that major version, so re-downloading the same url
+is how a self-hosted copy is updated.
+
+Environments that self-host — the norm for the networks this build targets, where the public CDN is
+often unreachable at all — should not pick files by hand: the standard RUM bundle loads hash-named
+chunk files that must match it exactly. `scripts/deploy/sync-bundles.js` downloads a complete,
+coherent set instead:
+
+```bash
+node scripts/deploy/sync-bundles.js prod v0 ./cdn-bundles
+```
+
+It needs no credentials, fails loudly if any file is missing, and the resulting directory is served
+as-is from the hosting origin — the `<static host>` in the snippet below.
+
 ## Setup
 
 Both builds share the `FC_RUM` global and the same call sequence, so the page carries one snippet.
