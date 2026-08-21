@@ -48,6 +48,11 @@ export type RumSession = {
    */
   sampledOnError: boolean
   /**
+   * Whether the replay of this session is only kept if it reports an error. Same idea as
+   * {@link sampledOnError}, for the replay rather than the events.
+   */
+  sampledOnErrorReplay: boolean
+  /**
    * Where the detail stored for this session starts, for a session whose events were withheld. The
    * gap before it is data that was never collected rather than data that went missing.
    */
@@ -127,6 +132,7 @@ export function startRumSessionManager(
         sessionReplay: computeSessionReplayState(session.trackingType, session.hasError, session.isReplayForced),
         eventsWithheld: computeEventsWithheld(session.trackingType, session.hasError, session.isReplayForced),
         sampledOnError: withholdsEvents(session.trackingType),
+        sampledOnErrorReplay: withholdsReplay(session.trackingType),
         detailSampledFrom: session.detailSampledFrom,
         anonymousId: session.anonymousId,
       }
@@ -142,7 +148,7 @@ export function startRumSessionManager(
   }
 }
 
-function withholdsReplay(trackingType: RumTrackingType) {
+export function withholdsReplay(trackingType: RumTrackingType) {
   return (
     trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY ||
     trackingType === RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
@@ -200,6 +206,7 @@ export function startRumSessionManagerStub(): RumSessionManager {
     sessionReplay: bridgeSupports(BridgeCapability.RECORDS) ? SessionReplayState.SAMPLED : SessionReplayState.OFF,
     eventsWithheld: false,
     sampledOnError: false,
+    sampledOnErrorReplay: false,
   }
   return {
     findTrackedSession: () => session,

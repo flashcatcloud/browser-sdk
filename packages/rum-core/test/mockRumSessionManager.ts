@@ -4,6 +4,7 @@ import {
   computeEventsWithheld,
   computeSessionReplayState,
   withholdsEvents,
+  withholdsReplay,
   type RumSessionManager,
 } from '../src/domain/rumSessionManager'
 
@@ -55,6 +56,7 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
         eventsWithheld: computeEventsWithheld(trackingType, hasError, forcedReplay),
         sampledOnError: withholdsEvents(trackingType),
         detailSampledFrom,
+        sampledOnErrorReplay: withholdsReplay(trackingType),
         anonymousId: 'device-123',
       }
     },
