@@ -12,7 +12,7 @@ const INIT_CONFIGURATION = {
   site: INTAKE_SITE_US1,
   env: 'staging',
   version: '1.2.3',
-  remoteConfiguration: true,
+  remoteConfigurationEnabled: true,
 } as RumInitConfiguration
 
 function configurationWith(partial: Partial<RumConfiguration> = {}) {
@@ -67,7 +67,7 @@ describe('remoteConfiguration', () => {
       start(mockRumConfiguration({ remoteConfig: undefined }))
 
       expect(requested).toBeFalse()
-      expect(buildRemoteConfigSetup({ ...INIT_CONFIGURATION, remoteConfiguration: false })).toBeUndefined()
+      expect(buildRemoteConfigSetup({ ...INIT_CONFIGURATION, remoteConfigurationEnabled: false })).toBeUndefined()
       expect(readRemoteConfig(undefined)).toEqual({})
     })
   })

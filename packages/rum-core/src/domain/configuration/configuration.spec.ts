@@ -562,7 +562,7 @@ describe('serializeRumConfiguration', () => {
       trackWebVitals: true,
       trackResources: true,
       trackLongTasks: true,
-      remoteConfiguration: true,
+      remoteConfigurationEnabled: true,
       remoteConfigurationFetchTimeout: 3000,
       plugins: [{ name: 'foo', getConfigurationTelemetry: () => ({ bar: true }) }],
       trackFeatureFlagsForEvents: ['vital'],
@@ -579,7 +579,7 @@ describe('serializeRumConfiguration', () => {
           : Key extends
                 | 'applicationId'
                 | 'subdomain'
-                | 'remoteConfiguration'
+                | 'remoteConfigurationEnabled'
                 | 'remoteConfigurationFetchTimeout'
                 | 'profilingSampleRate'
                 | 'propagateTraceBaggage'

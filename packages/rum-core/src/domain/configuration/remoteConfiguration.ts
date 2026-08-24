@@ -23,7 +23,7 @@ import type { RumConfiguration, RumInitConfiguration } from './configuration'
  * between sessions; the server's `ttl` field is accepted and ignored, reserved for a future
  * polling mode.
  *
- * Nothing here runs unless `remoteConfiguration: true`. Left off — the default — the SDK makes no
+ * Nothing here runs unless `remoteConfigurationEnabled: true`. Left off — the default — the SDK makes no
  * extra request and behaves exactly as it did before this existed.
  */
 
@@ -273,7 +273,7 @@ function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) 
 }
 
 export function buildRemoteConfigSetup(initConfiguration: RumInitConfiguration): RemoteConfigSetup | undefined {
-  if (!initConfiguration.remoteConfiguration) {
+  if (!initConfiguration.remoteConfigurationEnabled) {
     return undefined
   }
 

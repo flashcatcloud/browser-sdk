@@ -457,7 +457,7 @@ describe('preStartRum', () => {
           createCustomVitalsState(),
           doStartRumSpy
         )
-        strategy.init({ ...DEFAULT_INIT_CONFIGURATION, remoteConfiguration: true }, PUBLIC_API)
+        strategy.init({ ...DEFAULT_INIT_CONFIGURATION, remoteConfigurationEnabled: true }, PUBLIC_API)
 
         expect(doStartRumSpy).toHaveBeenCalled()
         expect(doStartRumSpy.calls.mostRecent().args[0].remoteConfig).toBeDefined()
@@ -605,7 +605,7 @@ describe('preStartRum', () => {
       // Remote settings only ever move the sampling rates, and only inside the session manager.
       // If they were merged into the init configuration instead, anything in it — the client
       // token, the site — could be rewritten from the far end of a request.
-      const initConfiguration = { ...DEFAULT_INIT_CONFIGURATION, remoteConfiguration: true }
+      const initConfiguration = { ...DEFAULT_INIT_CONFIGURATION, remoteConfigurationEnabled: true }
       const strategy = createPreStartStrategy(
         {},
         createTrackingConsentState(),

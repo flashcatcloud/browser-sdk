@@ -83,7 +83,7 @@ export interface RumInitConfiguration extends InitConfiguration {
    *
    * @default false
    */
-  remoteConfiguration?: boolean | undefined
+  remoteConfigurationEnabled?: boolean | undefined
   /**
    * How long to wait for the sampling settings before giving up on that attempt, in milliseconds.
    * Giving up is harmless: the SDK keeps collecting with the settings it already has.
