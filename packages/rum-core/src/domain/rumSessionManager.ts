@@ -12,7 +12,7 @@ import {
   setInterval,
   startSessionManager,
 } from '@flashcatcloud/browser-core'
-import type { RumConfiguration } from './configuration'
+import type { RemoteConfigValues, RumConfiguration } from './configuration'
 import { readRemoteConfig } from './configuration'
 import type { LifeCycle } from './lifeCycle'
 import { LifeCycleEventType } from './lifeCycle'
@@ -312,19 +312,10 @@ function computeSessionState(
     // FLASHCAT FORK - a forced draw skips both lotteries. It sits in the draw branch on purpose:
     // an existing session keeps the decision it was created with, forcing only shapes new ones.
     trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
-    if (configuration.remoteConfig && onDraw) {
-      const remote = readRemoteConfig(configuration.remoteConfig)
-      // Forcing is about whether this visitor is collected at all. It says nothing about which of
-      // their requests carry trace headers or how their page is masked, so those two keep the
-      // delivered values rather than being pinned like the rates.
-      onDraw({
-        version: remote.version,
-        sessionSampleRate: 100,
-        sessionReplaySampleRate: 100,
-        traceSampleRate: remote.traceSampleRate ?? configuration.traceSampleRate,
-        defaultPrivacyLevel: remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
-      })
-    }
+    // Forcing is about whether this visitor is collected at all. It says nothing about which of
+    // their requests carry trace headers or how their page is masked, so those two keep the
+    // delivered values rather than being pinned like the rates.
+    reportDraw(configuration, readRemoteConfig(configuration.remoteConfig), 100, 100, onDraw)
   } else {
     // FLASHCAT FORK - rates set in the console take precedence over the ones passed to init. They
     // are read here, inside the only branch that draws, so a session restored from the store keeps
@@ -360,15 +351,7 @@ function computeSessionState(
       }
     }
 
-    if (configuration.remoteConfig && onDraw) {
-      onDraw({
-        version: remote.version,
-        sessionSampleRate,
-        sessionReplaySampleRate,
-        traceSampleRate: remote.traceSampleRate ?? configuration.traceSampleRate,
-        defaultPrivacyLevel: remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
-      })
-    }
+    reportDraw(configuration, remote, sessionSampleRate, sessionReplaySampleRate, onDraw)
 
     if (!performDraw(sessionSampleRate)) {
       trackingType = RumTrackingType.NOT_TRACKED
@@ -382,6 +365,32 @@ function computeSessionState(
     trackingType,
     isTracked: isTypeTracked(trackingType),
   }
+}
+
+/**
+ * FLASHCAT FORK - hands the draw that just happened to whoever records it. Both draw branches
+ * report the same shape and differ only in the rates: forcing pins them, an ordinary draw uses
+ * what the console and the application settled on. Reporting is skipped entirely when remote
+ * configuration is off, because the init values are then the drawn values and events already
+ * say so.
+ */
+function reportDraw(
+  configuration: RumConfiguration,
+  remote: RemoteConfigValues,
+  sessionSampleRate: number,
+  sessionReplaySampleRate: number,
+  onDraw?: (drawn: DrawnConfiguration) => void
+) {
+  if (!configuration.remoteConfig || !onDraw) {
+    return
+  }
+  onDraw({
+    version: remote.version,
+    sessionSampleRate,
+    sessionReplaySampleRate,
+    traceSampleRate: remote.traceSampleRate ?? configuration.traceSampleRate,
+    defaultPrivacyLevel: remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
+  })
 }
 
 /**
