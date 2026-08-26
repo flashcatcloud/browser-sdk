@@ -28,8 +28,10 @@ function body({
   rum = {} as Record<string, unknown>,
   enabled = true,
   custom = undefined as Record<string, unknown> | undefined,
+  schemaVersion = 1 as number | undefined,
 } = {}) {
   return JSON.stringify({
+    schema_version: schemaVersion,
     version: 3,
     ttl: 600,
     enabled,
@@ -162,6 +164,46 @@ describe('remoteConfiguration', () => {
     })
   })
 
+  describe('refusing a payload it cannot read', () => {
+    const STORED = { sessionSampleRate: 42, version: 2 }
+
+    beforeEach(() => localStorage.setItem(setup!.storeKey, JSON.stringify(STORED)))
+
+    it('keeps the settings in force when the schema version is one this build does not know', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: { sessionSampleRate: 5 }, schemaVersion: 2 }))
+
+        // Not applied and not stored: a shape this build may misread must not reach the recorders,
+        // and must not evict what is already working.
+        expect(readRemoteConfig(setup)).toEqual(STORED)
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('accepts a response from a server too old to stamp a schema version', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: { sessionSampleRate: 5 }, schemaVersion: undefined }))
+
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 5, version: 3 })
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('keeps the settings in force when a 200 carries something that is not a configuration', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        // A captive portal or a gateway error page answering 200. Storing it would blank the cache
+        // and drop the whole fleet back to its init settings.
+        xhr.complete(200, '{}')
+
+        expect(readRemoteConfig(setup)).toEqual(STORED)
+        done()
+      })
+      start(configurationWith())
+    })
+  })
+
   describe('fetching cadence', () => {
     // No polling: the rates only matter at the next draw, so the SDK asks once at start-up and
     // once per session renewal, and stays quiet in between.
@@ -251,6 +293,17 @@ describe('remoteConfiguration', () => {
   })
 
   describe('telling the server what it is running', () => {
+    it('identifies which SDK build is asking', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        // Sent from the first release on: a rule targeting a particular build cannot be written
+        // later, because the clients it would have to match are already deployed.
+        expect(xhr.url).toContain('sdk=web')
+        expect(xhr.url).toContain('sdk_version=')
+        done()
+      })
+      start(configurationWith())
+    })
+
     it('sends nothing the first time, when it is running nothing yet', (done) => {
       interceptor.withMockXhr((xhr) => {
         expect(xhr.url).not.toContain('applied_version')

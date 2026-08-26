@@ -11,6 +11,8 @@ import type { LifeCycle } from '../lifeCycle'
 import { LifeCycleEventType } from '../lifeCycle'
 import type { RumConfiguration, RumInitConfiguration } from './configuration'
 
+declare const __BUILD_ENV__SDK_VERSION__: string
+
 /**
  * SDK settings the application owner can change from the console, without the customer shipping a
  * new release of their site: the sampling rates, the trace sample rate, and how Session Replay
@@ -105,11 +107,40 @@ export interface RemoteConfigSetup {
   fetchTimeout: number
 }
 
+/**
+ * The shape this SDK knows how to read. The server stamps it on every response, and a value this
+ * build does not recognise means the payload changed in a way it could misread — so the whole
+ * response is discarded and the settings already in force are kept.
+ *
+ * Absent is treated as compatible: only a server older than the field itself omits it, and such a
+ * server predates every shape change this guards against.
+ */
+const SUPPORTED_SCHEMA_VERSION = 1
+
 interface RemoteConfigurationResponse {
+  schema_version?: number
   version: number
   enabled: boolean
   rum: RemoteConfigValues
   custom?: Record<string, unknown>
+}
+
+/**
+ * A 200 is not by itself proof that the body came from the configuration endpoint: a captive
+ * portal, a misrouted proxy or a gateway error page can all answer 200 with something else
+ * entirely. Anything that is not recognisably a configuration response is refused here rather than
+ * stored, because storing it would overwrite the cache with an empty record and drop the whole
+ * fleet back to its init settings for as long as that lasted.
+ */
+function isSupportedResponse(body: unknown): body is RemoteConfigurationResponse {
+  if (!body || typeof body !== 'object') {
+    return false
+  }
+  const candidate = body as Partial<RemoteConfigurationResponse>
+  if (candidate.schema_version !== undefined && candidate.schema_version !== SUPPORTED_SCHEMA_VERSION) {
+    return false
+  }
+  return typeof candidate.version === 'number'
 }
 
 /**
@@ -220,7 +251,8 @@ function fetchRemoteConfiguration(
       return
     }
     try {
-      callback(JSON.parse(xhr.responseText) as RemoteConfigurationResponse)
+      const body: unknown = JSON.parse(xhr.responseText)
+      callback(isSupportedResponse(body) ? body : undefined)
     } catch {
       callback(undefined)
     }
@@ -305,7 +337,14 @@ function buildStoreKey(initConfiguration: RumInitConfiguration) {
 }
 
 function buildParameters(initConfiguration: RumInitConfiguration) {
-  const parameters = [`client_token=${encodeURIComponent(initConfiguration.clientToken)}`, 'sdk=web']
+  // sdk_version rides along from the first release so settings can later be targeted at the
+  // clients running a particular build — a rule that cannot be written retroactively, because the
+  // clients it would have to match are the ones already deployed.
+  const parameters = [
+    `client_token=${encodeURIComponent(initConfiguration.clientToken)}`,
+    'sdk=web',
+    `sdk_version=${encodeURIComponent(__BUILD_ENV__SDK_VERSION__)}`,
+  ]
   if (initConfiguration.env) {
     parameters.push(`env=${encodeURIComponent(initConfiguration.env)}`)
   }
