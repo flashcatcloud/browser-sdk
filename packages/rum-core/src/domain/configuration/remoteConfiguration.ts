@@ -166,11 +166,45 @@ export function readRemoteConfig(setup: RemoteConfigSetup | undefined): RemoteCo
 
   try {
     const stored = localStorage.getItem(setup.storeKey)
-    return stored ? (JSON.parse(stored) as RemoteConfigValues) : {}
+    return stored ? readStoredValues(JSON.parse(stored)) : {}
   } catch {
     // Storage unavailable or holding something we did not write: fall back to the local settings.
     return {}
   }
+}
+
+/**
+ * Storage is checked on the way out as strictly as a response is on the way in. Everything written
+ * here passed those checks, but anything in a browser profile can be edited by hand, survives an
+ * SDK downgrade, and is shared with whatever else writes to this origin. A value that is not a rate
+ * must read as "not delivered" and leave the site's own setting in place: handed on instead, a
+ * string where a number belongs reaches the arithmetic that assembles every event.
+ */
+function readStoredValues(parsed: unknown): RemoteConfigValues {
+  if (!parsed || typeof parsed !== 'object') {
+    return {}
+  }
+  const stored = parsed as Partial<RemoteConfigValues>
+  const values: RemoteConfigValues = {}
+  if (typeof stored.version === 'number') {
+    values.version = stored.version
+  }
+  if (isRate(stored.sessionSampleRate)) {
+    values.sessionSampleRate = stored.sessionSampleRate
+  }
+  if (isRate(stored.sessionReplaySampleRate)) {
+    values.sessionReplaySampleRate = stored.sessionReplaySampleRate
+  }
+  if (isRate(stored.traceSampleRate)) {
+    values.traceSampleRate = stored.traceSampleRate
+  }
+  if (isPrivacyLevel(stored.defaultPrivacyLevel)) {
+    values.defaultPrivacyLevel = stored.defaultPrivacyLevel
+  }
+  if (stored.custom && typeof stored.custom === 'object') {
+    values.custom = stored.custom
+  }
+  return values
 }
 
 /**
@@ -397,10 +431,10 @@ function buildParameters(initConfiguration: RumInitConfiguration, appliedVersion
   return parameters.join('&')
 }
 
-function isRate(value: unknown): value is number {
+export function isRate(value: unknown): value is number {
   return typeof value === 'number' && value >= 0 && value <= 100
 }
 
-function isPrivacyLevel(value: unknown): value is DefaultPrivacyLevel {
+export function isPrivacyLevel(value: unknown): value is DefaultPrivacyLevel {
   return value === 'mask' || value === 'mask-user-input' || value === 'allow'
 }

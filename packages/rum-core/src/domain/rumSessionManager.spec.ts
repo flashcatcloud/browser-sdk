@@ -513,6 +513,32 @@ describe('rum session manager', () => {
       })
     })
 
+    it('refuses a stored record whose rates are not rates', () => {
+      // The record is read back on every event assembled for the session, so one holding a string
+      // where a number belongs would carry that string into the arithmetic. Anything in a browser
+      // profile can be edited by hand, so it is checked on the way out as well as on the way in.
+      // Refused, it reads exactly like a site that never wrote one: the session carries no drawn
+      // configuration and events fall back to the settings init was given.
+      storeRemote({ version: 7, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+      stopSessionManager()
+
+      const tampered = JSON.parse(localStorage.getItem(DRAW_KEY)!) as Record<string, unknown>
+      localStorage.setItem(DRAW_KEY, JSON.stringify({ ...tampered, sessionSampleRate: 'all of them' }))
+
+      const restartedManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+      })
+
+      // The sibling test above shows the same flow without tampering restores the record, so this
+      // is evidence of a refusal rather than of the record never having been written.
+      expect(restartedManager.findTrackedSession()!.drawnConfiguration).toBeUndefined()
+    })
+
     it('latches the delivered trace rate and privacy level, not just the sampling rates', () => {
       storeRemote({
         version: 21,

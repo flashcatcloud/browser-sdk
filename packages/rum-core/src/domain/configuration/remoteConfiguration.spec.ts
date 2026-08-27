@@ -204,6 +204,44 @@ describe('remoteConfiguration', () => {
     })
   })
 
+  describe('reading storage back', () => {
+    // Storage is not ours alone: it survives an SDK downgrade, it is shared with everything else on
+    // the origin, and anyone can edit it in devtools. A value that is not usable has to read as
+    // "nothing was delivered" so the site's own settings stay in force.
+    it('ignores a rate that is not a number', () => {
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 'lots', version: 2 }))
+
+      expect(readRemoteConfig(setup)).toEqual({ version: 2 })
+    })
+
+    it('ignores a rate outside the range a rate can take', () => {
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 140, version: 2 }))
+
+      expect(readRemoteConfig(setup)).toEqual({ version: 2 })
+    })
+
+    it('ignores a privacy level it does not recognise', () => {
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ defaultPrivacyLevel: 'off', version: 2 }))
+
+      expect(readRemoteConfig(setup)).toEqual({ version: 2 })
+    })
+
+    it('keeps the values either side of a bad one', () => {
+      localStorage.setItem(
+        setup!.storeKey,
+        JSON.stringify({ sessionSampleRate: 42, sessionReplaySampleRate: null, traceSampleRate: 7, version: 2 })
+      )
+
+      expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 42, traceSampleRate: 7, version: 2 })
+    })
+
+    it('reads nothing at all out of a value that is not an object', () => {
+      localStorage.setItem(setup!.storeKey, '"a string"')
+
+      expect(readRemoteConfig(setup)).toEqual({})
+    })
+  })
+
   describe('fetching cadence', () => {
     // No polling: the rates only matter at the next draw, so the SDK asks once at start-up and
     // once per session renewal, and stays quiet in between.

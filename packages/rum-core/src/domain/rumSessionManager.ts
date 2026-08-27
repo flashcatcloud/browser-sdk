@@ -17,7 +17,7 @@ import {
   startSessionManager,
 } from '@flashcatcloud/browser-core'
 import type { RemoteConfigValues, RumConfiguration } from './configuration'
-import { readRemoteConfig } from './configuration'
+import { isPrivacyLevel, isRate, readRemoteConfig } from './configuration'
 import type { LifeCycle } from './lifeCycle'
 import { LifeCycleEventType } from './lifeCycle'
 
@@ -446,18 +446,28 @@ function readDrawRecord(configuration: RumConfiguration, sessionId: string): Dra
     // Storage unavailable, or holding something we did not write.
     return undefined
   }
-  if (!record || record.id !== sessionId) {
+  if (!record || typeof record !== 'object' || record.id !== sessionId) {
+    return undefined
+  }
+  // The rates a session was drawn under are read back on every event assembled for it, so a record
+  // that does not hold numbers is worse than no record at all: it would carry a value of the wrong
+  // type into arithmetic rather than fall back to the settings the site passed to init. Anything in
+  // a browser profile can be edited by hand or left behind by another version, so this is checked
+  // on the way out as well as on the way in.
+  if (!isRate(record.sessionSampleRate) || !isRate(record.sessionReplaySampleRate)) {
     return undefined
   }
   return {
-    version: record.version,
+    version: typeof record.version === 'number' ? record.version : undefined,
     sessionSampleRate: record.sessionSampleRate,
     sessionReplaySampleRate: record.sessionReplaySampleRate,
-    // A record written before these two existed has neither. Falling back to init is the same
-    // answer the session was already getting, so an SDK upgrade mid-session changes nothing about
-    // how it is traced or masked.
-    traceSampleRate: record.traceSampleRate ?? configuration.traceSampleRate,
-    defaultPrivacyLevel: record.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
+    // A record written before these two existed has neither, and so does one holding something we
+    // cannot use. Falling back to init is the same answer the session was already getting, so an
+    // SDK upgrade mid-session changes nothing about how it is traced or masked.
+    traceSampleRate: isRate(record.traceSampleRate) ? record.traceSampleRate : configuration.traceSampleRate,
+    defaultPrivacyLevel: isPrivacyLevel(record.defaultPrivacyLevel)
+      ? record.defaultPrivacyLevel
+      : configuration.defaultPrivacyLevel,
   }
 }
 
