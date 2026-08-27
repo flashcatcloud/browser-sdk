@@ -24,7 +24,7 @@ import type { RumPlugin } from '../plugins'
 import { isTracingOption } from '../tracing/tracer'
 import type { PropagatorType, TracingOption } from '../tracing/tracer.types'
 import type { BeforeSamplingCallback, RemoteConfigSetup } from './remoteConfiguration'
-import { buildRemoteConfigSetup } from './remoteConfiguration'
+import { buildDrawStoreKey, buildRemoteConfigSetup } from './remoteConfiguration'
 
 export const DEFAULT_PROPAGATOR_TYPES: PropagatorType[] = ['tracecontext']
 
@@ -251,6 +251,12 @@ export interface RumConfiguration extends Configuration {
    */
   remoteConfig: RemoteConfigSetup | undefined
   beforeSampling: BeforeSamplingCallback | undefined
+  /**
+   * Where the session manager keeps the record of the draw that created the current session. Set
+   * for every site, not only the ones that opted into remote configuration: `beforeSampling` and
+   * `setForcedSession()` move a draw off the init values on their own.
+   */
+  drawStoreKey: string
 }
 
 export function validateAndBuildRumConfiguration(
@@ -335,6 +341,7 @@ export function validateAndBuildRumConfiguration(
     propagateTraceBaggage: !!initConfiguration.propagateTraceBaggage,
     remoteConfig: buildRemoteConfigSetup(initConfiguration),
     beforeSampling: initConfiguration.beforeSampling,
+    drawStoreKey: buildDrawStoreKey(initConfiguration),
     ...baseConfiguration,
   }
 }

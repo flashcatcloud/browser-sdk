@@ -2,6 +2,7 @@ import type { RelativeTime } from '@flashcatcloud/browser-core'
 import {
   STORAGE_POLL_DELAY,
   SESSION_STORE_KEY,
+  relativeNow,
   setCookie,
   stopSessionManager,
   ONE_SECOND,
@@ -213,7 +214,7 @@ describe('rum session manager', () => {
   // FLASHCAT FORK - sampling rates set in the console.
   describe('remote sampling', () => {
     const STORE_KEY = 'test-remote-sampling'
-    const REMOTE_SAMPLING_SETUP = { url: 'https://example.com/config', storeKey: STORE_KEY, fetchTimeout: 3000 }
+    const REMOTE_SAMPLING_SETUP = { buildUrl: () => 'https://example.com/config', storeKey: STORE_KEY, fetchTimeout: 3000 }
 
     function storeRemoteConfigValues(values: {
       version?: number
@@ -284,7 +285,7 @@ describe('rum session manager', () => {
 
   describe('beforeSampling', () => {
     const STORE_KEY = 'test-before-sampling'
-    const REMOTE_SAMPLING_SETUP = { url: 'https://example.com/config', storeKey: STORE_KEY, fetchTimeout: 3000 }
+    const REMOTE_SAMPLING_SETUP = { buildUrl: () => 'https://example.com/config', storeKey: STORE_KEY, fetchTimeout: 3000 }
 
     function storeRemote(stored: object) {
       localStorage.setItem(STORE_KEY, JSON.stringify(stored))
@@ -410,21 +411,21 @@ describe('rum session manager', () => {
 
   describe('drawn configuration', () => {
     const STORE_KEY = 'test-drawn-configuration'
-    const REMOTE_SAMPLING_SETUP = { url: 'https://example.com/config', storeKey: STORE_KEY, fetchTimeout: 3000 }
+    const DRAW_KEY = 'test-drawn-configuration-draw'
+    const REMOTE_SAMPLING_SETUP = { buildUrl: () => 'https://example.com/config', storeKey: STORE_KEY, fetchTimeout: 3000 }
+
+    afterEach(() => localStorage.removeItem(DRAW_KEY))
 
     function storeRemote(stored: object) {
       localStorage.setItem(STORE_KEY, JSON.stringify(stored))
-      registerCleanupTask(() => {
-        localStorage.removeItem(STORE_KEY)
-        localStorage.removeItem(`${STORE_KEY}_draw`)
-      })
+      registerCleanupTask(() => localStorage.removeItem(STORE_KEY))
     }
 
     it('exposes the rates and version the session was drawn under', () => {
       storeRemote({ version: 12, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
 
       const rumSessionManager = startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP },
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 
@@ -444,6 +445,7 @@ describe('rum session manager', () => {
         configuration: {
           sessionSampleRate: 0,
           remoteConfig: REMOTE_SAMPLING_SETUP,
+          drawStoreKey: DRAW_KEY,
           beforeSampling: () => ({ sessionSampleRate: 100, sessionReplaySampleRate: 100 }),
         },
       })
@@ -462,7 +464,7 @@ describe('rum session manager', () => {
       storeRemote({ version: 5, sessionSampleRate: 0, sessionReplaySampleRate: 0 })
 
       const rumSessionManager = startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP },
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
       })
       rumSessionManager.setForcedSession()
       clock.tick(STORAGE_POLL_DELAY)
@@ -481,13 +483,13 @@ describe('rum session manager', () => {
       storeRemote({ version: 7, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
 
       startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP },
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
       stopSessionManager()
 
       const restartedManager = startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP },
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
       })
 
       expect(restartedManager.findTrackedSession()!.drawnConfiguration).toEqual({
@@ -514,6 +516,7 @@ describe('rum session manager', () => {
           traceSampleRate: 100,
           defaultPrivacyLevel: 'mask',
           remoteConfig: REMOTE_SAMPLING_SETUP,
+          drawStoreKey: DRAW_KEY,
         },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
@@ -536,6 +539,7 @@ describe('rum session manager', () => {
           traceSampleRate: 100,
           defaultPrivacyLevel: 'mask',
           remoteConfig: REMOTE_SAMPLING_SETUP,
+          drawStoreKey: DRAW_KEY,
         },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
@@ -558,16 +562,16 @@ describe('rum session manager', () => {
     it('falls back to init for a record written before these two were stored', () => {
       setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
       localStorage.setItem(
-        `${STORE_KEY}_draw`,
+        DRAW_KEY,
         JSON.stringify({ id: 'abcdef', version: 4, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
       )
-      registerCleanupTask(() => localStorage.removeItem(`${STORE_KEY}_draw`))
 
       const rumSessionManager = startRumSessionManagerWithDefaults({
         configuration: {
           traceSampleRate: 42,
           defaultPrivacyLevel: 'mask-user-input',
           remoteConfig: REMOTE_SAMPLING_SETUP,
+          drawStoreKey: DRAW_KEY,
         },
       })
 
@@ -579,26 +583,100 @@ describe('rum session manager', () => {
     it('never matches a session the record was not written for', () => {
       setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
       localStorage.setItem(
-        `${STORE_KEY}_draw`,
+        DRAW_KEY,
         JSON.stringify({ id: 'other-session', version: 9, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
       )
-      registerCleanupTask(() => localStorage.removeItem(`${STORE_KEY}_draw`))
 
       const rumSessionManager = startRumSessionManagerWithDefaults({
-        configuration: { remoteConfig: REMOTE_SAMPLING_SETUP },
+        configuration: { remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
       })
 
       expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toBeUndefined()
     })
 
-    it('is absent when remote configuration is off', () => {
+    it('is absent when the draw landed on exactly what init passed', () => {
       const rumSessionManager = startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 100 },
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 100, drawStoreKey: DRAW_KEY },
       })
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 
       expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toBeUndefined()
+      expect(localStorage.getItem(DRAW_KEY)).toBeNull()
     })
+
+    it('records a draw beforeSampling moved, with remote configuration off', () => {
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 0,
+          sessionReplaySampleRate: 0,
+          drawStoreKey: DRAW_KEY,
+          beforeSampling: () => ({ sessionSampleRate: 100, sessionReplaySampleRate: 100 }),
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toEqual({
+        version: undefined,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: 100,
+        defaultPrivacyLevel: 'mask',
+      })
+    })
+
+    it('adopts the record another tab wrote for the session it renewed onto', () => {
+      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+      })
+
+      // Another tab draws the next session and records it. Nothing is drawn on this page, so
+      // reading that record back is the only way it can report and trace the session it now shares
+      // the way the tab that drew it does.
+      setCookie(SESSION_STORE_KEY, 'id=drawn-elsewhere&rum=1', DURATION)
+      localStorage.setItem(
+        DRAW_KEY,
+        JSON.stringify({
+          id: 'drawn-elsewhere',
+          version: 8,
+          sessionSampleRate: 20,
+          sessionReplaySampleRate: 20,
+          traceSampleRate: 30,
+          defaultPrivacyLevel: 'allow',
+        })
+      )
+      clock.tick(STORAGE_POLL_DELAY)
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      const session = rumSessionManager.findTrackedSession()!
+      expect(session.id).toBe('drawn-elsewhere')
+      expect(session.drawnConfiguration).toEqual({
+        version: 8,
+        sessionSampleRate: 20,
+        sessionReplaySampleRate: 20,
+        traceSampleRate: 30,
+        defaultPrivacyLevel: 'allow',
+      })
+    })
+
+    it('answers for the session an event belongs to, not the one that is current', () => {
+      storeRemote({ version: 1, sessionSampleRate: 100, sessionReplaySampleRate: 100, traceSampleRate: 10 })
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+      const duringFirstSession = relativeNow()
+
+      // The console changes the trace rate; the session it applies to is the next one.
+      storeRemote({ version: 2, sessionSampleRate: 100, sessionReplaySampleRate: 100, traceSampleRate: 90 })
+      expireCookie()
+      clock.tick(STORAGE_POLL_DELAY)
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration!.traceSampleRate).toBe(90)
+      expect(rumSessionManager.findTrackedSession(duringFirstSession)!.drawnConfiguration!.traceSampleRate).toBe(10)
+    })
+
   })
 
   function startRumSessionManagerWithDefaults({ configuration }: { configuration?: Partial<RumConfiguration> } = {}) {

@@ -2,13 +2,17 @@ import type { DefaultPrivacyLevel, RelativeTime, TrackingConsentState } from '@f
 import {
   BridgeCapability,
   Observable,
+  SESSION_TIME_OUT_DELAY,
   STORAGE_POLL_DELAY,
   bridgeSupports,
   clearInterval,
+  clocksOrigin,
+  createValueHistory,
   display,
   getEventBridge,
   noop,
   performDraw,
+  relativeNow,
   setInterval,
   startSessionManager,
 } from '@flashcatcloud/browser-core'
@@ -56,9 +60,9 @@ export type RumSession = {
   id: string
   sessionReplay: SessionReplayState
   anonymousId?: string
-  // FLASHCAT FORK - absent when remote configuration is off, or when the record of the draw did not
-  // survive (storage unavailable); events then keep reporting the init values, which in those cases
-  // are the values the draw used anyway.
+  // FLASHCAT FORK - absent when the draw used exactly what init passed — nothing to override then,
+  // the events already report those values — and when the record of the draw did not survive
+  // (storage unavailable).
   drawnConfiguration?: DrawnConfiguration
 }
 
@@ -85,11 +89,17 @@ export function startRumSessionManager(
   let forcedSession = false
 
   // FLASHCAT FORK - the metadata of the most recent draw, captured inside `computeSessionState`
-  // (which cannot know the session id — the id is generated afterwards) and married to the id on
-  // the renew notification. Persisted so a session restored on the next page load still knows the
-  // decision it was created under.
+  // (which cannot know the session id — the id is generated afterwards) and married to the session
+  // it created as soon as that session exists.
   let pendingDraw: DrawnConfiguration | undefined
-  let drawnForSession = readDrawRecord(configuration)
+
+  // FLASHCAT FORK - the decision each session was created under, indexed by the time it started
+  // applying, exactly like the session contexts it belongs to one layer down. An event is assembled
+  // after the fact — a resource can be turned into an event after the session that requested it has
+  // already been renewed — so the decision has to be looked up at the event's own time rather than
+  // read off whichever session happens to be current, or the event would report the rates of a draw
+  // it had no part in.
+  const drawnHistory = createValueHistory<DrawnConfiguration>({ expireDelay: SESSION_TIME_OUT_DELAY })
 
   const sessionManager = startSessionManager(
     configuration,
@@ -103,29 +113,46 @@ export function startRumSessionManager(
 
   sessionManager.expireObservable.subscribe(() => {
     lifeCycle.notify(LifeCycleEventType.SESSION_EXPIRED)
+    drawnHistory.closeActive(relativeNow())
   })
 
-  // FLASHCAT FORK - marries the metadata of the draw to the id of the session it created.
-  function recordPendingDraw() {
-    if (!pendingDraw) {
+  // FLASHCAT FORK - notes the decision the session that just became current was created under.
+  // That draw happened either on this page — `pendingDraw`, which is also written out for everyone
+  // else — or somewhere this page cannot see: another tab drawing the session it now shares, or a
+  // previous page load whose session it just restored. Storage is what carries the decision across
+  // both of those gaps, and reading it back is what keeps two tabs on one session from tracing and
+  // reporting it under two different sets of rates.
+  //
+  // The record is written just after the session store already holds the new session, in the same
+  // synchronous stack: a tab whose storage poll fell exactly between the two would find no record
+  // and keep its own settings for that session. Writing it earlier is not possible from here — the
+  // id it belongs to is generated inside the store, as that session is persisted.
+  function trackDraw(startTime: RelativeTime) {
+    const drawn = pendingDraw
+    pendingDraw = undefined
+    const sessionEntity = sessionManager.findSession()
+    if (!sessionEntity?.id) {
       return
     }
-    const sessionEntity = sessionManager.findSession()
-    if (sessionEntity?.id) {
-      drawnForSession = { id: sessionEntity.id, ...pendingDraw }
-      writeDrawRecord(configuration, drawnForSession)
+    if (drawn) {
+      writeDrawRecord(configuration, { id: sessionEntity.id, ...drawn })
+      drawnHistory.add(drawn, startTime)
+      return
     }
-    pendingDraw = undefined
+    const stored = readDrawRecord(configuration, sessionEntity.id)
+    if (stored) {
+      drawnHistory.add(stored, startTime)
+    }
   }
 
   // FLASHCAT FORK - the very first draw happens inside startSessionManager, before any
   // subscription could see its renewal; every later draw announces itself through renew.
-  recordPendingDraw()
+  trackDraw(clocksOrigin().relative)
 
   sessionManager.renewObservable.subscribe(() => {
     // Record the draw before anything reacts to the renewal, so the first events assembled for
     // the new session already carry it.
-    recordPendingDraw()
+    trackDraw(relativeNow())
     lifeCycle.notify(LifeCycleEventType.SESSION_RENEWED)
   })
 
@@ -152,21 +179,9 @@ export function startRumSessionManager(
               ? SessionReplayState.FORCED
               : SessionReplayState.OFF,
         anonymousId: session.anonymousId,
-        // FLASHCAT FORK - the id match is the validity check: the record survives page loads in
-        // storage, and a record from a previous, expired session simply never matches again.
-        drawnConfiguration:
-          drawnForSession && drawnForSession.id === session.id
-            ? {
-                version: drawnForSession.version,
-                sessionSampleRate: drawnForSession.sessionSampleRate,
-                sessionReplaySampleRate: drawnForSession.sessionReplaySampleRate,
-                // A record written before these two existed has neither. Falling back to init is
-                // the same answer the session was already getting, so an SDK upgrade mid-session
-                // changes nothing about how it is traced or masked.
-                traceSampleRate: drawnForSession.traceSampleRate ?? configuration.traceSampleRate,
-                defaultPrivacyLevel: drawnForSession.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
-              }
-            : undefined,
+        // FLASHCAT FORK - looked up at the same time as the session itself, so an event that
+        // belongs to a session already renewed still reports the draw that created it.
+        drawnConfiguration: drawnHistory.find(startTime),
       }
     },
     expire: sessionManager.expire,
@@ -300,9 +315,9 @@ function computeSessionState(
   configuration: RumConfiguration,
   rawTrackingType?: string,
   forcedSession?: boolean,
-  // FLASHCAT FORK - called only when a draw actually happens (never for a restored session), with
-  // the rates the draw used and the remote version they came from. Only meaningful with remote
-  // configuration on: without it the init values are the drawn values and events already say so.
+  // FLASHCAT FORK - called when a draw actually happens (never for a restored session) and lands
+  // on something other than the init values, with the rates the draw used and the remote version
+  // they came from.
   onDraw?: (drawn: DrawnConfiguration) => void
 ) {
   let trackingType: RumTrackingType
@@ -370,9 +385,14 @@ function computeSessionState(
 /**
  * FLASHCAT FORK - hands the draw that just happened to whoever records it. Both draw branches
  * report the same shape and differ only in the rates: forcing pins them, an ordinary draw uses
- * what the console and the application settled on. Reporting is skipped entirely when remote
- * configuration is off, because the init values are then the drawn values and events already
- * say so.
+ * what the console and the application settled on.
+ *
+ * What decides whether a draw is worth recording is the draw itself, not which feature produced it:
+ * a draw that used exactly what init passed is already described by the events, so recording it
+ * would buy nothing and cost a storage write on every site that turned none of this on. Everything
+ * else is recorded — including a `beforeSampling` override or a forced session on a site with
+ * remote configuration switched off, where the rates used and the rates init passed are precisely
+ * the values that differ.
  */
 function reportDraw(
   configuration: RumConfiguration,
@@ -381,47 +401,66 @@ function reportDraw(
   sessionReplaySampleRate: number,
   onDraw?: (drawn: DrawnConfiguration) => void
 ) {
-  if (!configuration.remoteConfig || !onDraw) {
+  if (!onDraw) {
     return
   }
-  onDraw({
+  const drawn: DrawnConfiguration = {
     version: remote.version,
     sessionSampleRate,
     sessionReplaySampleRate,
     traceSampleRate: remote.traceSampleRate ?? configuration.traceSampleRate,
     defaultPrivacyLevel: remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
-  })
+  }
+  if (
+    drawn.version === undefined &&
+    drawn.sessionSampleRate === configuration.sessionSampleRate &&
+    drawn.sessionReplaySampleRate === configuration.sessionReplaySampleRate &&
+    drawn.traceSampleRate === configuration.traceSampleRate &&
+    drawn.defaultPrivacyLevel === configuration.defaultPrivacyLevel
+  ) {
+    return
+  }
+  onDraw(drawn)
 }
 
 /**
- * FLASHCAT FORK - the record of the last draw, keyed like the settings cache so applications on one
- * host never read each other's. One record only: it belongs to the current session, and the id is
- * checked on every read, so a stale record is inert rather than wrong.
+ * FLASHCAT FORK - the record of the draw that created the current session, and the only channel
+ * through which a page that did not perform that draw can learn of it: the tab that drew writes it
+ * before any other tab can see the session, and a page load restoring a session finds it waiting.
+ * One record is enough — it describes whichever session is current, and the id is checked on read,
+ * so a record left behind by an expired session is inert rather than wrong.
+ *
+ * The read is not conditional on anything: a session is shared across tabs and page loads, so this
+ * page cannot know whether the page or tab that drew it had a reason to record one. A site that
+ * enabled none of this simply never wrote a record and the lookup finds nothing.
  */
-function drawRecordStoreKey(configuration: RumConfiguration) {
-  return configuration.remoteConfig && `${configuration.remoteConfig.storeKey}_draw`
-}
-
-function readDrawRecord(configuration: RumConfiguration): ({ id: string } & DrawnConfiguration) | undefined {
-  const key = drawRecordStoreKey(configuration)
-  if (!key) {
+function readDrawRecord(configuration: RumConfiguration, sessionId: string): DrawnConfiguration | undefined {
+  let record: ({ id: string } & DrawnConfiguration) | undefined
+  try {
+    const stored = localStorage.getItem(configuration.drawStoreKey)
+    record = stored ? (JSON.parse(stored) as { id: string } & DrawnConfiguration) : undefined
+  } catch {
+    // Storage unavailable, or holding something we did not write.
     return undefined
   }
-  try {
-    const stored = localStorage.getItem(key)
-    return stored ? (JSON.parse(stored) as { id: string } & DrawnConfiguration) : undefined
-  } catch {
+  if (!record || record.id !== sessionId) {
     return undefined
+  }
+  return {
+    version: record.version,
+    sessionSampleRate: record.sessionSampleRate,
+    sessionReplaySampleRate: record.sessionReplaySampleRate,
+    // A record written before these two existed has neither. Falling back to init is the same
+    // answer the session was already getting, so an SDK upgrade mid-session changes nothing about
+    // how it is traced or masked.
+    traceSampleRate: record.traceSampleRate ?? configuration.traceSampleRate,
+    defaultPrivacyLevel: record.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
   }
 }
 
 function writeDrawRecord(configuration: RumConfiguration, record: { id: string } & DrawnConfiguration) {
-  const key = drawRecordStoreKey(configuration)
-  if (!key) {
-    return
-  }
   try {
-    localStorage.setItem(key, JSON.stringify(record))
+    localStorage.setItem(configuration.drawStoreKey, JSON.stringify(record))
   } catch {
     // Storage unavailable: the record simply does not survive this page load.
   }

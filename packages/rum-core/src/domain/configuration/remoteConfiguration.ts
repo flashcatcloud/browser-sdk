@@ -37,6 +37,11 @@ const CONFIG_PATH = '/api/v2/rum/config'
  * instead of asking new code to parse it.
  */
 const STORE_KEY_PREFIX = '_fc_rc_1_'
+/**
+ * The draw record's own format version, for the same reason and read the same way — see
+ * `buildDrawStoreKey`.
+ */
+const DRAW_STORE_KEY_PREFIX = '_fc_draw_1_'
 const DEFAULT_FETCH_TIMEOUT = 3 * ONE_SECOND
 
 /**
@@ -102,7 +107,13 @@ export type BeforeSamplingCallback = (
  * off in one place.
  */
 export interface RemoteConfigSetup {
-  url: string
+  /**
+   * The request URL for a client running `appliedVersion`. The version is built into the request
+   * parameters rather than appended to a finished URL because behind a `proxy` the finished URL is
+   * the proxy's own: everything the intake gets to see travels inside its `ddforward` parameter, so
+   * anything appended after the fact is read by the proxy and dropped there.
+   */
+  buildUrl: (appliedVersion: number | undefined) => string
   storeKey: string
   fetchTimeout: number
 }
@@ -180,6 +191,7 @@ function keepConfigFresh(configuration: RumConfiguration, setup: RemoteConfigSet
   let retryTimeoutId: TimeoutId | undefined
   let failedAttempts = 0
   let inFlight = false
+  let stopped = false
 
   function fetchNow() {
     if (inFlight) {
@@ -189,6 +201,13 @@ function keepConfigFresh(configuration: RumConfiguration, setup: RemoteConfigSet
 
     fetchRemoteConfiguration(configuration, setup, readRemoteConfig(setup).version, (response) => {
       inFlight = false
+      if (stopped) {
+        // The SDK was stopped while this request was in flight. Clearing the timer on the way out
+        // cannot reach a retry that has not been scheduled yet, so the answer is dropped here:
+        // storing it would write settings nobody is reading any more, and retrying would keep a
+        // request cycle alive past the thing that started it.
+        return
+      }
       if (response) {
         failedAttempts = 0
         store(setup, response)
@@ -213,6 +232,7 @@ function keepConfigFresh(configuration: RumConfiguration, setup: RemoteConfigSet
   onTrigger()
 
   return () => {
+    stopped = true
     renewSubscription.unsubscribe()
     clearTimeout(retryTimeoutId)
   }
@@ -260,9 +280,7 @@ function fetchRemoteConfiguration(
   addEventListener(configuration, xhr, 'error', () => callback(undefined))
   addEventListener(configuration, xhr, 'timeout', () => callback(undefined))
 
-  // Telling the server which version this client is running is what lets the console answer "has
-  // my change reached everyone yet". It is sent on the request every client makes, kept or not.
-  xhr.open('GET', appliedVersion ? `${setup.url}&applied_version=${appliedVersion}` : setup.url)
+  xhr.open('GET', setup.buildUrl(appliedVersion))
   xhr.timeout = setup.fetchTimeout
   xhr.send()
 }
@@ -312,7 +330,7 @@ export function buildRemoteConfigSetup(initConfiguration: RumInitConfiguration):
   const buildUrl = createEndpointUrlBuilder(initConfiguration, 'rum', CONFIG_PATH)
 
   return {
-    url: buildUrl(buildParameters(initConfiguration)),
+    buildUrl: (appliedVersion) => buildUrl(buildParameters(initConfiguration, appliedVersion)),
     storeKey: buildStoreKey(initConfiguration),
     fetchTimeout: initConfiguration.remoteConfigurationFetchTimeout ?? DEFAULT_FETCH_TIMEOUT,
   }
@@ -327,16 +345,34 @@ export function buildRemoteConfigSetup(initConfiguration: RumInitConfiguration):
  * the cache.
  */
 function buildStoreKey(initConfiguration: RumInitConfiguration) {
-  const parts = [
-    initConfiguration.site ?? '',
-    initConfiguration.applicationId,
-    initConfiguration.env ?? '',
-    initConfiguration.version ?? '',
-  ]
-  return STORE_KEY_PREFIX + parts.map(encodeURIComponent).join('_')
+  return buildKey(STORE_KEY_PREFIX, identityParts(initConfiguration).concat(initConfiguration.version ?? ''))
 }
 
-function buildParameters(initConfiguration: RumInitConfiguration) {
+/**
+ * The key of the draw record the session manager writes. It shares the identity of the settings
+ * cache but deliberately not its application version: the record belongs to the session, and a
+ * session outlives a deploy. Keying it by version would lose the decision the moment a visitor with
+ * a live session navigates onto a newly deployed page, putting that session's events and its
+ * tracer back on the init values — the mid-session flip the record exists to prevent.
+ *
+ * Built for every site, not only the ones that opted in: `beforeSampling` and `setForcedSession()`
+ * move a draw off the init values with remote configuration switched off.
+ */
+export function buildDrawStoreKey(initConfiguration: RumInitConfiguration) {
+  return buildKey(DRAW_STORE_KEY_PREFIX, identityParts(initConfiguration))
+}
+
+// Which application, on which host, in which environment: a visitor moving between two of them
+// must never read the other's.
+function identityParts(initConfiguration: RumInitConfiguration) {
+  return [initConfiguration.site ?? '', initConfiguration.applicationId, initConfiguration.env ?? '']
+}
+
+function buildKey(prefix: string, parts: string[]) {
+  return prefix + parts.map(encodeURIComponent).join('_')
+}
+
+function buildParameters(initConfiguration: RumInitConfiguration, appliedVersion: number | undefined) {
   // sdk_version rides along from the first release so settings can later be targeted at the
   // clients running a particular build — a rule that cannot be written retroactively, because the
   // clients it would have to match are the ones already deployed.
@@ -350,6 +386,13 @@ function buildParameters(initConfiguration: RumInitConfiguration) {
   }
   if (initConfiguration.version) {
     parameters.push(`app_version=${encodeURIComponent(initConfiguration.version)}`)
+  }
+  // Telling the server which version this client is running is what lets the console answer "has
+  // my change reached everyone yet". It rides on the request every client makes, kept or not.
+  // Compared against `undefined` rather than tested for truth: `0` is a version like any other,
+  // and a client running it must not report as a client running none.
+  if (appliedVersion !== undefined) {
+    parameters.push(`applied_version=${appliedVersion}`)
   }
   return parameters.join('&')
 }

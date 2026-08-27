@@ -267,6 +267,23 @@ describe('remoteConfiguration', () => {
       expect(requests.length).toBe(4)
     })
 
+    it('asks for nothing more once it has been stopped', () => {
+      const requests: MockXhr[] = []
+      // Left in flight on purpose: the answer arrives after the SDK has been stopped, which is the
+      // only moment at which a retry can be scheduled past the cleanup that was meant to prevent it.
+      interceptor.withMockXhr((xhr) => requests.push(xhr))
+
+      const stop = start(configurationWith())
+      expect(requests.length).toBe(1)
+
+      stop()
+      requests[0].complete(500)
+      clock.tick(6 * ONE_SECOND + ONE_SECOND)
+      clock.tick(72 * ONE_SECOND + ONE_SECOND)
+
+      expect(requests.length).toBe(1)
+    })
+
     it('leaves the rates it already had alone rather than falling back to init', (done) => {
       localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 42 }))
 
@@ -322,6 +339,33 @@ describe('remoteConfiguration', () => {
         done()
       })
       start(configurationWith())
+    })
+
+    it('sends a stored version of zero like any other', (done) => {
+      // A console whose first published version is numbered 0. Reporting nothing for it would show
+      // every client running it as one that never applied the change.
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 42, version: 0 }))
+
+      interceptor.withMockXhr((xhr) => {
+        expect(xhr.url).toContain('applied_version=0')
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('sends it inside the forwarded request when the site uses a proxy', (done) => {
+      const proxied = buildRemoteConfigSetup({ ...INIT_CONFIGURATION, proxy: 'https://proxy.example.com/rum' })
+      localStorage.setItem(proxied!.storeKey, JSON.stringify({ version: 17 }))
+      registerCleanupTask(() => localStorage.removeItem(proxied!.storeKey))
+
+      interceptor.withMockXhr((xhr) => {
+        // A proxy forwards what its `ddforward` parameter holds and nothing else, so a version
+        // appended to the finished URL would be read by the proxy and stop there.
+        const forwarded = new URL(xhr.url!).searchParams.get('ddforward')!
+        expect(forwarded).toContain('applied_version=17')
+        done()
+      })
+      start(configurationWith({ remoteConfig: proxied }))
     })
   })
 

@@ -389,6 +389,32 @@ describe('resourceCollection', () => {
       expect(privateFields.rule_psr).toEqual(0.2)
     })
 
+    it('should look the session up at the time the request started', () => {
+      // A resource becomes an event well after the fact, and the session that made the request may
+      // have been renewed in between — under new rates, since a renewal is when a change from the
+      // console lands. Asking for the session that is current would report that later draw.
+      const config = validateAndBuildRumConfiguration({
+        clientToken: 'xxx',
+        applicationId: 'xxx',
+        traceSampleRate: 60,
+      })!
+      const sessionManager = createRumSessionManagerMock()
+      const findTrackedSession = spyOn(sessionManager, 'findTrackedSession').and.callThrough()
+      setupResourceCollection(config, sessionManager)
+
+      lifeCycle.notify(
+        LifeCycleEventType.REQUEST_COMPLETED,
+        createCompletedRequest({
+          traceSampled: true,
+          spanId: createSpanIdentifier(),
+          traceId: createTraceIdentifier(),
+          startClocks: { relative: 1234 as RelativeTime, timeStamp: 123456789 as TimeStamp },
+        })
+      )
+
+      expect(findTrackedSession).toHaveBeenCalledWith(1234 as RelativeTime)
+    })
+
     it('should not define rule_psr if traceSampleRate is undefined', () => {
       const config = validateAndBuildRumConfiguration({
         clientToken: 'xxx',

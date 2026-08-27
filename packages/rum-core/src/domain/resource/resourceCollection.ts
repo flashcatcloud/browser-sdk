@@ -1,4 +1,4 @@
-import type { ClocksState, Duration } from '@flashcatcloud/browser-core'
+import type { ClocksState, Duration, RelativeTime } from '@flashcatcloud/browser-core'
 import {
   combine,
   generateUUID,
@@ -89,7 +89,7 @@ function processRequest(
 ): RawRumEventCollectedData<RawRumResourceEvent> | undefined {
   const matchingTiming = matchRequestResourceEntry(request)
   const startClocks = matchingTiming ? relativeToClocks(matchingTiming.startTime) : request.startClocks
-  const tracingInfo = computeRequestTracingInfo(request, configuration, sessionManager)
+  const tracingInfo = computeRequestTracingInfo(request, configuration, sessionManager, startClocks.relative)
   if (!configuration.trackResources && !tracingInfo) {
     return
   }
@@ -147,7 +147,7 @@ function processResourceEntry(
   sessionManager: RumSessionManager
 ): RawRumEventCollectedData<RawRumResourceEvent> | undefined {
   const startClocks = relativeToClocks(entry.startTime)
-  const tracingInfo = computeResourceEntryTracingInfo(entry, configuration, sessionManager)
+  const tracingInfo = computeResourceEntryTracingInfo(entry, configuration, sessionManager, startClocks.relative)
   if (!configuration.trackResources && !tracingInfo) {
     return
   }
@@ -202,16 +202,25 @@ function computeResourceEntryMetrics(entry: RumPerformanceResourceTiming) {
  * The console can change the trace rate, and a session keeps the value it was drawn with, so
  * reading it back off the init configuration would report one number while a different one was
  * used — and the backend extrapolates from this field.
+ *
+ * Looked up at the time the request started, not at the time its event is assembled: a resource
+ * becomes an event well after the fact, and the session that made the request may have been renewed
+ * in between — under new rates, since a renewal is exactly when a change from the console lands.
  */
-function effectiveRulePsr(configuration: RumConfiguration, sessionManager: RumSessionManager) {
-  const drawn = sessionManager.findTrackedSession()?.drawnConfiguration
+function effectiveRulePsr(
+  configuration: RumConfiguration,
+  sessionManager: RumSessionManager,
+  startTime: RelativeTime
+) {
+  const drawn = sessionManager.findTrackedSession(startTime)?.drawnConfiguration
   return drawn ? drawn.traceSampleRate / 100 : configuration.rulePsr
 }
 
 function computeRequestTracingInfo(
   request: RequestCompleteEvent,
   configuration: RumConfiguration,
-  sessionManager: RumSessionManager
+  sessionManager: RumSessionManager,
+  startTime: RelativeTime
 ) {
   const hasBeenTraced = request.traceSampled && request.traceId && request.spanId
   if (!hasBeenTraced) {
@@ -221,7 +230,7 @@ function computeRequestTracingInfo(
     _dd: {
       span_id: request.spanId!.toString(),
       trace_id: request.traceId!.toString(),
-      rule_psr: effectiveRulePsr(configuration, sessionManager),
+      rule_psr: effectiveRulePsr(configuration, sessionManager, startTime),
     },
   }
 }
@@ -229,7 +238,8 @@ function computeRequestTracingInfo(
 function computeResourceEntryTracingInfo(
   entry: RumPerformanceResourceTiming,
   configuration: RumConfiguration,
-  sessionManager: RumSessionManager
+  sessionManager: RumSessionManager,
+  startTime: RelativeTime
 ) {
   const hasBeenTraced = entry.traceId
   if (!hasBeenTraced) {
@@ -239,7 +249,7 @@ function computeResourceEntryTracingInfo(
     _dd: {
       trace_id: entry.traceId,
       span_id: createSpanIdentifier().toString(),
-      rule_psr: effectiveRulePsr(configuration, sessionManager),
+      rule_psr: effectiveRulePsr(configuration, sessionManager, startTime),
     },
   }
 }
