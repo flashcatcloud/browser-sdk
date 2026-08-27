@@ -487,7 +487,6 @@ function hasValidRumSession(trackingType?: string): trackingType is RumTrackingT
   )
 }
 
-
 function isTypeTracked(rumSessionType: RumTrackingType | undefined) {
   return (
     rumSessionType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY ||
