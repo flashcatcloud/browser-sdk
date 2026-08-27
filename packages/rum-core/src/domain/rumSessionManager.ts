@@ -357,10 +357,10 @@ function computeSessionState(
           custom: remote.custom,
         })
         if (override) {
-          if (isSampleRate(override.sessionSampleRate)) {
+          if (isRate(override.sessionSampleRate)) {
             sessionSampleRate = override.sessionSampleRate
           }
-          if (isSampleRate(override.sessionReplaySampleRate)) {
+          if (isRate(override.sessionReplaySampleRate)) {
             sessionReplaySampleRate = override.sessionReplaySampleRate
           }
         }
@@ -487,9 +487,6 @@ function hasValidRumSession(trackingType?: string): trackingType is RumTrackingT
   )
 }
 
-function isSampleRate(value: number | undefined): value is number {
-  return typeof value === 'number' && value >= 0 && value <= 100
-}
 
 function isTypeTracked(rumSessionType: RumTrackingType | undefined) {
   return (
