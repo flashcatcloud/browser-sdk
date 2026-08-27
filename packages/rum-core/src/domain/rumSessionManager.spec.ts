@@ -214,7 +214,11 @@ describe('rum session manager', () => {
   // FLASHCAT FORK - sampling rates set in the console.
   describe('remote sampling', () => {
     const STORE_KEY = 'test-remote-sampling'
-    const REMOTE_SAMPLING_SETUP = { buildUrl: () => 'https://example.com/config', storeKey: STORE_KEY, fetchTimeout: 3000 }
+    const REMOTE_SAMPLING_SETUP = {
+      buildUrl: () => 'https://example.com/config',
+      storeKey: STORE_KEY,
+      fetchTimeout: 3000,
+    }
 
     function storeRemoteConfigValues(values: {
       version?: number
@@ -285,7 +289,11 @@ describe('rum session manager', () => {
 
   describe('beforeSampling', () => {
     const STORE_KEY = 'test-before-sampling'
-    const REMOTE_SAMPLING_SETUP = { buildUrl: () => 'https://example.com/config', storeKey: STORE_KEY, fetchTimeout: 3000 }
+    const REMOTE_SAMPLING_SETUP = {
+      buildUrl: () => 'https://example.com/config',
+      storeKey: STORE_KEY,
+      fetchTimeout: 3000,
+    }
 
     function storeRemote(stored: object) {
       localStorage.setItem(STORE_KEY, JSON.stringify(stored))
@@ -412,7 +420,11 @@ describe('rum session manager', () => {
   describe('drawn configuration', () => {
     const STORE_KEY = 'test-drawn-configuration'
     const DRAW_KEY = 'test-drawn-configuration-draw'
-    const REMOTE_SAMPLING_SETUP = { buildUrl: () => 'https://example.com/config', storeKey: STORE_KEY, fetchTimeout: 3000 }
+    const REMOTE_SAMPLING_SETUP = {
+      buildUrl: () => 'https://example.com/config',
+      storeKey: STORE_KEY,
+      fetchTimeout: 3000,
+    }
 
     afterEach(() => localStorage.removeItem(DRAW_KEY))
 
@@ -676,11 +688,10 @@ describe('rum session manager', () => {
       expect(rumSessionManager.findTrackedSession()!.drawnConfiguration!.traceSampleRate).toBe(90)
       expect(rumSessionManager.findTrackedSession(duringFirstSession)!.drawnConfiguration!.traceSampleRate).toBe(10)
     })
-
   })
 
   function startRumSessionManagerWithDefaults({ configuration }: { configuration?: Partial<RumConfiguration> } = {}) {
-    return startRumSessionManager(
+    const sessionManager = startRumSessionManager(
       mockRumConfiguration({
         sessionSampleRate: 50,
         sessionReplaySampleRate: 50,
@@ -691,6 +702,8 @@ describe('rum session manager', () => {
       lifeCycle,
       createTrackingConsentState(TrackingConsent.GRANTED)
     )
+    registerCleanupTask(sessionManager.stop)
+    return sessionManager
   }
 })
 

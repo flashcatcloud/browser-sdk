@@ -117,7 +117,9 @@ export function startRum(
 
   let session: RumSessionManager
   if (!canUseEventBridge()) {
-    session = startRumSessionManager(configuration, lifeCycle, trackingConsentState)
+    const sessionManager = startRumSessionManager(configuration, lifeCycle, trackingConsentState)
+    cleanupTasks.push(sessionManager.stop)
+    session = sessionManager
   } else {
     // FLASHCAT FORK - the stub watches the host application's session, so it owns a timer to stop.
     const sessionStub = startRumSessionManagerStub(configuration, lifeCycle)

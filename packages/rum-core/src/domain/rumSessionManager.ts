@@ -82,7 +82,9 @@ export function startRumSessionManager(
   configuration: RumConfiguration,
   lifeCycle: LifeCycle,
   trackingConsentState: TrackingConsentState
-): RumSessionManager {
+  // The draw history garbage-collects itself on a shared timer, so it owns something to stop —
+  // like the stub's watch of the host session, and like every other history in this package.
+): RumSessionManager & { stop: () => void } {
   // FLASHCAT FORK - set through `setForcedSession()`, read at draw time. Once set it stays set for
   // the page lifetime, so every session drawn after the call is collected with replay; the host
   // application decides on each page load whether to call again.
@@ -193,6 +195,7 @@ export function startRumSessionManager(
     // collected means ending their current (empty) session; the next activity draws again with
     // `forcedSession` set and starts a collected session with replay. A session already collected
     // only needs replay forced on, which is the existing forced-replay path.
+    stop: drawnHistory.stop,
     setForcedSession: () => {
       forcedSession = true
       const session = sessionManager.findSession()

@@ -207,11 +207,7 @@ function computeResourceEntryMetrics(entry: RumPerformanceResourceTiming) {
  * becomes an event well after the fact, and the session that made the request may have been renewed
  * in between — under new rates, since a renewal is exactly when a change from the console lands.
  */
-function effectiveRulePsr(
-  configuration: RumConfiguration,
-  sessionManager: RumSessionManager,
-  startTime: RelativeTime
-) {
+function effectiveRulePsr(configuration: RumConfiguration, sessionManager: RumSessionManager, startTime: RelativeTime) {
   const drawn = sessionManager.findTrackedSession(startTime)?.drawnConfiguration
   return drawn ? drawn.traceSampleRate / 100 : configuration.rulePsr
 }
