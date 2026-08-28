@@ -49,6 +49,8 @@ describe('rum session manager', () => {
     lifeCycle.subscribe(LifeCycleEventType.SESSION_RENEWED, renewSessionSpy)
 
     registerCleanupTask(() => {
+      // Tests that do not name their own key write the record of their draw to the default one.
+      localStorage.removeItem(mockRumConfiguration().drawStoreKey)
       // remove intervals first
       stopSessionManager()
       // flush pending callbacks to avoid random failures

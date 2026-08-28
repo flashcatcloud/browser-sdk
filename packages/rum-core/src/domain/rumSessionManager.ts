@@ -38,6 +38,15 @@ export interface RumSessionManager {
 }
 
 /**
+ * FLASHCAT FORK - a session manager this page started, and therefore has to stop: each owns
+ * something that outlives a single call — the draw history's shared garbage collection here, the
+ * watch of the host application's session in the stub.
+ */
+export interface StartedRumSessionManager extends RumSessionManager {
+  stop: () => void
+}
+
+/**
  * FLASHCAT FORK - the sampling decision this session was created under: the rates actually used at
  * the draw (after the remote values and `beforeSampling` had their say) and the remote settings
  * version they came from. Events carry these instead of the init values, so server-side
@@ -82,9 +91,7 @@ export function startRumSessionManager(
   configuration: RumConfiguration,
   lifeCycle: LifeCycle,
   trackingConsentState: TrackingConsentState
-  // The draw history garbage-collects itself on a shared timer, so it owns something to stop —
-  // like the stub's watch of the host session, and like every other history in this package.
-): RumSessionManager & { stop: () => void } {
+): StartedRumSessionManager {
   // FLASHCAT FORK - set through `setForcedSession()`, read at draw time. Once set it stays set for
   // the page lifetime, so every session drawn after the call is collected with replay; the host
   // application decides on each page load whether to call again.
@@ -106,10 +113,18 @@ export function startRumSessionManager(
   const sessionManager = startSessionManager(
     configuration,
     RUM_SESSION_KEY,
-    (rawTrackingType) =>
-      computeSessionState(configuration, rawTrackingType, forcedSession, (drawn) => {
+    (rawTrackingType) => {
+      // FLASHCAT FORK - the store can compute a state and then throw the whole attempt away: a lock
+      // corrupted by another tab makes it start over from the state that tab left behind. What a
+      // discarded attempt drew must not outlive it, because the attempt that replaces it may find a
+      // session that tab already drew, keep it, and draw nothing — and the renewal that follows
+      // would then marry this page's dead draw to a session it had no part in creating, and write
+      // it where every other tab reads it. Every attempt starts from nothing drawn.
+      pendingDraw = undefined
+      return computeSessionState(configuration, rawTrackingType, forcedSession, (drawn) => {
         pendingDraw = drawn
-      }),
+      })
+    },
     trackingConsentState
   )
 
@@ -188,6 +203,7 @@ export function startRumSessionManager(
     },
     expire: sessionManager.expire,
     expireObservable: sessionManager.expireObservable,
+    stop: drawnHistory.stop,
     setForcedReplay: () => sessionManager.updateSessionState({ forcedReplay: '1' }),
     // FLASHCAT FORK - the escape hatch for "collect this visitor NOW": the host application knows
     // who needs debugging (its own allow-list, a support flow), the SDK only provides the switch.
@@ -195,7 +211,6 @@ export function startRumSessionManager(
     // collected means ending their current (empty) session; the next activity draws again with
     // `forcedSession` set and starts a collected session with replay. A session already collected
     // only needs replay forced on, which is the existing forced-replay path.
-    stop: drawnHistory.stop,
     setForcedSession: () => {
       forcedSession = true
       const session = sessionManager.findSession()
@@ -225,17 +240,13 @@ export const STUB_SESSION_ID = '00000000-aaaa-0000-aaaa-000000000000'
  */
 const NO_HOST_SESSION = ''
 
-export interface RumSessionManagerStub extends RumSessionManager {
-  stop: () => void
-}
-
 /**
  * Start a tracked replay session stub
  */
 export function startRumSessionManagerStub(
   configuration: RumConfiguration,
   lifeCycle: LifeCycle
-): RumSessionManagerStub {
+): StartedRumSessionManager {
   // FLASHCAT FORK - the host application owns the session id and the anonymous id, and answers for
   // them through `DatadogEventBridge`. Both getters are absent on hosts built against an older SDK,
   // hence the fallbacks below.

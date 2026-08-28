@@ -28,7 +28,6 @@ import { startActionCollection } from '../domain/action/actionCollection'
 import { startErrorCollection } from '../domain/error/errorCollection'
 import { startResourceCollection } from '../domain/resource/resourceCollection'
 import { startViewCollection } from '../domain/view/viewCollection'
-import type { RumSessionManager } from '../domain/rumSessionManager'
 import { startRumSessionManager, startRumSessionManagerStub } from '../domain/rumSessionManager'
 import { startRumBatch } from '../transport/startRumBatch'
 import { startRumEventBridge } from '../transport/startRumEventBridge'
@@ -115,17 +114,12 @@ export function startRum(
   })
   cleanupTasks.push(() => pageActivationSubscription.unsubscribe())
 
-  let session: RumSessionManager
-  if (!canUseEventBridge()) {
-    const sessionManager = startRumSessionManager(configuration, lifeCycle, trackingConsentState)
-    cleanupTasks.push(sessionManager.stop)
-    session = sessionManager
-  } else {
-    // FLASHCAT FORK - the stub watches the host application's session, so it owns a timer to stop.
-    const sessionStub = startRumSessionManagerStub(configuration, lifeCycle)
-    cleanupTasks.push(sessionStub.stop)
-    session = sessionStub
-  }
+  // FLASHCAT FORK - under an event bridge the host application owns the session and the stub
+  // follows it; either way this page started the manager, so it stops it.
+  const session = canUseEventBridge()
+    ? startRumSessionManagerStub(configuration, lifeCycle)
+    : startRumSessionManager(configuration, lifeCycle, trackingConsentState)
+  cleanupTasks.push(session.stop)
 
   if (!canUseEventBridge()) {
     // FLASHCAT FORK - keep the console's sampling rates fresh, at the rhythm the sessions read

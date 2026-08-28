@@ -4,7 +4,12 @@ import { interceptRequests, mockClock, registerCleanupTask } from '@flashcatclou
 import { mockRumConfiguration } from '../../../test'
 import { LifeCycle, LifeCycleEventType } from '../lifeCycle'
 import type { RumConfiguration, RumInitConfiguration } from './configuration'
-import { buildRemoteConfigSetup, readRemoteConfig, startRemoteConfiguration } from './remoteConfiguration'
+import {
+  buildDrawStoreKey,
+  buildRemoteConfigSetup,
+  readRemoteConfig,
+  startRemoteConfiguration,
+} from './remoteConfiguration'
 
 const INIT_CONFIGURATION = {
   clientToken: 'token',
@@ -419,6 +424,17 @@ describe('remoteConfiguration', () => {
 
     it('carries the storage format version, so only a format change orphans the cache', () => {
       expect(buildRemoteConfigSetup(INIT_CONFIGURATION)!.storeKey.startsWith('_fc_rc_1_')).toBeTrue()
+    })
+
+    it('keys the draw record by application and environment, but not by application version', () => {
+      // The record belongs to the session, and a session outlives a deploy: keying it by version
+      // would lose the decision the moment a visitor with a live session lands on a new release.
+      const keyOf = (partial: Partial<RumInitConfiguration>) => buildDrawStoreKey({ ...INIT_CONFIGURATION, ...partial })
+
+      expect(keyOf({})).not.toEqual(keyOf({ applicationId: 'other' }))
+      expect(keyOf({})).not.toEqual(keyOf({ env: 'production' }))
+      expect(keyOf({})).toEqual(keyOf({ version: '1.2.4' }))
+      expect(keyOf({})).not.toEqual(buildRemoteConfigSetup(INIT_CONFIGURATION)!.storeKey)
     })
   })
 })
