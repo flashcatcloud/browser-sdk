@@ -34,10 +34,11 @@ function body({
   enabled = true,
   custom = undefined as Record<string, unknown> | undefined,
   schemaVersion = 1 as number | undefined,
+  version = 3,
 } = {}) {
   return JSON.stringify({
     schema_version: schemaVersion,
-    version: 3,
+    version,
     ttl: 600,
     enabled,
     activation: 'next_session',
@@ -163,6 +164,32 @@ describe('remoteConfiguration', () => {
         // The rates are gone, but the version is kept: the console still needs to see that this
         // client is up to date with the change that turned them off.
         expect(readRemoteConfig(setup)).toEqual({ version: 3 })
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('refuses settings published before the ones it already has', (done) => {
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 42, version: 8 }))
+
+      interceptor.withMockXhr((xhr) => {
+        // Another tab's request crossed this one, or an intermediary kept a copy. Either way this
+        // answer is about settings the console has already replaced.
+        xhr.complete(200, body({ version: 7, rum: { sessionSampleRate: 1 } }))
+
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 42, version: 8 })
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('applies a rollback, which arrives as a new version carrying the earlier settings', (done) => {
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 42, version: 8 }))
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ version: 9, rum: { sessionSampleRate: 1 } }))
+
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 1, version: 9 })
         done()
       })
       start(configurationWith())

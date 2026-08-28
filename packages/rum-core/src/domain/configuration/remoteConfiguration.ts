@@ -71,6 +71,10 @@ export interface RemoteConfigValues {
    * console can say how far a change has actually reached — a question the events cannot answer,
    * because a session that was not kept sends none, and the miss rate is set by the very rate being
    * changed.
+   *
+   * It only ever goes up, rollbacks included: going back to earlier settings publishes them again
+   * under a new, higher number. That is what lets a client tell settings it has not seen yet from
+   * an older answer arriving late, which is the only reason it can refuse the second — see `store`.
    */
   version?: number
   /**
@@ -320,6 +324,20 @@ function fetchRemoteConfiguration(
 }
 
 function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) {
+  // Settings are published under a number that only ever goes up — rolling back republishes the
+  // old settings under a new, higher one — so a response numbered below what is already stored can
+  // only be an older answer arriving late: another tab's request that crossed this one, or a copy
+  // an intermediary kept. Applying it would put this client back on settings the console has
+  // already replaced, and the next request would report a version the console believes nobody is
+  // running any more.
+  //
+  // What it is compared against is storage, not a version held in memory here, because the two
+  // requests that can cross are two pages, and storage is the only thing they share.
+  const storedVersion = readRemoteConfig(setup).version
+  if (storedVersion !== undefined && response.version < storedVersion) {
+    return
+  }
+
   const values: RemoteConfigValues = { version: response.version }
   if (response.enabled && response.rum) {
     // Each value is copied only when the server actually sent it. A knob nobody configured must
