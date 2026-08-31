@@ -18,6 +18,23 @@
 
 ---
 
+## Unreleased
+
+- 💥 **Breaking**: `remoteConfigurationId` is gone from `RumInitConfiguration`. It fetched a
+  different endpoint under a different contract, and is replaced by `remoteConfigurationEnabled`.
+  A site still passing it in JavaScript keeps working and gets the settings it passed to `init`;
+  a TypeScript project passing it no longer compiles and should drop the option.
+- ✨ `remoteConfigurationEnabled` lets the sampling rates, the trace sample rate and the Session
+  Replay privacy level be set from the console instead of only at `init`. Off by default: without
+  it the SDK makes no extra request and behaves exactly as before. A change applies to sessions
+  created after it arrives, never to one already under way.
+- ✨ `beforeSampling` gives the application the last word on the rates at the moment a session is
+  drawn, with the console's custom values in hand.
+- ✨ `setForcedSession()` collects the current visitor regardless of the rates, and
+  `getRemoteConfig()` returns the console's custom values verbatim.
+
+---
+
 ## v0.1.0
 
 This release adds a separate ES5 build of the RUM Browser SDK for browsers without ES2015 support:

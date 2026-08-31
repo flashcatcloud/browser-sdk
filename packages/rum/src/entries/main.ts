@@ -10,6 +10,8 @@ export type {
   CommonProperties,
   RumPublicApi as RumGlobal,
   RumInitConfiguration,
+  BeforeSamplingCallback,
+  BeforeSamplingContext,
   // Events
   RumEvent,
   RumActionEvent,

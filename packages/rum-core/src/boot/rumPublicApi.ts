@@ -286,6 +286,12 @@ export interface RumPublicApi extends PublicApi {
    * the next user interaction; a session already collected keeps running and gets replay recording.
    * The forced state lasts for the page lifetime — decide on each page load whether to call again.
    *
+   * The forced state belongs to the page that called, but the session belongs to every tab. So if
+   * the visitor has this site open in another tab and acts there first, that tab draws the
+   * replacement session under the ordinary rates and this call has no effect — silently, since
+   * nothing failed. Call it from the page the visitor is actually using, or have them close the
+   * others.
+   *
    * Inside a WebView the host application owns the session, so only the recording half applies:
    * replay starts, but the session's own sampling decision belongs to the mobile SDK and is left
    * to it. Force the session there through the host application instead.
@@ -297,8 +303,9 @@ export interface RumPublicApi extends PublicApi {
    * verbatim and never interprets them — what a value means is entirely up to your own code (a
    * debug allow-list to pair with `setForcedSession()`, a feature toggle). Values are cached
    * locally, so the bag published while a previous page was open answers immediately on the next.
-   * Returns undefined when nothing has been published or remote configuration is off. The content
-   * is readable by anyone holding the public client token — it is public information.
+   * Returns undefined when nothing has been published, when remote configuration is off, and
+   * inside a WebView, where the host application owns these settings and nothing is fetched. The
+   * content is readable by anyone holding the public client token — it is public information.
    */
   getRemoteConfig: () => Record<string, unknown> | undefined
 

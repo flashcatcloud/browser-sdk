@@ -90,6 +90,17 @@ export interface RumInitConfiguration extends InitConfiguration {
    * works there and is cleared when the window closes, so only the first session of each private
    * visit starts on the values passed here.
    *
+   * Scoped to one origin, while a session is not. `localStorage` belongs to the origin, but the
+   * session cookie can be shared across subdomains (`trackSessionAcrossSubdomains`) — so with that
+   * option on, a session drawn on one subdomain arrives at the next without the record of its draw:
+   * there it reports the values passed to `init`, carries no settings version, and is traced and
+   * masked by them too. Each subdomain also keeps its own copy of the settings and fetches them for
+   * itself. Turn this on per subdomain expecting per-subdomain settings, or keep the rates equal
+   * across them.
+   *
+   * Not used inside a WebView. Under an event bridge the host application owns the sampling
+   * decision, so no request is made and `getRemoteConfig()` answers `undefined`.
+   *
    * Deliberately not offered in the session cookie, for three reasons. The session store holds
    * flat strings matched against `[a-z0-9-]`, which fits neither a fractional rate nor the custom
    * bag. A cookie rides on every same-origin request, and this is read once per session draw and
