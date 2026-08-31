@@ -94,6 +94,39 @@ describe('startRecording', () => {
     })
   })
 
+  describe('the privacy level a recording runs under', () => {
+    // A recording begins and ends with its session, and the recorders read the level on every node
+    // they serialise — so the level has to be the one latched at that session's draw. Asserted in
+    // both directions on purpose: one direction alone would also pass if the drawn value were
+    // ignored and the init value happened to agree.
+    function recordWith(init: DefaultPrivacyLevel, drawn: DefaultPrivacyLevel) {
+      textField.value = 'secret-value'
+      sessionManager.setDrawnConfiguration({
+        version: 3,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: undefined,
+        defaultPrivacyLevel: drawn,
+      })
+      setupStartRecording({ defaultPrivacyLevel: init })
+      flushSegment(lifeCycle)
+    }
+
+    it('masks when the console asked for it, though the site shipped allow', async () => {
+      recordWith(DefaultPrivacyLevel.ALLOW, DefaultPrivacyLevel.MASK)
+
+      const requests = await readSentRequests(1)
+      expect(JSON.stringify(requests[0].segment)).not.toContain('secret-value')
+    })
+
+    it('does not mask when the draw said allow, though the site shipped mask', async () => {
+      recordWith(DefaultPrivacyLevel.MASK, DefaultPrivacyLevel.ALLOW)
+
+      const requests = await readSentRequests(1)
+      expect(JSON.stringify(requests[0].segment)).toContain('secret-value')
+    })
+  })
+
   it('flushes the segment when its compressed data reaches the segment bytes limit', async () => {
     setupStartRecording()
     const inputCount = 150

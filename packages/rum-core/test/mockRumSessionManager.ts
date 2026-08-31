@@ -72,6 +72,11 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
       drawnConfiguration = drawn
       return this
     },
+    // A deliberate simplification, and one to keep in mind when asserting against it: the real
+    // manager cannot collect a visitor on the spot. A session that was not being collected has to
+    // end and be drawn again at the next user interaction, and it comes back with a NEW id — so a
+    // consumer test written against this mock must not conclude that collection starts immediately
+    // or that the id survives. Only the already-collected case behaves as it does here.
     setForcedSession() {
       sessionStatus = SessionStatus.TRACKED_WITH_SESSION_REPLAY
     },

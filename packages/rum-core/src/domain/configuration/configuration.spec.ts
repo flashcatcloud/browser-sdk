@@ -617,4 +617,24 @@ describe('serializeRumConfiguration', () => {
       track_feature_flags_for_events: ['vital'],
     })
   })
+
+  describe('beforeSampling', () => {
+    it('is refused when it is not a function', () => {
+      // It runs inside session creation, where there is no way to report a failure and nothing to
+      // fall back to. Better to refuse at init, where the site can still see the message.
+      const displaySpy = spyOn(display, 'error')
+
+      expect(
+        validateAndBuildRumConfiguration({
+          ...DEFAULT_INIT_CONFIGURATION,
+          beforeSampling: 'not a function' as any,
+        })
+      ).toBeUndefined()
+      expect(displaySpy).toHaveBeenCalledOnceWith('beforeSampling should be a function')
+    })
+
+    it('is accepted when it is absent', () => {
+      expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.beforeSampling).toBeUndefined()
+    })
+  })
 })
