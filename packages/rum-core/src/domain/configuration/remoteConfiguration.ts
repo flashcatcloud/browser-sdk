@@ -2,6 +2,7 @@ import {
   addEventListener,
   clearTimeout,
   createEndpointUrlBuilder,
+  display,
   noop,
   setTimeout,
   ONE_SECOND,
@@ -47,7 +48,12 @@ const DEFAULT_FETCH_TIMEOUT = 3 * ONE_SECOND
 /**
  * A failed fetch is retried quickly, then patiently, then not at all until the next natural
  * trigger (a new session, or the next page load). The budget is deliberately tiny — two extra
- * requests per outage per client, so a fleet can never turn an endpoint incident into a storm.
+ * requests per outage per open page, so a fleet can never turn an endpoint incident into a storm.
+ *
+ * Per page, not per visitor: this state lives in the page, and a session renewal reaches every tab
+ * a visitor has open, so a visitor with three tabs spends three budgets. That is the same
+ * multiplier their ordinary intake traffic already carries, and it is bounded by the tabs a person
+ * can have open — unlike a timer, which would multiply by how long they leave them there.
  */
 const RETRY_DELAYS = [5 * ONE_SECOND, 60 * ONE_SECOND]
 
@@ -136,7 +142,11 @@ interface RemoteConfigurationResponse {
   schema_version?: number
   version: number
   enabled: boolean
-  rum: RemoteConfigValues
+  /**
+   * Absent is legal and means the same as empty: a response that turns the whole feature off has no
+   * rates to carry. `store` already reads it that way, and the type now says so.
+   */
+  rum?: RemoteConfigValues
   custom?: Record<string, unknown>
 }
 
@@ -155,7 +165,17 @@ function isSupportedResponse(body: unknown): body is RemoteConfigurationResponse
   if (candidate.schema_version !== undefined && candidate.schema_version !== SUPPORTED_SCHEMA_VERSION) {
     return false
   }
-  return typeof candidate.version === 'number'
+  // Every field the contract makes mandatory is checked, not just one of them. A body carrying a
+  // numeric `version` and nothing else is precisely what an unrelated JSON endpoint answers, and
+  // taking it for a configuration costs more than a wasted request: `store` would empty the cache,
+  // and because the guard there only ever moves forward, the number it left behind would refuse
+  // every genuine answer after it — including the console change made to undo the damage.
+  //
+  // Only the envelope is judged here. The application's own `custom` bag is not part of what makes
+  // a body a configuration, so a malformed one is dropped by `store` and the rates beside it still
+  // apply — refusing the whole response over it would let an application-level mistake switch the
+  // platform-level knobs back off.
+  return isVersion(candidate.version) && typeof candidate.enabled === 'boolean' && isOptionalBag(candidate.rum)
 }
 
 /**
@@ -190,7 +210,7 @@ function readStoredValues(parsed: unknown): RemoteConfigValues {
   }
   const stored = parsed as Partial<RemoteConfigValues>
   const values: RemoteConfigValues = {}
-  if (typeof stored.version === 'number') {
+  if (isVersion(stored.version)) {
     values.version = stored.version
   }
   if (isRate(stored.sessionSampleRate)) {
@@ -205,7 +225,7 @@ function readStoredValues(parsed: unknown): RemoteConfigValues {
   if (isPrivacyLevel(stored.defaultPrivacyLevel)) {
     values.defaultPrivacyLevel = stored.defaultPrivacyLevel
   }
-  if (stored.custom && typeof stored.custom === 'object') {
+  if (isBag(stored.custom)) {
     values.custom = stored.custom
   }
   return values
@@ -360,7 +380,7 @@ function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) 
   }
   // The custom bag rides along untouched — the platform's job is delivery, its meaning belongs to
   // the host application. Gone from the response (or the kill switch off) means gone from storage.
-  if (response.enabled && response.custom && typeof response.custom === 'object') {
+  if (response.enabled && isBag(response.custom)) {
     values.custom = response.custom
   }
 
@@ -370,7 +390,9 @@ function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) 
     // that this client is up to date with the change that turned it off.
     localStorage.setItem(setup.storeKey, JSON.stringify(values))
   } catch {
-    // Storage unavailable: the values simply do not survive this page load.
+    // Storage unavailable, or the origin is out of room. The previous entry stays as it is, which
+    // is the same "keep what is already working" answer a failed request gets — the client goes on
+    // applying the settings it last stored, and goes on reporting their version.
   }
 }
 
@@ -384,8 +406,27 @@ export function buildRemoteConfigSetup(initConfiguration: RumInitConfiguration):
   return {
     buildUrl: (appliedVersion) => buildUrl(buildParameters(initConfiguration, appliedVersion)),
     storeKey: buildStoreKey(initConfiguration),
-    fetchTimeout: initConfiguration.remoteConfigurationFetchTimeout ?? DEFAULT_FETCH_TIMEOUT,
+    fetchTimeout: validFetchTimeout(initConfiguration.remoteConfigurationFetchTimeout),
   }
+}
+
+/**
+ * An unusable timeout is replaced by the default rather than refusing `init`: this is a knob on a
+ * background request, and losing every event on the page because of it would cost far more than it
+ * could ever save. It cannot simply be passed through either — `xhr.timeout` takes an unsigned
+ * long, so a string lands as `0` and a negative number wraps to weeks, and both mean the request
+ * never gives up. Nothing resets the in-flight guard until a request finishes, so one that never
+ * does would silently end every later refresh on the page.
+ */
+function validFetchTimeout(timeout: number | undefined) {
+  if (timeout === undefined) {
+    return DEFAULT_FETCH_TIMEOUT
+  }
+  if (typeof timeout !== 'number' || !(timeout > 0) || timeout === Infinity) {
+    display.error('remoteConfigurationFetchTimeout should be a positive number of milliseconds')
+    return DEFAULT_FETCH_TIMEOUT
+  }
+  return timeout
 }
 
 /**
@@ -395,6 +436,18 @@ export function buildRemoteConfigSetup(initConfiguration: RumInitConfiguration):
  * on every SDK upgrade and put the first session after an upgrade back on the local settings. The
  * storage format version lives in `STORE_KEY_PREFIX` instead, so only a real format change orphans
  * the cache.
+ *
+ * KNOWN LIMITATION - the application version does the very thing the SDK version is kept out for,
+ * only more often: every deploy starts a new entry, the first session after it reads the local
+ * settings, and the entry the previous deploy used is never read again and never removed. They
+ * accumulate in a quota the host application shares.
+ *
+ * Sweeping them on write is not the answer, and was tried: nothing here can tell an abandoned entry
+ * from the entry of a tab still open on yesterday's deploy, and deleting the latter drops that tab
+ * to its local settings for a whole session — then the two tabs delete each other's entry at every
+ * renewal. A correct fix needs either a way to know no page is still reading an entry, or for the
+ * key to stop carrying the version at all, which is only safe once it is settled whether the
+ * console varies its answer by application version. Until then the leak is the cheaper mistake.
  */
 function buildStoreKey(initConfiguration: RumInitConfiguration) {
   return buildKey(STORE_KEY_PREFIX, identityParts(initConfiguration).concat(initConfiguration.version ?? ''))
@@ -439,8 +492,13 @@ function buildParameters(initConfiguration: RumInitConfiguration, appliedVersion
     // looks for these two parameters and nothing else. Without them this request is just another
     // XHR to the page, so every session renewal would file a resource event for it, and the
     // in-flight request would count towards the page activity that decides when a view finished
-    // loading. They survive a `proxy`, which encodes the whole query into `ddforward` — the
-    // substring match still finds them there.
+    // loading. They survive a `proxy` given as a string, which encodes the whole query into
+    // `ddforward` — the substring match still finds them there.
+    //
+    // A `proxy` given as a function builds its own URL and may drop them, in which case this
+    // request is collected like any other. That is the same exposure the intake requests
+    // themselves already have under such a proxy, so it is left as it is rather than given a
+    // second, divergent mechanism here.
     'ddsource=browser',
     `ddtags=${encodeURIComponent(`sdk_version:${__BUILD_ENV__SDK_VERSION__}`)}`,
     `client_token=${encodeURIComponent(initConfiguration.clientToken)}`,
@@ -465,6 +523,32 @@ function buildParameters(initConfiguration: RumInitConfiguration, appliedVersion
 
 export function isRate(value: unknown): value is number {
   return typeof value === 'number' && value >= 0 && value <= 100
+}
+
+/**
+ * A version is a publish counter, so anything that is not a whole, non-negative number small enough
+ * to survive a JSON round trip cannot be one. Checked on the way in and on the way out, because a
+ * version is the one value that can refuse a later answer: an implausible one is not merely
+ * ignored, it freezes the settings stored beside it for as long as that entry lives.
+ *
+ * `MAX_SAFE_INTEGER` is spelled out rather than named so this keeps working on the ES5 targets the
+ * bundle is checked against.
+ */
+function isVersion(value: unknown): value is number {
+  return typeof value === 'number' && value >= 0 && value <= 9007199254740991 && Math.floor(value) === value
+}
+
+/**
+ * An object the server filled in, as opposed to an array or a primitive. `typeof [] === 'object'`,
+ * so the plain type check on its own lets a list through to `getRemoteConfig()`, where the host
+ * application is promised a keyed bag.
+ */
+function isBag(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isOptionalBag(value: unknown): value is Record<string, unknown> | undefined {
+  return value === undefined || isBag(value)
 }
 
 export function isPrivacyLevel(value: unknown): value is DefaultPrivacyLevel {

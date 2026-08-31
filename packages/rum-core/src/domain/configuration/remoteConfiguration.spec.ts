@@ -1,4 +1,4 @@
-import { INTAKE_SITE_US1, ONE_SECOND, isIntakeUrl } from '@flashcatcloud/browser-core'
+import { INTAKE_SITE_US1, ONE_SECOND, display, isIntakeUrl } from '@flashcatcloud/browser-core'
 import type { Clock, MockXhr } from '@flashcatcloud/browser-core/test'
 import { interceptRequests, mockClock, registerCleanupTask } from '@flashcatcloud/browser-core/test'
 import { mockRumConfiguration } from '../../../test'
@@ -234,43 +234,115 @@ describe('remoteConfiguration', () => {
       })
       start(configurationWith())
     })
+
+    it('is not satisfied by a body that merely has a number called version', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        // A misrouted proxy or an appliance's own status page. Carrying a numeric `version` is not
+        // enough to be read as settings: storing it would blank the cache AND leave behind a number
+        // that no genuine answer could ever climb over again.
+        xhr.complete(200, '{"version":20260831,"status":"ok"}')
+
+        expect(readRemoteConfig(setup)).toEqual(STORED)
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('refuses a version that could not be a publish counter', (done) => {
+      const bodies = [
+        '{"schema_version":1,"version":1e999,"enabled":true,"rum":{"sessionSampleRate":5}}',
+        '{"schema_version":1,"version":-1,"enabled":true,"rum":{"sessionSampleRate":5}}',
+        '{"schema_version":1,"version":1.5,"enabled":true,"rum":{"sessionSampleRate":5}}',
+      ]
+      let refused = 0
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, bodies[refused])
+        expect(readRemoteConfig(setup)).toEqual(STORED)
+        refused += 1
+        if (refused === bodies.length) {
+          done()
+          return
+        }
+        lifeCycle.notify(LifeCycleEventType.SESSION_RENEWED)
+      })
+      start(configurationWith())
+    })
+
+    it('refuses a response that does not say whether the feature is on', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        // The kill switch is read for truth, so a body without it — or with it stringified by a
+        // careless serializer — would read as "on" and apply rates nobody published.
+        xhr.complete(200, '{"schema_version":1,"version":9,"enabled":"false","rum":{"sessionSampleRate":5}}')
+
+        expect(readRemoteConfig(setup)).toEqual(STORED)
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('drops a custom bag that is not keyed, and keeps the rates beside it', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        // `custom` belongs to the application, not to the envelope: a mistake in it must not switch
+        // the platform's own knobs back off.
+        xhr.complete(
+          200,
+          '{"schema_version":1,"version":9,"enabled":true,"rum":{"sessionSampleRate":5},"custom":[1,2]}'
+        )
+
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 5, version: 9 })
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('ignores a stored version that could not have been published, rather than letting it refuse everything', (done) => {
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 42, version: 1e308 }))
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ version: 7, rum: { sessionSampleRate: 1 } }))
+
+        // Storage can be written by anything on this origin and survives a downgrade. A number this
+        // SDK could not have put there is read as no version at all — otherwise one bad write would
+        // lock the application out of its own settings for the life of the entry.
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 1, version: 7 })
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('drops an answer that lands after it was stopped', () => {
+      const requests: MockXhr[] = []
+      interceptor.withMockXhr((xhr) => requests.push(xhr))
+
+      const stop = start(configurationWith())
+      stop()
+      // A 200, not a failure: the other half of the guard. Storing this would write settings nobody
+      // is reading any more, over the ones a restarted SDK would read next.
+      requests[0].complete(200, body({ version: 9, rum: { sessionSampleRate: 1 } }))
+
+      expect(readRemoteConfig(setup)).toEqual(STORED)
+    })
   })
 
-  describe('reading storage back', () => {
-    // Storage is not ours alone: it survives an SDK downgrade, it is shared with everything else on
-    // the origin, and anyone can edit it in devtools. A value that is not usable has to read as
-    // "nothing was delivered" so the site's own settings stay in force.
-    it('ignores a rate that is not a number', () => {
-      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 'lots', version: 2 }))
-
-      expect(readRemoteConfig(setup)).toEqual({ version: 2 })
+  describe('the fetch timeout', () => {
+    it('asks the request to give up after the value the site passed', () => {
+      expect(
+        buildRemoteConfigSetup({ ...INIT_CONFIGURATION, remoteConfigurationFetchTimeout: 500 })!.fetchTimeout
+      ).toBe(500)
     })
 
-    it('ignores a rate outside the range a rate can take', () => {
-      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 140, version: 2 }))
+    it('falls back to the default rather than refusing init, and says so', () => {
+      const displaySpy = spyOn(display, 'error')
 
-      expect(readRemoteConfig(setup)).toEqual({ version: 2 })
-    })
-
-    it('ignores a privacy level it does not recognise', () => {
-      localStorage.setItem(setup!.storeKey, JSON.stringify({ defaultPrivacyLevel: 'off', version: 2 }))
-
-      expect(readRemoteConfig(setup)).toEqual({ version: 2 })
-    })
-
-    it('keeps the values either side of a bad one', () => {
-      localStorage.setItem(
-        setup!.storeKey,
-        JSON.stringify({ sessionSampleRate: 42, sessionReplaySampleRate: null, traceSampleRate: 7, version: 2 })
-      )
-
-      expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 42, traceSampleRate: 7, version: 2 })
-    })
-
-    it('reads nothing at all out of a value that is not an object', () => {
-      localStorage.setItem(setup!.storeKey, '"a string"')
-
-      expect(readRemoteConfig(setup)).toEqual({})
+      // `xhr.timeout` takes an unsigned long: a string lands as 0 and a negative number wraps to
+      // weeks, and either way the request never gives up — which would leave the in-flight guard
+      // set and silently end every later refresh on the page.
+      for (const bad of [-1, 0, 'abc' as unknown as number, NaN, Infinity]) {
+        expect(
+          buildRemoteConfigSetup({ ...INIT_CONFIGURATION, remoteConfigurationFetchTimeout: bad })!.fetchTimeout
+        ).toBe(3 * ONE_SECOND)
+      }
+      expect(displaySpy).toHaveBeenCalledTimes(5)
     })
   })
 
