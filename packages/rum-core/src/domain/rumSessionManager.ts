@@ -351,34 +351,7 @@ function computeSessionState(
     // the decision it was created with: settings arriving mid-session never start or stop
     // collecting for a visitor already on the site.
     const remote = readRemoteConfig(configuration.remoteConfig)
-
-    let sessionSampleRate = remote.sessionSampleRate ?? configuration.sessionSampleRate
-    let sessionReplaySampleRate = remote.sessionReplaySampleRate ?? configuration.sessionReplaySampleRate
-
-    // FLASHCAT FORK - the application gets the last word, right at the draw. This is what turns the
-    // delivered custom values into sampling decisions without a wasted first draw or a session
-    // restart: the console ships the data (an allow-list, a cohort rule), the application's own
-    // code interprets it here. Its failure modes must never reach session creation, so a thrown
-    // error or a value outside 0..100 leaves the incoming rate in place.
-    if (configuration.beforeSampling) {
-      try {
-        const override = configuration.beforeSampling({
-          sessionSampleRate,
-          sessionReplaySampleRate,
-          custom: remote.custom,
-        })
-        if (override) {
-          if (isRate(override.sessionSampleRate)) {
-            sessionSampleRate = override.sessionSampleRate
-          }
-          if (isRate(override.sessionReplaySampleRate)) {
-            sessionReplaySampleRate = override.sessionReplaySampleRate
-          }
-        }
-      } catch (e) {
-        display.error('beforeSampling threw an error:', e)
-      }
-    }
+    const { sessionSampleRate, sessionReplaySampleRate } = resolveSampleRates(configuration, remote)
 
     reportDraw(configuration, remote, sessionSampleRate, sessionReplaySampleRate, onDraw)
 
@@ -394,6 +367,44 @@ function computeSessionState(
     trackingType,
     isTracked: isTypeTracked(trackingType),
   }
+}
+
+/**
+ * FLASHCAT FORK - the rates a draw would use right now: what the console delivered, falling back to
+ * what the site passed to init, with the application's `beforeSampling` given the last word. This
+ * is what turns the delivered custom values into sampling decisions without a wasted first draw or
+ * a session restart: the console ships the data (an allow-list, a cohort rule), the application's
+ * own code interprets it here. Its failure modes must never reach session creation, so a thrown
+ * error or a value outside 0..100 leaves the incoming rate in place.
+ *
+ * Resolving is all it does — it never draws on the rates it returns — so the same question can be
+ * asked away from a draw.
+ */
+function resolveSampleRates(configuration: RumConfiguration, remote: RemoteConfigValues) {
+  let sessionSampleRate = remote.sessionSampleRate ?? configuration.sessionSampleRate
+  let sessionReplaySampleRate = remote.sessionReplaySampleRate ?? configuration.sessionReplaySampleRate
+
+  if (configuration.beforeSampling) {
+    try {
+      const override = configuration.beforeSampling({
+        sessionSampleRate,
+        sessionReplaySampleRate,
+        custom: remote.custom,
+      })
+      if (override) {
+        if (isRate(override.sessionSampleRate)) {
+          sessionSampleRate = override.sessionSampleRate
+        }
+        if (isRate(override.sessionReplaySampleRate)) {
+          sessionReplaySampleRate = override.sessionReplaySampleRate
+        }
+      }
+    } catch (e) {
+      display.error('beforeSampling threw an error:', e)
+    }
+  }
+
+  return { sessionSampleRate, sessionReplaySampleRate }
 }
 
 /**
