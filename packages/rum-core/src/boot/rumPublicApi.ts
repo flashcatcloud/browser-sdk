@@ -285,6 +285,10 @@ export interface RumPublicApi extends PublicApi {
    * flow). If the current session was not being collected, it ends and a collected one starts at
    * the next user interaction; a session already collected keeps running and gets replay recording.
    * The forced state lasts for the page lifetime — decide on each page load whether to call again.
+   *
+   * Inside a WebView the host application owns the session, so only the recording half applies:
+   * replay starts, but the session's own sampling decision belongs to the mobile SDK and is left
+   * to it. Force the session there through the host application instead.
    */
   setForcedSession: () => void
 

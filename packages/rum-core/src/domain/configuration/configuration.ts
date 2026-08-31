@@ -81,6 +81,22 @@ export interface RumInitConfiguration extends InitConfiguration {
    * decision it was created with. The values below stay in use until the first settings arrive, and
    * whenever the settings cannot be reached.
    *
+   * Requires `localStorage`, which the SDK does not otherwise touch by default: sessions are kept
+   * in a cookie unless `sessionPersistence` says otherwise. Turning this on therefore adds a
+   * storage surface this site did not have before — worth knowing for a privacy review. Where
+   * `localStorage` is unavailable (a third-party iframe under storage partitioning, a browser set
+   * to block site data) sessions keep working from the cookie and this feature simply stays off,
+   * falling back to the values passed here. Private browsing is not one of those cases: storage
+   * works there and is cleared when the window closes, so only the first session of each private
+   * visit starts on the values passed here.
+   *
+   * Deliberately not offered in the session cookie, for three reasons. The session store holds
+   * flat strings matched against `[a-z0-9-]`, which fits neither a fractional rate nor the custom
+   * bag. A cookie rides on every same-origin request, and this is read once per session draw and
+   * never needed by the server — which sent it, and already learns the applied version from the
+   * request parameter. And a cookie would not rescue the cases above anyway: partitioning and a
+   * block on site data take cookies and `localStorage` together.
+   *
    * @default false
    */
   remoteConfigurationEnabled?: boolean | undefined
