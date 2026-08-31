@@ -552,6 +552,37 @@ describe('remoteConfiguration', () => {
       expect(keyOf({ env: 'prod', version: '1_0' })).not.toEqual(keyOf({ env: 'prod_1', version: '0' }))
     })
 
+    it('separates whatever the server is able to tell apart', () => {
+      // The guard on the coupling that is easy to miss. A targeting dimension is added in three
+      // places — the SDK reports it, the server accepts it as a match key, and the key here
+      // separates on it — and forgetting the third is silent: two clients entitled to different
+      // answers would share one entry and overwrite each other's on every fetch.
+      //
+      // So the rule is derived rather than listed: if changing a field changes the request, the
+      // server can vary its answer on it, and the key must change too. The day a field starts
+      // being reported, this fails until it is keyed by. The converse is not required — a key
+      // finer than the server's targeting only costs an extra entry, never a wrong one.
+      const urlOf = (partial: Partial<RumInitConfiguration>) =>
+        buildRemoteConfigSetup({ ...INIT_CONFIGURATION, ...partial })!.buildUrl(undefined)
+      const keyOf = (partial: Partial<RumInitConfiguration>) =>
+        buildRemoteConfigSetup({ ...INIT_CONFIGURATION, ...partial })!.storeKey
+
+      const candidates: Array<Partial<RumInitConfiguration>> = [
+        { env: 'production' },
+        { version: '9.9.9' },
+        { service: 'checkout' },
+        { applicationId: 'other-app' },
+      ]
+
+      for (const candidate of candidates) {
+        if (urlOf(candidate) !== urlOf({})) {
+          expect(keyOf(candidate))
+            .withContext(`${JSON.stringify(candidate)} is reported to the server, so it must be keyed by`)
+            .not.toEqual(keyOf({}))
+        }
+      }
+    })
+
     it('carries the storage format version, so only a format change orphans the cache', () => {
       expect(buildRemoteConfigSetup(INIT_CONFIGURATION)!.storeKey.startsWith('_fc_rc_1_')).toBeTrue()
     })
