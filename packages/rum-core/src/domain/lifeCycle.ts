@@ -32,17 +32,22 @@ export const enum LifeCycleEventType {
   // on the same domain.
   SESSION_EXPIRED,
   SESSION_RENEWED,
-
-  // FLASHCAT FORK - a remote configuration response has just been written to storage. Emitted only
-  // when the write actually happened, so a response refused as stale and a storage failure both
-  // stay silent: a subscriber acting on settings that are not in storage would act on values the
-  // next draw is not going to read.
-  REMOTE_CONFIGURATION_STORED,
   PAGE_MAY_EXIT,
   PAGE_REACTIVATED,
   RAW_RUM_EVENT_COLLECTED,
   RUM_EVENT_COLLECTED,
   RAW_ERROR_COLLECTED,
+
+  // FLASHCAT FORK - a remote configuration response has just been written to storage. Emitted only
+  // when the write actually happened, so a response refused as stale and a storage failure both
+  // stay silent: a subscriber acting on settings that are not in storage would act on values the
+  // next draw is not going to read.
+  //
+  // Added last on purpose. The values of a const enum are inlined at build time and shift when an
+  // entry is inserted, and everything above this line is upstream's — keeping the fork's own entry
+  // at the end leaves upstream's numbering alone and keeps this file out of the way of the next
+  // upstream merge.
+  REMOTE_CONFIGURATION_STORED,
 }
 
 // This is a workaround for an issue occurring when the Browser SDK is included in a TypeScript
@@ -70,12 +75,12 @@ declare const LifeCycleEventTypeAsConst: {
   REQUEST_COMPLETED: LifeCycleEventType.REQUEST_COMPLETED
   SESSION_EXPIRED: LifeCycleEventType.SESSION_EXPIRED
   SESSION_RENEWED: LifeCycleEventType.SESSION_RENEWED
-  REMOTE_CONFIGURATION_STORED: LifeCycleEventType.REMOTE_CONFIGURATION_STORED
   PAGE_MAY_EXIT: LifeCycleEventType.PAGE_MAY_EXIT
   PAGE_REACTIVATED: LifeCycleEventType.PAGE_REACTIVATED
   RAW_RUM_EVENT_COLLECTED: LifeCycleEventType.RAW_RUM_EVENT_COLLECTED
   RUM_EVENT_COLLECTED: LifeCycleEventType.RUM_EVENT_COLLECTED
   RAW_ERROR_COLLECTED: LifeCycleEventType.RAW_ERROR_COLLECTED
+  REMOTE_CONFIGURATION_STORED: LifeCycleEventType.REMOTE_CONFIGURATION_STORED
 }
 
 // Note: this interface needs to be exported even if it is not used outside of this module, else TS
@@ -92,7 +97,6 @@ export interface LifeCycleEventMap {
   [LifeCycleEventTypeAsConst.REQUEST_COMPLETED]: RequestCompleteEvent
   [LifeCycleEventTypeAsConst.SESSION_EXPIRED]: void
   [LifeCycleEventTypeAsConst.SESSION_RENEWED]: void
-  [LifeCycleEventTypeAsConst.REMOTE_CONFIGURATION_STORED]: void
   [LifeCycleEventTypeAsConst.PAGE_MAY_EXIT]: PageMayExitEvent
   [LifeCycleEventTypeAsConst.PAGE_REACTIVATED]: void
   [LifeCycleEventTypeAsConst.RAW_RUM_EVENT_COLLECTED]: RawRumEventCollectedData
@@ -101,6 +105,7 @@ export interface LifeCycleEventMap {
     error: RawError
     customerContext?: Context
   }
+  [LifeCycleEventTypeAsConst.REMOTE_CONFIGURATION_STORED]: void
 }
 
 export interface RawRumEventCollectedData<E extends RawRumEvent = RawRumEvent> {

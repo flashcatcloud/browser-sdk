@@ -234,9 +234,6 @@ export function startRumSessionManager(
   // difference disappear. The same response arriving again — another tab, a retry, a reload —
   // finds nothing left to act on.
   function endSessionIfSettingsAreDecisive() {
-    if (!configuration.remoteConfig) {
-      return
-    }
     const session = sessionManager.findSession()
     if (!session) {
       // Nothing to end. Whatever starts the next session draws on the settings just stored, which
