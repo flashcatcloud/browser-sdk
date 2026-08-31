@@ -264,7 +264,7 @@ describe('logs', () => {
     })
 
     it('sends logs without session id when the session expires ', async () => {
-      setCookie(SESSION_STORE_KEY, 'id=foo&logs=1', ONE_MINUTE)
+      setCookie(SESSION_STORE_KEY, `id=foo&logs=1&created=${Date.now()}&expire=${Date.now() + ONE_MINUTE}`, ONE_MINUTE)
       ;({ handleLog, stop: stopLogs } = startLogs(
         initConfiguration,
         baseConfiguration,

@@ -9,6 +9,7 @@ import { selectCookieStrategy, initCookieStrategy } from './storeStrategies/sess
 import type { SessionStoreStrategyType } from './storeStrategies/sessionStoreStrategy'
 import {
   getExpiredSessionState,
+  expandSessionState,
   isSessionInExpiredState,
   isSessionInNotStartedState,
   isSessionStarted,
@@ -183,6 +184,11 @@ export function startSessionStore<TrackingType extends string>(
       sessionState.id = generateUUID()
       sessionState.created = String(dateNow())
     }
+    // Stamp the deadline before returning. The caller decides whether the session is expired
+    // straight after this runs and only stamps it afterwards, so a session renewed here would be
+    // judged with no deadline at all -- which now reads as expired and would stop any session
+    // from ever establishing. Upstream does the same inside its own expandOrRenew.
+    expandSessionState(sessionState)
   }
 
   function hasSessionInCache() {

@@ -41,18 +41,48 @@ export function isSessionStarted(session: SessionState) {
   return !isSessionInNotStartedState(session)
 }
 
+/**
+ * The moment the session actually stops being usable: whichever comes first, the sliding
+ * inactivity deadline or the hard cap counted from when the session was created.
+ *
+ * Returns undefined when either stamp is missing, which callers treat as "expired". A session
+ * that cannot say when it started or when it lapses is not given the benefit of the doubt --
+ * letting `undefined` short-circuit those comparisons is what allowed sessions to outlive both
+ * bounds and stay alive for days on a page that was never closed.
+ *
+ * Ported from upstream DataDog/browser-sdk 5257b52ea ("fix session lifetime bugs for long-lived
+ * pages and multi-tab scenarios", #4531); their SessionManager rewrite makes the commit itself
+ * unmergeable here, so only the rule is carried over.
+ */
+export function getExpireDate(state: SessionState): number | undefined {
+  const expireDate = state.expire && Number(state.expire)
+  if (!expireDate) {
+    return
+  }
+  const createdDate = state.created && Number(state.created)
+  if (createdDate) {
+    return Math.min(expireDate, createdDate + SESSION_TIME_OUT_DELAY)
+  }
+  // A session is stamped with `created` in the same step that generates its id, so one holding an
+  // id but no creation date cannot be shown to sit inside the cap and gets no expiry date at all.
+  // A session without an id is not tracked and is never stamped here, so `expire` alone bounds it
+  // -- this is where we part from upstream, which stamps every started session and can therefore
+  // require both unconditionally.
+  return state.id === undefined ? expireDate : undefined
+}
+
 export function isSessionInExpiredState(session: SessionState) {
+  if (isSessionInNotStartedState(session)) {
+    // nothing has been stored yet, so there is no session to consider expired
+    return false
+  }
   return session.isExpired !== undefined || !isActiveSession(session)
 }
 
 // An active session is a session in either `Tracked` or `NotTracked` state
 function isActiveSession(sessionState: SessionState) {
-  // created and expire can be undefined for versions which was not storing them
-  // these checks could be removed when older versions will not be available/live anymore
-  return (
-    (sessionState.created === undefined || dateNow() - Number(sessionState.created) < SESSION_TIME_OUT_DELAY) &&
-    (sessionState.expire === undefined || dateNow() < Number(sessionState.expire))
-  )
+  const expireDate = getExpireDate(sessionState)
+  return expireDate ? dateNow() < expireDate : false
 }
 
 export function expandSessionState(session: SessionState) {

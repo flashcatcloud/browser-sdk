@@ -53,7 +53,7 @@ describe('logs session manager', () => {
   })
 
   it('when tracked should keep existing tracking type and session id', () => {
-    setCookie(SESSION_STORE_KEY, 'id=abcdef&logs=1', DURATION)
+    setCookie(SESSION_STORE_KEY, `id=abcdef&logs=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
 
     startLogsSessionManagerWithDefaults()
 
@@ -62,7 +62,7 @@ describe('logs session manager', () => {
   })
 
   it('when not tracked should keep existing tracking type', () => {
-    setCookie(SESSION_STORE_KEY, 'logs=0', DURATION)
+    setCookie(SESSION_STORE_KEY, `logs=0&expire=${Date.now() + DURATION}`, DURATION)
 
     startLogsSessionManagerWithDefaults()
 
@@ -84,19 +84,19 @@ describe('logs session manager', () => {
 
   describe('findTrackedSession', () => {
     it('should return the current active session', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&logs=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&logs=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       const logsSessionManager = startLogsSessionManagerWithDefaults()
       expect(logsSessionManager.findTrackedSession()!.id).toBe('abcdef')
     })
 
     it('should return undefined if the session is not tracked', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&logs=0', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&logs=0&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       const logsSessionManager = startLogsSessionManagerWithDefaults()
       expect(logsSessionManager.findTrackedSession()).toBeUndefined()
     })
 
     it('should not return the current session if it has expired by default', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&logs=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&logs=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       const logsSessionManager = startLogsSessionManagerWithDefaults()
       clock.tick(10 * ONE_SECOND)
       expireCookie()
@@ -112,10 +112,10 @@ describe('logs session manager', () => {
     })
 
     it('should return session corresponding to start time', () => {
-      setCookie(SESSION_STORE_KEY, 'id=foo&logs=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=foo&logs=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       const logsSessionManager = startLogsSessionManagerWithDefaults()
       clock.tick(10 * ONE_SECOND)
-      setCookie(SESSION_STORE_KEY, 'id=bar&logs=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=bar&logs=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       // simulate a click to renew the session
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
       clock.tick(STORAGE_POLL_DELAY)

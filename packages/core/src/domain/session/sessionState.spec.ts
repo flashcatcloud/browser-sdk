@@ -1,8 +1,9 @@
 import { dateNow } from '../../tools/utils/timeUtils'
-import { SESSION_EXPIRATION_DELAY } from './sessionConstants'
+import { SESSION_EXPIRATION_DELAY, SESSION_TIME_OUT_DELAY } from './sessionConstants'
 import type { SessionState } from './sessionState'
 import {
   expandSessionState,
+  getExpireDate,
   isSessionInExpiredState,
   toSessionString,
   toSessionState,
@@ -29,22 +30,83 @@ describe('session state utilities', () => {
   })
 
   describe('isSessionInExpiredState', () => {
+    const ONE_DAY = 24 * 60 * 60 * 1000
+
     function dateNowWithOffset(offset = 0) {
       return String(dateNow() + offset)
     }
 
     it('should correctly identify a session in expired state', () => {
       expect(isSessionInExpiredState(EXPIRED_SESSION)).toBe(true)
-      expect(isSessionInExpiredState({ created: dateNowWithOffset(-1000 * 60 * 60 * 4) })).toBe(true)
-      expect(isSessionInExpiredState({ expire: dateNowWithOffset(-100) })).toBe(true)
+      expect(
+        isSessionInExpiredState({
+          created: dateNowWithOffset(-SESSION_TIME_OUT_DELAY),
+          expire: dateNowWithOffset(1000),
+        })
+      ).toBe(true)
+      expect(isSessionInExpiredState({ created: dateNowWithOffset(-100), expire: dateNowWithOffset(-100) })).toBe(true)
+    })
+
+    it('should expire a session that cannot say when it started or when it lapses', () => {
+      // A missing stamp used to short-circuit the comparison to `true`, which is how a session
+      // outlived both bounds and kept running for days on a page that was never closed.
+      expect(isSessionInExpiredState({ first: 'not-tracked' })).toBe(true)
+      expect(isSessionInExpiredState({ first: 'tracked' })).toBe(true)
+      expect(isSessionInExpiredState({ id: '123', first: 'tracked', expire: dateNowWithOffset(1000) })).toBe(true)
+      expect(isSessionInExpiredState({ id: '123', first: 'tracked', created: dateNowWithOffset(-1000) })).toBe(true)
+    })
+
+    it('should cap the sliding deadline at SESSION_TIME_OUT_DELAY from creation', () => {
+      // An `expire` beyond the cap can only come from a clock that was ahead when it was written,
+      // and would otherwise hold the session open until that error had elapsed for real.
+      expect(
+        isSessionInExpiredState({
+          created: dateNowWithOffset(-SESSION_TIME_OUT_DELAY),
+          expire: dateNowWithOffset(ONE_DAY),
+        })
+      ).toBe(true)
     })
 
     it('should correctly identify a session in live state', () => {
       expect(isSessionInExpiredState({ created: dateNowWithOffset(-1000), expire: dateNowWithOffset(1000) })).toBe(
         false
       )
-      expect(isSessionInExpiredState({ first: 'not-tracked' })).toBe(false)
-      expect(isSessionInExpiredState({ first: 'tracked' })).toBe(false)
+    })
+
+    it('should not consider a session that was never started as expired', () => {
+      expect(isSessionInExpiredState(NOT_STARTED_SESSION)).toBe(false)
+    })
+  })
+
+  describe('getExpireDate', () => {
+    function dateNowWithOffset(offset = 0) {
+      return String(dateNow() + offset)
+    }
+
+    it('should return undefined without an expire stamp', () => {
+      expect(getExpireDate({})).toBeUndefined()
+      expect(getExpireDate({ created: dateNowWithOffset(-1000) })).toBeUndefined()
+    })
+
+    it('should return undefined when a session holding an id has no creation date', () => {
+      expect(getExpireDate({ id: '123', expire: dateNowWithOffset(1000) })).toBeUndefined()
+    })
+
+    it('should fall back to expire alone for a not-tracked session, which is never stamped', () => {
+      const expire = dateNowWithOffset(1000)
+      expect(getExpireDate({ first: 'not-tracked', expire })).toBe(Number(expire))
+    })
+
+    it('should return the sliding deadline while it is the earlier of the two', () => {
+      const expire = dateNowWithOffset(1000)
+      expect(getExpireDate({ created: dateNowWithOffset(-1000), expire })).toBe(Number(expire))
+    })
+
+    it('should return the creation cap once it is the earlier of the two', () => {
+      const created = dateNowWithOffset(-SESSION_TIME_OUT_DELAY + 1000)
+      expect(getExpireDate({ created, expire: dateNowWithOffset(SESSION_TIME_OUT_DELAY) })).toBe(
+        Number(created) + SESSION_TIME_OUT_DELAY
+      )
     })
   })
 
