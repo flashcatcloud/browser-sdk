@@ -209,7 +209,11 @@ function computeResourceEntryMetrics(entry: RumPerformanceResourceTiming) {
  */
 function effectiveRulePsr(configuration: RumConfiguration, sessionManager: RumSessionManager, startTime: RelativeTime) {
   const drawn = sessionManager.findTrackedSession(startTime)?.drawnConfiguration
-  return drawn ? drawn.traceSampleRate / 100 : configuration.rulePsr
+  // A draw whose trace rate is undefined is a draw no rule reached, and `rule_psr` stays absent
+  // exactly as it did before this existed. Reading the drawn rate through a `??` instead would put
+  // the tracer's own default in the field on every site that never configured trace sampling, and
+  // the backend would extrapolate from a rule nobody wrote.
+  return drawn?.traceSampleRate !== undefined ? drawn.traceSampleRate / 100 : configuration.rulePsr
 }
 
 function computeRequestTracingInfo(

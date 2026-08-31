@@ -434,6 +434,65 @@ describe('resourceCollection', () => {
       expect(privateFields.rule_psr).toBeUndefined()
     })
 
+    it('should still not define rule_psr when a draw was recorded but no rule set a trace rate', () => {
+      // The draw above it is what makes this worth its own test: as soon as anything records one —
+      // remote configuration, `beforeSampling`, a forced session — the event stops reading the init
+      // configuration and reads the draw instead. The draw's trace rate falls back to the tracer's
+      // own default of 100, so reading it unconditionally would put `rule_psr: 1` on every site that
+      // never asked for trace sampling, and the backend would extrapolate from a rule nobody wrote.
+      const config = validateAndBuildRumConfiguration({
+        clientToken: 'xxx',
+        applicationId: 'xxx',
+      })!
+      const sessionManager = createRumSessionManagerMock().setDrawnConfiguration({
+        version: 8,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: undefined,
+        defaultPrivacyLevel: 'mask',
+      })
+      setupResourceCollection(config, sessionManager)
+
+      lifeCycle.notify(
+        LifeCycleEventType.REQUEST_COMPLETED,
+        createCompletedRequest({
+          traceSampled: true,
+          spanId: createSpanIdentifier(),
+          traceId: createTraceIdentifier(),
+        })
+      )
+      const privateFields = (rawRumEvents[0].rawRumEvent as RawRumResourceEvent)._dd
+      expect(privateFields.rule_psr).toBeUndefined()
+    })
+
+    it('should define rule_psr to 0 when the console delivered a trace rate of 0', () => {
+      // Nothing about "no rule" is allowed to swallow a rule of zero: the console turning tracing
+      // off is a decision, and the backend has to be told it was made.
+      const config = validateAndBuildRumConfiguration({
+        clientToken: 'xxx',
+        applicationId: 'xxx',
+      })!
+      const sessionManager = createRumSessionManagerMock().setDrawnConfiguration({
+        version: 8,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: 0,
+        defaultPrivacyLevel: 'mask',
+      })
+      setupResourceCollection(config, sessionManager)
+
+      lifeCycle.notify(
+        LifeCycleEventType.REQUEST_COMPLETED,
+        createCompletedRequest({
+          traceSampled: true,
+          spanId: createSpanIdentifier(),
+          traceId: createTraceIdentifier(),
+        })
+      )
+      const privateFields = (rawRumEvents[0].rawRumEvent as RawRumResourceEvent)._dd
+      expect(privateFields.rule_psr).toEqual(0)
+    })
+
     it('should define rule_psr to 0 if traceSampleRate is set to 0', () => {
       const config = validateAndBuildRumConfiguration({
         clientToken: 'xxx',

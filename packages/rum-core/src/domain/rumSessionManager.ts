@@ -61,7 +61,13 @@ export interface DrawnConfiguration {
   // repeatedly for as long as the session lives — the trace rate on every request, the privacy
   // level on every recorded node — so both have to answer with what this session started under
   // rather than with whatever the console has since delivered.
-  traceSampleRate: number
+  //
+  // Undefined means no rule set a trace rate at all — neither the console nor `init`. That is a
+  // different statement from "100", and the events have to keep it: `rule_psr` describes the rule
+  // the tracer drew under, and the backend extrapolates from it, so a site that never asked for
+  // trace sampling must go on sending no rule rather than a rule of 100%. The tracer itself reads
+  // this as "use the built configuration's rate", which is what it did before any of this existed.
+  traceSampleRate: number | undefined
   defaultPrivacyLevel: DefaultPrivacyLevel
 }
 
@@ -143,7 +149,13 @@ export function startRumSessionManager(
   // The record is written just after the session store already holds the new session, in the same
   // synchronous stack: a tab whose storage poll fell exactly between the two would find no record
   // and keep its own settings for that session. Writing it earlier is not possible from here — the
-  // id it belongs to is generated inside the store, as that session is persisted.
+  // id it belongs to is generated inside the store, as that session is persisted. The record is
+  // read only here, when a session is adopted, so such a tab keeps its own settings for the whole
+  // remaining life of that session rather than until its next poll.
+  //
+  // Storage is also per origin while the session need not be: with `trackSessionAcrossSubdomains`
+  // a session arrives on the next subdomain with no record waiting, and is reported and traced
+  // there under the values that subdomain passed to init. See `remoteConfigurationEnabled`.
   function trackDraw(startTime: RelativeTime) {
     const drawn = pendingDraw
     pendingDraw = undefined
@@ -422,14 +434,14 @@ function reportDraw(
     version: remote.version,
     sessionSampleRate,
     sessionReplaySampleRate,
-    traceSampleRate: remote.traceSampleRate ?? configuration.traceSampleRate,
+    traceSampleRate: remote.traceSampleRate ?? initTraceRule(configuration),
     defaultPrivacyLevel: remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
   }
   if (
     drawn.version === undefined &&
     drawn.sessionSampleRate === configuration.sessionSampleRate &&
     drawn.sessionReplaySampleRate === configuration.sessionReplaySampleRate &&
-    drawn.traceSampleRate === configuration.traceSampleRate &&
+    drawn.traceSampleRate === initTraceRule(configuration) &&
     drawn.defaultPrivacyLevel === configuration.defaultPrivacyLevel
   ) {
     return
@@ -475,7 +487,7 @@ function readDrawRecord(configuration: RumConfiguration, sessionId: string): Dra
     // A record written before these two existed has neither, and so does one holding something we
     // cannot use. Falling back to init is the same answer the session was already getting, so an
     // SDK upgrade mid-session changes nothing about how it is traced or masked.
-    traceSampleRate: isRate(record.traceSampleRate) ? record.traceSampleRate : configuration.traceSampleRate,
+    traceSampleRate: isRate(record.traceSampleRate) ? record.traceSampleRate : initTraceRule(configuration),
     defaultPrivacyLevel: isPrivacyLevel(record.defaultPrivacyLevel)
       ? record.defaultPrivacyLevel
       : configuration.defaultPrivacyLevel,
@@ -488,6 +500,16 @@ function writeDrawRecord(configuration: RumConfiguration, record: { id: string }
   } catch {
     // Storage unavailable: the record simply does not survive this page load.
   }
+}
+
+/**
+ * FLASHCAT FORK - the trace rate a rule set at `init`, or undefined when the site set none.
+ * `configuration.traceSampleRate` cannot answer that question: it defaults to 100 whether or not
+ * anybody asked for it. `rulePsr` is the built configuration's own record of "was one configured at
+ * all", so it is what decides here, and the two stay in step by construction.
+ */
+function initTraceRule(configuration: RumConfiguration) {
+  return configuration.rulePsr !== undefined ? configuration.traceSampleRate : undefined
 }
 
 function hasValidRumSession(trackingType?: string): trackingType is RumTrackingType {

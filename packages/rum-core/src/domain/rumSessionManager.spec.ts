@@ -435,6 +435,36 @@ describe('rum session manager', () => {
       registerCleanupTask(() => localStorage.removeItem(STORE_KEY))
     }
 
+    it('leaves the delivered rate in place when it throws, rather than handing the draw back to init', () => {
+      // The rates in hand at the moment the callback failed are the console's, and they are what
+      // must survive. Written with init and console disagreeing on purpose: with both at 100 a
+      // `catch` that reset the rates to the init values would pass too, and that is exactly the
+      // regression this is here to catch.
+      storeRemote({ version: 2, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 0,
+          sessionReplaySampleRate: 0,
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+          drawStoreKey: DRAW_KEY,
+          beforeSampling: () => {
+            throw new Error('boom')
+          },
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toEqual({
+        version: 2,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: undefined,
+        defaultPrivacyLevel: 'mask',
+      })
+    })
+
     it('exposes the rates and version the session was drawn under', () => {
       storeRemote({ version: 12, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
 
@@ -447,7 +477,10 @@ describe('rum session manager', () => {
         version: 12,
         sessionSampleRate: 100,
         sessionReplaySampleRate: 100,
-        traceSampleRate: 100,
+        // No rule set a trace rate: this configuration passed none to init and the console
+        // delivered none. That is not the same as a rule of 100, and the draw has to keep the
+        // difference — see `rule_psr` in resourceCollection.
+        traceSampleRate: undefined,
         defaultPrivacyLevel: 'mask',
       })
     })
@@ -469,7 +502,7 @@ describe('rum session manager', () => {
         version: 3,
         sessionSampleRate: 100,
         sessionReplaySampleRate: 100,
-        traceSampleRate: 100,
+        traceSampleRate: undefined,
         defaultPrivacyLevel: 'mask',
       })
     })
@@ -488,7 +521,7 @@ describe('rum session manager', () => {
         version: 5,
         sessionSampleRate: 100,
         sessionReplaySampleRate: 100,
-        traceSampleRate: 100,
+        traceSampleRate: undefined,
         defaultPrivacyLevel: 'mask',
       })
     })
@@ -510,7 +543,7 @@ describe('rum session manager', () => {
         version: 7,
         sessionSampleRate: 100,
         sessionReplaySampleRate: 100,
-        traceSampleRate: 100,
+        traceSampleRate: undefined,
         defaultPrivacyLevel: 'mask',
       })
     })
@@ -609,6 +642,7 @@ describe('rum session manager', () => {
       const rumSessionManager = startRumSessionManagerWithDefaults({
         configuration: {
           traceSampleRate: 42,
+          rulePsr: 0.42,
           defaultPrivacyLevel: 'mask-user-input',
           remoteConfig: REMOTE_SAMPLING_SETUP,
           drawStoreKey: DRAW_KEY,
@@ -659,7 +693,7 @@ describe('rum session manager', () => {
         version: undefined,
         sessionSampleRate: 100,
         sessionReplaySampleRate: 100,
-        traceSampleRate: 100,
+        traceSampleRate: undefined,
         defaultPrivacyLevel: 'mask',
       })
     })
