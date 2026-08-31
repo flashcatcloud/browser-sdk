@@ -437,17 +437,22 @@ function validFetchTimeout(timeout: number | undefined) {
  * storage format version lives in `STORE_KEY_PREFIX` instead, so only a real format change orphans
  * the cache.
  *
- * KNOWN LIMITATION - the application version does the very thing the SDK version is kept out for,
- * only more often: every deploy starts a new entry, the first session after it reads the local
- * settings, and the entry the previous deploy used is never read again and never removed. They
- * accumulate in a quota the host application shares.
+ * The application version is in it for a reason the SDK version does not have: settings can be
+ * targeted at a release, so two releases of one site that are live at the same time are entitled to
+ * different rates. One entry between them would have each overwrite the other's on every fetch, for
+ * as long as both are being served — so the version has to stay, and cannot be dropped to make the
+ * limitation below go away.
+ *
+ * KNOWN LIMITATION - that costs an entry per deploy. The first session after a release reads the
+ * local settings, and the entry the release before it used is never read again and never removed,
+ * so they accumulate in a quota the host application shares.
  *
  * Sweeping them on write is not the answer, and was tried: nothing here can tell an abandoned entry
- * from the entry of a tab still open on yesterday's deploy, and deleting the latter drops that tab
- * to its local settings for a whole session — then the two tabs delete each other's entry at every
- * renewal. A correct fix needs either a way to know no page is still reading an entry, or for the
- * key to stop carrying the version at all, which is only safe once it is settled whether the
- * console varies its answer by application version. Until then the leak is the cheaper mistake.
+ * from the entry of a tab still open on yesterday's release, and deleting the latter drops that tab
+ * to its local settings for a whole session — after which the two tabs delete each other's entry at
+ * every renewal, which is a worse failure than the leak. A correct fix needs a way to know that no
+ * page is still reading an entry: an age written beside the values and swept well past the session
+ * timeout would do it, and is the shape to reach for if the accumulation ever bites.
  */
 function buildStoreKey(initConfiguration: RumInitConfiguration) {
   return buildKey(STORE_KEY_PREFIX, identityParts(initConfiguration).concat(initConfiguration.version ?? ''))
