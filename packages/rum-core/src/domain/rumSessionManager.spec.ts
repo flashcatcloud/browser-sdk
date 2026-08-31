@@ -869,10 +869,13 @@ describe('rum session manager', () => {
         expect(isSessionEnded()).toBeFalse()
       })
 
-      it('ignores what is in storage when the site did not opt in', () => {
+      it('reads nothing out of the settings store when the site did not opt in', () => {
         storeRemote({ version: 1, sessionSampleRate: 100 })
         startRumSessionManagerWithDefaults({ configuration: { sessionSampleRate: 0, drawStoreKey: DRAW_KEY } })
 
+        // Such a site never fetches, so this can only ever be reached by hand. What matters is that
+        // the settings store is out of reach without the opt-in: the rate that would apply is the
+        // one init passed, which is the one this session was already drawn on.
         deliver({ version: 2, sessionSampleRate: 100 })
 
         expect(expireSessionSpy).not.toHaveBeenCalled()
