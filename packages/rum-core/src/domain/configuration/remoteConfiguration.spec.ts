@@ -449,6 +449,15 @@ describe('remoteConfiguration', () => {
       expect(keyOf({})).not.toEqual(keyOf({ version: '1.2.4' }))
     })
 
+    it('cannot be spelled the same way by two different identities', () => {
+      // The separator has to be a character `encodeURIComponent` escapes. With `_`, which it leaves
+      // alone, these two would share one cache entry and read each other's rates.
+      const keyOf = (partial: Partial<RumInitConfiguration>) =>
+        buildRemoteConfigSetup({ ...INIT_CONFIGURATION, ...partial })!.storeKey
+
+      expect(keyOf({ env: 'prod', version: '1_0' })).not.toEqual(keyOf({ env: 'prod_1', version: '0' }))
+    })
+
     it('carries the storage format version, so only a format change orphans the cache', () => {
       expect(buildRemoteConfigSetup(INIT_CONFIGURATION)!.storeKey.startsWith('_fc_rc_1_')).toBeTrue()
     })

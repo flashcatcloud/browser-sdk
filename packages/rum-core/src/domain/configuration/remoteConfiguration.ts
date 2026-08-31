@@ -420,8 +420,14 @@ function identityParts(initConfiguration: RumInitConfiguration) {
   return [initConfiguration.site ?? '', initConfiguration.applicationId, initConfiguration.env ?? '']
 }
 
+/**
+ * The separator has to be a character `encodeURIComponent` escapes, or two different identities can
+ * spell the same key: `_` is left alone by it, so env `prod` with version `1_0` and env `prod_1`
+ * with version `0` would both come out as `..._prod_1_0` and share one cache entry. `|` is escaped
+ * to `%7C`, so it can only ever appear here as the separator.
+ */
 function buildKey(prefix: string, parts: string[]) {
-  return prefix + parts.map(encodeURIComponent).join('_')
+  return prefix + parts.map(encodeURIComponent).join('|')
 }
 
 function buildParameters(initConfiguration: RumInitConfiguration, appliedVersion: number | undefined) {
