@@ -1,4 +1,4 @@
-import { INTAKE_SITE_US1, ONE_SECOND } from '@flashcatcloud/browser-core'
+import { INTAKE_SITE_US1, ONE_SECOND, isIntakeUrl } from '@flashcatcloud/browser-core'
 import type { Clock, MockXhr } from '@flashcatcloud/browser-core/test'
 import { interceptRequests, mockClock, registerCleanupTask } from '@flashcatcloud/browser-core/test'
 import { mockRumConfiguration } from '../../../test'
@@ -421,6 +421,28 @@ describe('remoteConfiguration', () => {
         done()
       })
       start(configurationWith())
+    })
+
+    it("is recognisable as the SDK's own traffic, so the page does not collect it", (done) => {
+      interceptor.withMockXhr((xhr) => {
+        // What keeps this request out of the data the SDK collects. Left unrecognised it is just
+        // another XHR the page made: a resource event would be filed for it on every session
+        // renewal, and the in-flight request would count towards the page activity that decides
+        // when a view finished loading.
+        expect(isIntakeUrl(xhr.url!)).toBeTrue()
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('stays recognisable behind a proxy, where the whole query is encoded away', (done) => {
+      const proxied = buildRemoteConfigSetup({ ...INIT_CONFIGURATION, proxy: 'https://proxy.example.com/rum' })
+
+      interceptor.withMockXhr((xhr) => {
+        expect(isIntakeUrl(xhr.url!)).toBeTrue()
+        done()
+      })
+      start(configurationWith({ remoteConfig: proxied }))
     })
 
     it('sends it inside the forwarded request when the site uses a proxy', (done) => {

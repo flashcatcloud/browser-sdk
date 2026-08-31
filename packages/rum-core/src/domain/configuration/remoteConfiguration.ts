@@ -435,6 +435,14 @@ function buildParameters(initConfiguration: RumInitConfiguration, appliedVersion
   // clients running a particular build — a rule that cannot be written retroactively, because the
   // clients it would have to match are the ones already deployed.
   const parameters = [
+    // How the SDK recognises its own traffic and leaves it out of what it collects: `isIntakeUrl`
+    // looks for these two parameters and nothing else. Without them this request is just another
+    // XHR to the page, so every session renewal would file a resource event for it, and the
+    // in-flight request would count towards the page activity that decides when a view finished
+    // loading. They survive a `proxy`, which encodes the whole query into `ddforward` — the
+    // substring match still finds them there.
+    'ddsource=browser',
+    `ddtags=${encodeURIComponent(`sdk_version:${__BUILD_ENV__SDK_VERSION__}`)}`,
     `client_token=${encodeURIComponent(initConfiguration.clientToken)}`,
     'sdk=web',
     `sdk_version=${encodeURIComponent(__BUILD_ENV__SDK_VERSION__)}`,
