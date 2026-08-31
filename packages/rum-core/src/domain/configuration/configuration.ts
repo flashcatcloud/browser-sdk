@@ -62,6 +62,12 @@ export interface RumInitConfiguration extends InitConfiguration {
    * a single session. Keep it a pure decision: side effects will be repeated, and only the last
    * call's return value is used.
    *
+   * The SDK also calls it away from a draw: when new settings arrive it asks which rate would
+   * apply now, to decide whether the running session has to end for them to take effect. So it
+   * must answer the same way for the same input — one that answers differently each time can keep
+   * ending the session it was just asked about — and anything it does besides returning a rate (a
+   * metric, a log, a counter) happens more often than there are sessions.
+   *
    * Its failure modes never reach session creation: a thrown error or an out-of-range value leaves
    * the incoming rate in place, and a value that is not a function at all is reported once and
    * then ignored rather than refusing `init`.
@@ -86,9 +92,17 @@ export interface RumInitConfiguration extends InitConfiguration {
    * Take the sampling rates from the application's settings in the console instead of only from the
    * values passed here, so they can be changed without releasing a new version of this site.
    *
-   * A change applies to sessions started after it arrives; a session already under way keeps the
-   * decision it was created with. The values below stay in use until the first settings arrive, and
-   * whenever the settings cannot be reached.
+   * A change applies to sessions started after it arrives, and a session already under way is never
+   * re-decided in place. Three changes do not wait for that session to end on its own, because
+   * their effect on it can be told without drawing again: a session sample rate of 0 while the
+   * visitor is being collected, a rate of 100 while they are not, and a stricter
+   * `defaultPrivacyLevel`. Each of those ends the current session, and the visitor's next action
+   * starts a new one under the new settings — the old session is collected to its end as it was
+   * begun, so no recording is left masked in one half and plain in the other. Every other change,
+   * a loosening privacy level included, waits for the next session.
+   *
+   * The values below stay in use until the first settings arrive, and whenever the settings cannot
+   * be reached.
    *
    * Requires `localStorage`. Sessions themselves are kept in a cookie unless `sessionPersistence`
    * says otherwise, but this SDK already reads one `localStorage` entry on every site — the record

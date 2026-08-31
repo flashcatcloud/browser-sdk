@@ -32,6 +32,12 @@ export const enum LifeCycleEventType {
   // on the same domain.
   SESSION_EXPIRED,
   SESSION_RENEWED,
+
+  // FLASHCAT FORK - a remote configuration response has just been written to storage. Emitted only
+  // when the write actually happened, so a response refused as stale and a storage failure both
+  // stay silent: a subscriber acting on settings that are not in storage would act on values the
+  // next draw is not going to read.
+  REMOTE_CONFIGURATION_STORED,
   PAGE_MAY_EXIT,
   PAGE_REACTIVATED,
   RAW_RUM_EVENT_COLLECTED,
@@ -64,6 +70,7 @@ declare const LifeCycleEventTypeAsConst: {
   REQUEST_COMPLETED: LifeCycleEventType.REQUEST_COMPLETED
   SESSION_EXPIRED: LifeCycleEventType.SESSION_EXPIRED
   SESSION_RENEWED: LifeCycleEventType.SESSION_RENEWED
+  REMOTE_CONFIGURATION_STORED: LifeCycleEventType.REMOTE_CONFIGURATION_STORED
   PAGE_MAY_EXIT: LifeCycleEventType.PAGE_MAY_EXIT
   PAGE_REACTIVATED: LifeCycleEventType.PAGE_REACTIVATED
   RAW_RUM_EVENT_COLLECTED: LifeCycleEventType.RAW_RUM_EVENT_COLLECTED
@@ -85,6 +92,7 @@ export interface LifeCycleEventMap {
   [LifeCycleEventTypeAsConst.REQUEST_COMPLETED]: RequestCompleteEvent
   [LifeCycleEventTypeAsConst.SESSION_EXPIRED]: void
   [LifeCycleEventTypeAsConst.SESSION_RENEWED]: void
+  [LifeCycleEventTypeAsConst.REMOTE_CONFIGURATION_STORED]: void
   [LifeCycleEventTypeAsConst.PAGE_MAY_EXIT]: PageMayExitEvent
   [LifeCycleEventTypeAsConst.PAGE_REACTIVATED]: void
   [LifeCycleEventTypeAsConst.RAW_RUM_EVENT_COLLECTED]: RawRumEventCollectedData
