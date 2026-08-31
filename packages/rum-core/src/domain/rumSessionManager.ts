@@ -1,6 +1,7 @@
-import type { DefaultPrivacyLevel, RelativeTime, TrackingConsentState } from '@flashcatcloud/browser-core'
+import type { RelativeTime, TrackingConsentState } from '@flashcatcloud/browser-core'
 import {
   BridgeCapability,
+  DefaultPrivacyLevel,
   Observable,
   SESSION_TIME_OUT_DELAY,
   STORAGE_POLL_DELAY,
@@ -173,6 +174,78 @@ export function startRumSessionManager(
     lifeCycle.notify(LifeCycleEventType.SESSION_RENEWED)
   })
 
+  // FLASHCAT FORK - a change published mid-session normally waits for that session to end on its
+  // own, which for a visitor who never goes idle is hours away. Three changes cannot afford the
+  // wait, and what makes exactly those three special is that their outcome for the running session
+  // can be asserted without drawing again:
+  //
+  //   - a session sample rate of 0 while this session is being collected: nothing is meant to be
+  //     collected any more, and this is the emergency stop the console offers;
+  //   - a session sample rate of 100 while this session is not: everything is meant to be
+  //     collected, and this visitor is the exception;
+  //   - a stricter default privacy level: every further second recorded is a second of plaintext
+  //     uploaded, and masking cannot reach back for it.
+  //
+  // No other rate says anything about whether THIS session should have been kept — only a second
+  // draw could, and drawing twice silently turns a rate p into p². So everything else waits for
+  // the next session, a loosening privacy level included. Loosening waits on purpose: the delay
+  // is what leaves an operator room to undo a mistake, and what it costs meanwhile is more of the
+  // data already being collected.
+  //
+  // The action is always to end the session and let the next activity start a new one — never to
+  // flip the running one, which would leave a replay masked in its first half and plain in its
+  // second, or invent a session that begins in the middle of a visit.
+  //
+  // It stays idempotent with no bookkeeping at all: it compares what this session was drawn under
+  // against what a draw would use now, and ending the session is exactly what makes that
+  // difference disappear. The same response arriving again — another tab, a retry, a reload —
+  // finds nothing left to act on.
+  function endSessionIfSettingsAreDecisive() {
+    if (!configuration.remoteConfig) {
+      return
+    }
+    const session = sessionManager.findSession()
+    if (!session) {
+      // Nothing to end. Whatever starts the next session draws on the settings just stored, which
+      // is the ordinary path and already gives them their effect.
+      return
+    }
+
+    const remote = readRemoteConfig(configuration.remoteConfig)
+
+    // What this session is masking pages with right now, which is not the previously stored
+    // settings: settings are stored while a session runs, and the session was drawn under whatever
+    // was stored before that. No record means the draw used the init value, and so does the
+    // session.
+    const drawnPrivacyLevel = drawnHistory.find()?.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
+    const nextPrivacyLevel = remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
+    if (PRIVACY_LEVEL_STRICTNESS[nextPrivacyLevel] > PRIVACY_LEVEL_STRICTNESS[drawnPrivacyLevel]) {
+      sessionManager.expire()
+      return
+    }
+
+    if (forcedSession) {
+      // The host application has taken this page off the rates deliberately, and every draw it
+      // makes from now on is collected whatever the console says. Ending the session on a rate
+      // would only replace it with another forced one — the same difference, forever.
+      return
+    }
+
+    // Whether this session is collected is read off the session itself rather than reconstructed
+    // by comparing rates: the session IS the outcome its draw produced, and an outcome is the only
+    // thing 0 and 100 let us assert anything about.
+    const isCollected = isTypeTracked(session.trackingType)
+    const { sessionSampleRate } = resolveSampleRates(configuration, remote)
+    if ((sessionSampleRate === 0 && isCollected) || (sessionSampleRate === 100 && !isCollected)) {
+      sessionManager.expire()
+    }
+  }
+
+  const remoteConfigSubscription = lifeCycle.subscribe(
+    LifeCycleEventType.REMOTE_CONFIGURATION_STORED,
+    endSessionIfSettingsAreDecisive
+  )
+
   sessionManager.sessionStateUpdateObservable.subscribe(({ previousState, newState }) => {
     if (!previousState.forcedReplay && newState.forcedReplay) {
       const sessionEntity = sessionManager.findSession()
@@ -203,7 +276,10 @@ export function startRumSessionManager(
     },
     expire: sessionManager.expire,
     expireObservable: sessionManager.expireObservable,
-    stop: drawnHistory.stop,
+    stop: () => {
+      remoteConfigSubscription.unsubscribe()
+      drawnHistory.stop()
+    },
     setForcedReplay: () => sessionManager.updateSessionState({ forcedReplay: '1' }),
     // FLASHCAT FORK - the escape hatch for "collect this visitor NOW": the host application knows
     // who needs debugging (its own allow-list, a support flow), the SDK only provides the switch.
@@ -377,8 +453,9 @@ function computeSessionState(
  * own code interprets it here. Its failure modes must never reach session creation, so a thrown
  * error or a value outside 0..100 leaves the incoming rate in place.
  *
- * Resolving is all it does — it never draws on the rates it returns — so the same question can be
- * asked away from a draw.
+ * It resolves rates and never draws on them, which is what lets the same question be asked away
+ * from a draw — see `endSessionIfSettingsAreDecisive`, which needs to know which rate would apply
+ * without spending a lottery ticket to find out.
  */
 function resolveSampleRates(configuration: RumConfiguration, remote: RemoteConfigValues) {
   let sessionSampleRate = remote.sessionSampleRate ?? configuration.sessionSampleRate
@@ -405,6 +482,17 @@ function resolveSampleRates(configuration: RumConfiguration, remote: RemoteConfi
   }
 
   return { sessionSampleRate, sessionReplaySampleRate }
+}
+
+/**
+ * FLASHCAT FORK - how much of a page each level keeps out of a recording, ordered so two levels can
+ * be compared. Only the direction matters: tightening is the change that cannot be undone after the
+ * fact, because a second already recorded in the clear has already been uploaded in the clear.
+ */
+const PRIVACY_LEVEL_STRICTNESS: { [level in DefaultPrivacyLevel]: number } = {
+  [DefaultPrivacyLevel.ALLOW]: 0,
+  [DefaultPrivacyLevel.MASK_USER_INPUT]: 1,
+  [DefaultPrivacyLevel.MASK]: 2,
 }
 
 /**

@@ -19,11 +19,17 @@ declare const __BUILD_ENV__SDK_VERSION__: string
  * masks a page by default.
  *
  * A change only affects sessions created after it arrives, so a visitor is never dropped halfway
- * through and never starts being recorded halfway through. Fetching follows the same rhythm: once
- * at start-up and once whenever a new session begins — a change can only matter at the next draw,
- * so asking more often than sessions are drawn would be requests for nothing. There is no timer
- * between sessions; the server's `ttl` field is accepted and ignored, reserved for a future
- * polling mode.
+ * through and never starts being recorded halfway through. What "immediately" means for the
+ * handful of changes that cannot wait is therefore not a flip of the running session but its end:
+ * see `endSessionIfSettingsAreDecisive` in the session manager, which subscribes to the event this
+ * module emits once new settings are in storage.
+ *
+ * Fetching happens once at start-up and once whenever a new session begins — a change can only
+ * matter at a draw, and every draw is a new session — so asking more often than sessions are drawn
+ * would be requests for nothing. There is no timer between sessions; the server's `ttl` field is
+ * accepted and ignored, reserved for a future polling mode. The cost of that rhythm is that a
+ * visitor who never goes idle stays on one session, and so on one set of settings, for as long as
+ * they keep using the site.
  *
  * Nothing here runs unless `remoteConfigurationEnabled: true`. Left off — the default — the SDK makes no
  * extra request and behaves exactly as it did before this existed.
@@ -100,6 +106,9 @@ export interface BeforeSamplingContext {
  * The application's last word on the sampling of the session about to be drawn — see the
  * `beforeSampling` init option. Returning nothing, or an out-of-range rate, leaves the incoming
  * value in place.
+ *
+ * Must be free of side effects and answer the same way for the same input: it is also called away
+ * from a draw, to work out which rate newly delivered settings would actually apply.
  */
 export type BeforeSamplingCallback = (
   context: BeforeSamplingContext
@@ -248,7 +257,12 @@ function keepConfigFresh(configuration: RumConfiguration, setup: RemoteConfigSet
       }
       if (response) {
         failedAttempts = 0
-        store(setup, response)
+        if (store(setup, response)) {
+          // Announced only once the settings are in storage, because that is where the next draw
+          // reads them: a subscriber that ends the running session so the new values can take
+          // effect immediately has to be sure the draw that follows will find them.
+          lifeCycle.notify(LifeCycleEventType.REMOTE_CONFIGURATION_STORED)
+        }
         return
       }
       if (failedAttempts < RETRY_DELAYS.length) {
@@ -323,6 +337,11 @@ function fetchRemoteConfiguration(
   xhr.send()
 }
 
+/**
+ * Writes the response to storage, and answers whether it actually landed there. A refused or
+ * unwritable response answers `false`: nothing changed for the next draw, so nothing downstream
+ * should act as if it had.
+ */
 function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) {
   // Settings are published under a number that only ever goes up — rolling back republishes the
   // old settings under a new, higher one — so a response numbered below what is already stored can
@@ -335,7 +354,7 @@ function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) 
   // requests that can cross are two pages, and storage is the only thing they share.
   const storedVersion = readRemoteConfig(setup).version
   if (storedVersion !== undefined && response.version < storedVersion) {
-    return
+    return false
   }
 
   const values: RemoteConfigValues = { version: response.version }
@@ -369,8 +388,10 @@ function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) 
     // settings" looks like — so that the version is kept either way and the console can still see
     // that this client is up to date with the change that turned it off.
     localStorage.setItem(setup.storeKey, JSON.stringify(values))
+    return true
   } catch {
     // Storage unavailable: the values simply do not survive this page load.
+    return false
   }
 }
 
