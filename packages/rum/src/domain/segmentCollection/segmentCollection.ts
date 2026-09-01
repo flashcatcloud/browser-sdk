@@ -11,7 +11,7 @@ import {
 import type { LifeCycle, ViewHistory, RumSessionManager, RumConfiguration } from '@flashcatcloud/browser-rum-core'
 import { LifeCycleEventType } from '@flashcatcloud/browser-rum-core'
 import type { BrowserRecord, CreationReason, SegmentContext } from '../../types'
-import { discardSegment } from '../replayStats'
+import { discardSegmentData, removeSegment } from '../replayStats'
 import { buildReplayPayload } from './buildReplayPayload'
 import type { FlushReason, Segment } from './segment'
 import { createSegment } from './segment'
@@ -119,6 +119,8 @@ type SegmentCollectionState =
       bufferCheckoutTimeoutId: TimeoutId | undefined
       /** Set when the segment was created while its session was withholding its replay. */
       withheldForSessionId: string | undefined
+      /** The view the segment belongs to, so its index can be given back without waiting on a flush. */
+      viewId: string
     }
   | {
       status: SegmentCollectionStatus.Stopped
@@ -183,15 +185,22 @@ export function doStartSegmentCollection(
         return
       }
 
+      if (isWithheld) {
+        // Given back here, synchronously, rather than in the flush callback below: that callback only
+        // runs after a round trip to the deflate worker, and a record arriving in between creates a
+        // segment that reads its `index_in_view` from a count this one still occupies - leaving two
+        // uploaded segments claiming the same index, and index 0 never uploaded at all.
+        removeSegment(state.viewId)
+      }
+
       state.segment.flush((metadata, encoderResult) => {
         if (isWithheld) {
-          // No error was reported, so this buffer is dropped rather than sent. Rolling back its
-          // stats keeps `has_replay` and the replay counters reported on view events honest.
-          discardSegment(metadata.view.id, encoderResult.rawBytesCount, metadata.records_count)
+          // No error was reported, so this buffer is dropped rather than sent. Rolling back what its
+          // records contributed keeps `has_replay` and the counters on view events honest.
+          discardSegmentData(metadata.view.id, encoderResult.rawBytesCount, metadata.records_count)
           droppedBufferCount += 1
-          // Restarted from here rather than synchronously below: this callback is where the rollback
-          // lands, and a segment created before it would take an `index_in_view` this one still
-          // occupies - two uploaded segments would end up claiming the same index.
+          // Restarted from here rather than synchronously below, so the fresh full snapshot lands in
+          // the segment that follows this one rather than in the one being thrown away.
           restartBuffer(flushReason)
           return
         }
@@ -276,6 +285,7 @@ export function doStartSegmentCollection(
                 }, BUFFER_CHECKOUT_TIME)
               : undefined,
           withheldForSessionId,
+          viewId: context.view.id,
         }
       }
 
