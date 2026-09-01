@@ -90,7 +90,7 @@ describe('rum session manager', () => {
     })
 
     it('when tracked should keep existing session type and id', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
 
       startRumSessionManagerWithDefaults()
 
@@ -101,7 +101,7 @@ describe('rum session manager', () => {
     })
 
     it('when not tracked should keep existing session type', () => {
-      setCookie(SESSION_STORE_KEY, 'rum=0', DURATION)
+      setCookie(SESSION_STORE_KEY, `rum=0&expire=${Date.now() + DURATION}`, DURATION)
 
       startRumSessionManagerWithDefaults()
 
@@ -111,7 +111,7 @@ describe('rum session manager', () => {
     })
 
     it('should renew on activity after expiration', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
 
       startRumSessionManagerWithDefaults({ configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 100 } })
 
@@ -132,13 +132,13 @@ describe('rum session manager', () => {
 
   describe('findSession', () => {
     it('should return the current session', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       const rumSessionManager = startRumSessionManagerWithDefaults()
       expect(rumSessionManager.findTrackedSession()!.id).toBe('abcdef')
     })
 
     it('should return undefined if the session is not tracked', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=0', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=0&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       const rumSessionManager = startRumSessionManagerWithDefaults()
       expect(rumSessionManager.findTrackedSession()).toBe(undefined)
     })
@@ -151,7 +151,7 @@ describe('rum session manager', () => {
     })
 
     it('should return session corresponding to start time', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       const rumSessionManager = startRumSessionManagerWithDefaults()
       clock.tick(10 * ONE_SECOND)
       expireCookie()
@@ -161,19 +161,19 @@ describe('rum session manager', () => {
     })
 
     it('should return session TRACKED_WITH_SESSION_REPLAY', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       const rumSessionManager = startRumSessionManagerWithDefaults()
       expect(rumSessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.SAMPLED)
     })
 
     it('should return session TRACKED_WITHOUT_SESSION_REPLAY', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=2', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=2&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       const rumSessionManager = startRumSessionManagerWithDefaults()
       expect(rumSessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.OFF)
     })
 
     it('should update current entity when replay recording is forced', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=2', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=2&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       const rumSessionManager = startRumSessionManagerWithDefaults()
       rumSessionManager.setForcedReplay()
 
@@ -267,7 +267,7 @@ describe('rum session manager', () => {
     })
 
     it('leaves a session already under way on the decision it was created with', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       storeRemoteConfigValues({ sessionSampleRate: 0, sessionReplaySampleRate: 0 })
 
       startRumSessionManagerWithDefaults({
@@ -356,7 +356,7 @@ describe('rum session manager', () => {
     })
 
     it('is not consulted for a session already under way', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       const beforeSampling = jasmine.createSpy('beforeSampling')
 
       startRumSessionManagerWithDefaults({ configuration: { beforeSampling } })
@@ -380,7 +380,7 @@ describe('rum session manager', () => {
     })
 
     it('ends a session that was not being collected so a collected one can start', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=0', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=0&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       const rumSessionManager = startRumSessionManagerWithDefaults({
         configuration: { sessionSampleRate: 0, sessionReplaySampleRate: 0 },
       })
@@ -396,7 +396,7 @@ describe('rum session manager', () => {
     })
 
     it('keeps a session collected without replay and forces replay onto it', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=2', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=2&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       const rumSessionManager = startRumSessionManagerWithDefaults()
 
       rumSessionManager.setForcedSession()
@@ -407,7 +407,7 @@ describe('rum session manager', () => {
     })
 
     it('leaves a session already collected with replay untouched', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       const rumSessionManager = startRumSessionManagerWithDefaults()
 
       rumSessionManager.setForcedSession()
@@ -633,7 +633,7 @@ describe('rum session manager', () => {
     })
 
     it('falls back to init for a record written before these two were stored', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       localStorage.setItem(
         DRAW_KEY,
         JSON.stringify({ id: 'abcdef', version: 4, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
@@ -660,7 +660,7 @@ describe('rum session manager', () => {
       // that did not opt in, a record carrying `allow` is not one this SDK wrote — and honouring it
       // would let any same-origin script take a site that asked for `mask` into an unmasked replay
       // with a single storage write.
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       localStorage.setItem(
         DRAW_KEY,
         JSON.stringify({
@@ -719,7 +719,7 @@ describe('rum session manager', () => {
     })
 
     it('never matches a session the record was not written for', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       localStorage.setItem(
         DRAW_KEY,
         JSON.stringify({ id: 'other-session', version: 9, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
@@ -763,7 +763,7 @@ describe('rum session manager', () => {
     })
 
     it('adopts the record another tab wrote for the session it renewed onto', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
       const rumSessionManager = startRumSessionManagerWithDefaults({
         configuration: { remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
       })
@@ -771,7 +771,11 @@ describe('rum session manager', () => {
       // Another tab draws the next session and records it. Nothing is drawn on this page, so
       // reading that record back is the only way it can report and trace the session it now shares
       // the way the tab that drew it does.
-      setCookie(SESSION_STORE_KEY, 'id=drawn-elsewhere&rum=1', DURATION)
+      setCookie(
+        SESSION_STORE_KEY,
+        `id=drawn-elsewhere&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`,
+        DURATION
+      )
       localStorage.setItem(
         DRAW_KEY,
         JSON.stringify({
