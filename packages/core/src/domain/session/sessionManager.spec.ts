@@ -637,7 +637,7 @@ describe('startSessionManager', () => {
       const sessionManager = startSessionManagerWithDefaults()
       sessionManager.sessionStateUpdateObservable.subscribe(sessionStateUpdateSpy)
 
-      sessionManager.updateSessionState({ extra: 'extra' })
+      sessionManager.updateSessionState(() => ({ extra: 'extra' }))
 
       expectSessionIdToBeDefined(sessionManager)
       expect(sessionStateUpdateSpy).toHaveBeenCalledTimes(1)

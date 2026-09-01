@@ -248,6 +248,12 @@ export function doStartSegmentCollection(
     if (flushReason !== 'buffer_checkout' && flushReason !== 'segment_bytes_limit') {
       return
     }
+    if (state.status === SegmentCollectionStatus.Stopped) {
+      // The flush that got here waited on the deflate worker, and recording was stopped in the
+      // meantime. Re-serializing the document now would cost a full snapshot on a page that asked
+      // to stop, and count records into the replay stats that no segment will ever hold.
+      return
+    }
     // On a document whose full snapshot alone exceeds the segment limit, every restart would blow
     // the limit again straight away and restart once more. Spacing restarts out avoids that hot
     // loop, at the cost of a buffer that carries no full snapshot until the next restart is allowed

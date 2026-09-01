@@ -28,7 +28,12 @@ export interface SessionStore {
   sessionStateUpdateObservable: Observable<{ previousState: SessionState; newState: SessionState }>
   expire: () => void
   stop: () => void
-  updateSessionState: (state: Partial<SessionState>) => void
+  /**
+   * Applies a change to the stored session under the store lock. The producer sees the state the
+   * change would land on and returns `undefined` to make it a no-op - which is how a write meant for
+   * one session avoids landing on the one that replaced it while the write was waiting for the lock.
+   */
+  updateSessionState: (update: (state: SessionState) => Partial<SessionState> | undefined) => void
 }
 
 /**
@@ -203,10 +208,13 @@ export function startSessionStore<TrackingType extends string>(
     renewObservable.notify()
   }
 
-  function updateSessionState(partialSessionState: Partial<SessionState>) {
+  function updateSessionState(update: (state: SessionState) => Partial<SessionState> | undefined) {
     processSessionStoreOperations(
       {
-        process: (sessionState) => ({ ...sessionState, ...partialSessionState }),
+        process: (sessionState) => {
+          const partialSessionState = update(sessionState)
+          return partialSessionState && { ...sessionState, ...partialSessionState }
+        },
         after: synchronizeSession,
       },
       sessionStoreStrategy
