@@ -38,6 +38,9 @@
   it the SDK makes no extra request. A change applies to sessions created after it arrives, never
   to one already under way. `remoteConfigurationFetchTimeout` (default 3000 ms) bounds how long
   that request may take; an unusable value falls back to the default rather than refusing `init`.
+- 📝 Withdrawing tracking consent now also removes the record of the sampling draw, which holds the
+  session id. The session store was already rewritten without that id on withdrawal; this keeps the
+  copy in `localStorage` from outliving it.
 - 📝 This release reads and writes `localStorage` on every site, not only those that opt into
   remote configuration: the sampling draw a session was created under is recorded there, so that
   another tab on the same session, and the page load that restores it, report and trace it the same

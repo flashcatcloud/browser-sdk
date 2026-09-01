@@ -1,4 +1,4 @@
-import type { RelativeTime } from '@flashcatcloud/browser-core'
+import type { RelativeTime, TrackingConsentState } from '@flashcatcloud/browser-core'
 import {
   STORAGE_POLL_DELAY,
   SESSION_STORE_KEY,
@@ -683,6 +683,41 @@ describe('rum session manager', () => {
       expect(drawn.sessionSampleRate).toBe(100)
     })
 
+    it('forgets the record when the visitor withdraws consent', () => {
+      // Withdrawing consent is the one moment the SDK promises the session id stops existing — the
+      // session store is rewritten without it. Storage does not expire on its own, so the copy kept
+      // here has to go with it, or it outlives the withdrawal for a consent audit to find.
+      const trackingConsentState = createTrackingConsentState(TrackingConsent.GRANTED)
+      storeRemote({ version: 4, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+        trackingConsentState,
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+      expect(localStorage.getItem(DRAW_KEY)).not.toBeNull()
+
+      trackingConsentState.update(TrackingConsent.NOT_GRANTED)
+
+      expect(localStorage.getItem(DRAW_KEY)).toBeNull()
+    })
+
+    it('keeps the record when a session merely expires', () => {
+      // The negative control on the line above. Sessions expire and renew constantly, and the tab
+      // that notices an expiry is not always the tab that drew what replaced it — removing the
+      // record there would let a page still polling delete what another page had just written for
+      // the new session, putting every tab back on its own settings.
+      storeRemote({ version: 4, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+      expect(localStorage.getItem(DRAW_KEY)).not.toBeNull()
+
+      rumSessionManager.expire()
+
+      expect(localStorage.getItem(DRAW_KEY)).not.toBeNull()
+    })
+
     it('never matches a session the record was not written for', () => {
       setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
       localStorage.setItem(
@@ -781,7 +816,10 @@ describe('rum session manager', () => {
     })
   })
 
-  function startRumSessionManagerWithDefaults({ configuration }: { configuration?: Partial<RumConfiguration> } = {}) {
+  function startRumSessionManagerWithDefaults({
+    configuration,
+    trackingConsentState = createTrackingConsentState(TrackingConsent.GRANTED),
+  }: { configuration?: Partial<RumConfiguration>; trackingConsentState?: TrackingConsentState } = {}) {
     const sessionManager = startRumSessionManager(
       mockRumConfiguration({
         sessionSampleRate: 50,
@@ -791,7 +829,7 @@ describe('rum session manager', () => {
         ...configuration,
       }),
       lifeCycle,
-      createTrackingConsentState(TrackingConsent.GRANTED)
+      trackingConsentState
     )
     registerCleanupTask(sessionManager.stop)
     return sessionManager

@@ -144,6 +144,22 @@ export function startRumSessionManager(
     drawnHistory.closeActive(relativeNow())
   })
 
+  // FLASHCAT FORK - the record holds the id of the session it describes, and withdrawing consent is
+  // the one moment the SDK promises that id stops existing: the session store is rewritten without
+  // it. Storage does not expire on its own, so without this the copy kept here would outlive the
+  // withdrawal for good, and be there for a consent audit to find.
+  //
+  // Only on withdrawal, and deliberately not when a session merely expires. A session ends by
+  // expiring and renewing all the time, and the tab that notices an expiry is not always the tab
+  // that drew what replaced it: deleting there would let a page still polling remove the record
+  // another page had just written for the new session, leaving every tab back on its own settings.
+  // A withdrawal has no such successor — nothing is meant to be adopted after it.
+  const consentSubscription = trackingConsentState.observable.subscribe(() => {
+    if (!trackingConsentState.isGranted()) {
+      forgetDrawRecord(configuration)
+    }
+  })
+
   // FLASHCAT FORK - notes the decision the session that just became current was created under.
   // That draw happened either on this page — `pendingDraw`, which is also written out for everyone
   // else — or somewhere this page cannot see: another tab drawing the session it now shares, or a
@@ -220,7 +236,10 @@ export function startRumSessionManager(
     },
     expire: sessionManager.expire,
     expireObservable: sessionManager.expireObservable,
-    stop: drawnHistory.stop,
+    stop: () => {
+      consentSubscription.unsubscribe()
+      drawnHistory.stop()
+    },
     setForcedReplay: () => sessionManager.updateSessionState({ forcedReplay: '1' }),
     // FLASHCAT FORK - the escape hatch for "collect this visitor NOW": the host application knows
     // who needs debugging (its own allow-list, a support flow), the SDK only provides the switch.
@@ -510,6 +529,14 @@ function readDrawRecord(configuration: RumConfiguration, sessionId: string): Dra
       mayHaveBeenDelivered && isPrivacyLevel(record.defaultPrivacyLevel)
         ? record.defaultPrivacyLevel
         : configuration.defaultPrivacyLevel,
+  }
+}
+
+function forgetDrawRecord(configuration: RumConfiguration) {
+  try {
+    localStorage.removeItem(configuration.drawStoreKey)
+  } catch {
+    // Storage unavailable, which also means there was nothing written to forget.
   }
 }
 
