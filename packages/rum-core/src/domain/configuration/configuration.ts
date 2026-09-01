@@ -101,9 +101,10 @@ export interface RumInitConfiguration extends InitConfiguration {
    */
   sessionReplaySampleRate?: number | undefined
   /**
-   * The percentage of tracked sessions that record a replay but only upload it if the session
-   * reports an error: 100 for all, 0 for none. Drawn only for sessions that the plain
-   * `sessionReplaySampleRate` draw missed, so a session is never counted by both rates.
+   * Of the tracked sessions that `sessionReplaySampleRate` did not draw, the percentage that record
+   * a replay but only upload it if the session reports an error: 100 for all of them, 0 for none.
+   * The base is what the plain rate missed, so a session is never counted by both, and the share of
+   * all tracked sessions this covers is `(100 - sessionReplaySampleRate) * this / 100`.
    *
    * Such a session records from the start and keeps at most the last minute of it in memory. If it
    * never reports an error, nothing is uploaded and the session is not billed. On the first error,
@@ -259,6 +260,25 @@ export function validateAndBuildRumConfiguration(
   const sessionReplaySampleRate = initConfiguration.sessionReplaySampleRate ?? 0
   const sessionReplayOnErrorSampleRate = initConfiguration.sessionReplayOnErrorSampleRate ?? 0
   const sessionOnErrorSampleRate = initConfiguration.sessionOnErrorSampleRate ?? 0
+
+  // Each of these is a rate the customer set that cannot draw a single session. They are valid
+  // numbers, so validation lets them through - but silence would leave them waiting for data that
+  // is never coming.
+  if (sessionReplayOnErrorSampleRate > 0) {
+    if (sessionReplaySampleRate === 100) {
+      display.warn(
+        'sessionReplayOnErrorSampleRate is drawn only for sessions sessionReplaySampleRate did not draw, and that rate is 100: it will never apply.'
+      )
+    }
+    if ((initConfiguration.sessionSampleRate ?? 100) === 0) {
+      display.warn('sessionReplayOnErrorSampleRate has no effect while sessionSampleRate is 0: no session is tracked.')
+    }
+    if (initConfiguration.startSessionReplayRecordingManually) {
+      display.warn(
+        'sessionReplayOnErrorSampleRate needs the recording to already be running when the error happens, and startSessionReplayRecordingManually keeps it stopped until you start it: there would be nothing to release.'
+      )
+    }
+  }
 
   return {
     applicationId: initConfiguration.applicationId,
