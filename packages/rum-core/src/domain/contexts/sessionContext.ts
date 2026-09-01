@@ -35,11 +35,12 @@ export function startSessionContext(
     let sampledForErrorReplay
     let isActive
     if (eventType === RumEventType.VIEW) {
-      // Counted rather than merely present: a withheld buffer that was dropped rolls its segments
-      // back, which leaves a view with replay stats and no replay at all - and offering a replay
-      // that was never uploaded is worse than not offering one.
+      // Records rather than merely a stats entry: a withheld buffer that was dropped rolls back what
+      // it held, which leaves a view with an empty stats entry and no replay at all - and offering a
+      // replay that was never uploaded is worse than not offering one. Records, not segments,
+      // because a host bridge takes the records itself and no segment is ever built for them.
       const replayStats = recorderApi.getReplayStats(view.id)
-      hasReplay = !isReplayWithheld && replayStats && replayStats.segments_count > 0 ? true : undefined
+      hasReplay = !isReplayWithheld && replayStats && replayStats.records_count > 0 ? true : undefined
       // A session that withholds its events withholds its replay alongside them, so if these events
       // are ever uploaded that replay is on its way with them. Reporting the state as it stands at
       // assembly time would mark the whole released burst as a session that has no replay.
