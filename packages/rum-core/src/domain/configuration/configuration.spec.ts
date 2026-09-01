@@ -176,6 +176,19 @@ describe('validateAndBuildRumConfiguration', () => {
       expect(displayWarnSpy.calls.argsFor(0)[0]).toContain('startSessionReplayRecordingManually')
     })
 
+    it('says nothing about a replay it could never withhold anyway', () => {
+      validateAndBuildRumConfiguration({
+        ...DEFAULT_INIT_CONFIGURATION,
+        sessionOnErrorSampleRate: 50,
+        sessionReplaySampleRate: 30,
+        startSessionReplayRecordingManually: true,
+      })
+
+      // the on-error rate cannot draw at all here, which is the one thing worth saying
+      expect(displayWarnSpy).toHaveBeenCalledTimes(1)
+      expect(displayWarnSpy.calls.argsFor(0)[0]).toContain('sessionSampleRate did not draw')
+    })
+
     it('warns when the default session rate leaves it nothing to draw from', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,

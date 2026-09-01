@@ -289,7 +289,10 @@ export function validateAndBuildRumConfiguration(
   // views would report a replay for a recording that never ran.
   if (
     initConfiguration.startSessionReplayRecordingManually &&
-    (sessionReplayOnErrorSampleRate > 0 || (sessionOnErrorSampleRate > 0 && sessionReplaySampleRate > 0))
+    (sessionReplayOnErrorSampleRate > 0 ||
+      (sessionOnErrorSampleRate > 0 &&
+        sessionReplaySampleRate > 0 &&
+        (initConfiguration.sessionSampleRate ?? 100) < 100))
   ) {
     display.warn(
       'A replay kept until the session errors has to be recording before that error, and startSessionReplayRecordingManually keeps it stopped until you start it: there would be nothing to release.'

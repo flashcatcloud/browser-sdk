@@ -171,18 +171,26 @@ describe('session context', () => {
     expect(event.session!.sampled_for_replay).toBe(true)
   })
 
-  it('should set hasReplay on the events of a session that withholds them alongside its replay', () => {
-    // they only ever leave together with that replay, so the error that releases them must not say
-    // there is no replay to watch
+  it('should not claim a replay while one is withheld, whichever way it turns out', () => {
+    // the segment covering this event is dropped on the next view change and sent only if the error
+    // comes first; the event is assembled before either, so it claims nothing
     sessionManager.setTrackedOnErrorWithSessionReplay()
     isRecordingSpy.and.returnValue(true)
+    getReplayStatsSpy.and.returnValue(fakeStats)
 
-    const event = hooks.triggerHook(HookNames.Assemble, {
+    const errorEvent = hooks.triggerHook(HookNames.Assemble, {
       eventType: 'error',
       startTime: 0 as RelativeTime,
     }) as DefaultRumEventAttributes
+    const viewEvent = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
 
-    expect(event.session!.has_replay).toBe(true)
+    expect(errorEvent.session!.has_replay).toBeUndefined()
+    expect(viewEvent.session!.has_replay).toBeUndefined()
+    // but the session was sampled for one, and that is answerable without knowing any segment's fate
+    expect(viewEvent.session!.sampled_for_replay).toBe(true)
   })
 
   it('should not claim a replay for a session that withholds its events and has none', () => {
