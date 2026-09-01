@@ -112,10 +112,10 @@ describe('session context', () => {
     expect(plainEvent.session!.sampled_for_error_replay).toBeUndefined()
   })
 
-  it('should not set hasReplay when a dropped buffer left the view with no segment', () => {
-    // a withheld buffer that was dropped rolls its segments back, and a view left with zero of them
-    // has no replay to offer however many records were once counted
-    getReplayStatsSpy.and.returnValue({ ...fakeStats, segments_count: 0 })
+  it('should not set hasReplay when a dropped buffer left the view with nothing', () => {
+    // a withheld buffer that was dropped rolls back what it held, and a view left with an empty
+    // stats entry has no replay to offer
+    getReplayStatsSpy.and.returnValue({ segments_count: 0, records_count: 0, segments_total_raw_size: 0 })
 
     const event = hooks.triggerHook(HookNames.Assemble, {
       eventType: 'view',
@@ -123,6 +123,18 @@ describe('session context', () => {
     }) as DefaultRumEventAttributes
 
     expect(event.session!.has_replay).toBeUndefined()
+  })
+
+  it('should set hasReplay when a host bridge took the records and no segment was built', () => {
+    // records go straight to the bridge, so nothing ever counts a segment for them
+    getReplayStatsSpy.and.returnValue({ ...fakeStats, segments_count: 0, records_count: 10 })
+
+    const event = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(event.session!.has_replay).toBe(true)
   })
 
   it('should set session.is_active when the session is active', () => {
