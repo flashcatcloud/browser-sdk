@@ -140,6 +140,19 @@ describe('session context', () => {
     expect(eventSampledOutForReplay.session!.sampled_for_replay).toBe(false)
   })
 
+  it('should set sampled_for_replay on a session whose events are withheld alongside its replay', () => {
+    // these events only ever leave together with that replay, so reporting the state as it stands
+    // while they are held would mark the whole released burst as having none
+    sessionManager.setTrackedOnError()
+
+    const event = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(event.session!.sampled_for_replay).toBe(true)
+  })
+
   it('should discard the event if no session', () => {
     sessionManager.setNotTracked()
     const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {

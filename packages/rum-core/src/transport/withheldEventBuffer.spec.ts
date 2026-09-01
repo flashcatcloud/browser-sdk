@@ -399,17 +399,6 @@ describe('startWithheldEventBuffer', () => {
     expect((view.session as Context).detail_sampled_from).toBe(1000)
   })
 
-  it('marks the released views as sampled for replay, since the replay leaves with them', () => {
-    collect(RumEventType.VIEW)
-    collect(RumEventType.RESOURCE)
-
-    sessionManager.setSessionHasError()
-    collect(RumEventType.ERROR)
-
-    const view = releasedAfterJitter().find((event) => event.type === RumEventType.VIEW)!
-    expect((view.session as Context).sampled_for_replay).toBeTrue()
-  })
-
   it('keeps the view an error hangs from when a view that already ended is updated late', () => {
     collect(RumEventType.VIEW, { date: 1000, view: { id: 'first-view' } })
     collect(RumEventType.VIEW, { date: 2000, view: { id: 'second-view' } })

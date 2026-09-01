@@ -36,7 +36,11 @@ export function startSessionContext(
       // that was never uploaded is worse than not offering one.
       const replayStats = recorderApi.getReplayStats(view.id)
       hasReplay = !isReplayWithheld && replayStats && replayStats.segments_count > 0 ? true : undefined
-      sampledForReplay = session.sessionReplay === SessionReplayState.SAMPLED
+      // A session that withholds its events withholds its replay alongside them, so if these events
+      // are ever uploaded that replay is on its way with them. Reporting the state as it stands at
+      // assembly time would mark the whole released burst as a session that has no replay.
+      sampledForReplay =
+        session.sessionReplay === SessionReplayState.SAMPLED || (session.eventsWithheld && isReplayWithheld)
       // Tells the backend that this session's detail only starts where the buffer reached, so the
       // gap before it reads as "not collected" rather than as missing data.
       sampledForError = session.sampledOnError || undefined
