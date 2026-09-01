@@ -11,8 +11,10 @@ describe('startSessionErrorTracking', () => {
   let setSessionHasErrorSpy: jasmine.Spy
 
   function collect(type: string, source = 'source') {
-    lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, { type, error: { source } } as unknown as RumEvent &
-      Context)
+    // only error events carry an `error` object; anything else that did would hide a guard that
+    // reads it before checking the type
+    const event = type === 'error' ? { type, error: { source } } : { type }
+    lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, event as unknown as RumEvent & Context)
   }
 
   beforeEach(() => {
@@ -26,7 +28,8 @@ describe('startSessionErrorTracking', () => {
   it('marks the session on the first collected error', () => {
     collect('error')
 
-    expect(setSessionHasErrorSpy).toHaveBeenCalledTimes(1)
+    // named, not just counted: the mark is refused if it does not name the session it belongs to
+    expect(setSessionHasErrorSpy).toHaveBeenCalledOnceWith('session-id')
   })
 
   it('leaves a session that withholds nothing alone, so an ordinary session store is never written', () => {

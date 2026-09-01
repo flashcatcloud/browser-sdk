@@ -66,6 +66,37 @@ describe('validateAndBuildRumConfiguration', () => {
   })
 
   describe('sessionReplayOnErrorSampleRate', () => {
+    it('is carried into the built configuration', () => {
+      expect(
+        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, sessionReplayOnErrorSampleRate: 50 })!
+          .sessionReplayOnErrorSampleRate
+      ).toBe(50)
+    })
+
+    it('defaults to collecting no error replay at all', () => {
+      expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.sessionReplayOnErrorSampleRate).toBe(0)
+    })
+
+    it('is rejected when it is not a sample rate', () => {
+      expect(
+        validateAndBuildRumConfiguration({
+          ...DEFAULT_INIT_CONFIGURATION,
+          sessionReplayOnErrorSampleRate: 'foo' as unknown as number,
+        })
+      ).toBeUndefined()
+      expect(displayErrorSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('starts the recording on its own, since there is nothing to withhold otherwise', () => {
+      expect(
+        validateAndBuildRumConfiguration({
+          ...DEFAULT_INIT_CONFIGURATION,
+          sessionReplaySampleRate: 0,
+          sessionReplayOnErrorSampleRate: 30,
+        })!.startSessionReplayRecordingManually
+      ).toBeFalse()
+    })
+
     it('warns when the plain replay rate leaves it nothing to draw from', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
@@ -74,6 +105,7 @@ describe('validateAndBuildRumConfiguration', () => {
       })
 
       expect(displayWarnSpy).toHaveBeenCalledTimes(1)
+      expect(displayWarnSpy.calls.argsFor(0)[0]).toContain('sessionReplaySampleRate did not draw')
     })
 
     it('warns when no session is tracked at all', () => {
@@ -84,6 +116,7 @@ describe('validateAndBuildRumConfiguration', () => {
       })
 
       expect(displayWarnSpy).toHaveBeenCalledTimes(1)
+      expect(displayWarnSpy.calls.argsFor(0)[0]).toContain('no session is tracked')
     })
 
     it('warns when the recording is left for the customer to start, since nothing would be held', () => {
@@ -94,6 +127,7 @@ describe('validateAndBuildRumConfiguration', () => {
       })
 
       expect(displayWarnSpy).toHaveBeenCalledTimes(1)
+      expect(displayWarnSpy.calls.argsFor(0)[0]).toContain('startSessionReplayRecordingManually')
     })
 
     it('says nothing about a rate that can draw', () => {

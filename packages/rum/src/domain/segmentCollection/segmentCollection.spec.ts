@@ -475,7 +475,10 @@ describe('startSegmentCollection withholding (error session replay)', () => {
     worker.processAllMessages()
 
     // the dropped buffer never reached the intake, so the first segment that does is index 0
-    expect((await readMetadataFromReplayPayload(httpRequestSpy.send.calls.mostRecent().args[0])).index_in_view).toBe(0)
+    const metadata = await readMetadataFromReplayPayload(httpRequestSpy.send.calls.mostRecent().args[0])
+    expect(metadata.index_in_view).toBe(0)
+    // and it carries a reason the segment schema knows, not the internal one that dropped the buffer
+    expect(metadata.creation_reason).toBe('segment_duration_limit')
   })
 
   it('does not restart the buffer when collection was stopped while the flush was in flight', () => {
