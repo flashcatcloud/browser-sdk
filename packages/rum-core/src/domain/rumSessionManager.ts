@@ -216,8 +216,8 @@ export function startRumSessionManager(
   //     collected any more, and this is the emergency stop the console offers;
   //   - a session sample rate of 100 while this session is not: everything is meant to be
   //     collected, and this visitor is the exception;
-  //   - a stricter default privacy level: every further second recorded is a second of plaintext
-  //     uploaded, and masking cannot reach back for it.
+  //   - a stricter default privacy level while this session is being collected: every further
+  //     second recorded is a second of plaintext uploaded, and masking cannot reach back for it.
   //
   // No other rate says anything about whether THIS session should have been kept — only a second
   // draw could, and drawing twice silently turns a rate p into p². So everything else waits for
@@ -243,28 +243,39 @@ export function startRumSessionManager(
 
     const remote = readRemoteConfig(configuration.remoteConfig)
 
-    // What this session is masking pages with right now, which is not the previously stored
-    // settings: settings are stored while a session runs, and the session was drawn under whatever
-    // was stored before that. No record means the draw used the init value, and so does the
-    // session.
-    const drawnPrivacyLevel = drawnHistory.find()?.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
-    const nextPrivacyLevel = remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
-    if (PRIVACY_LEVEL_STRICTNESS[nextPrivacyLevel] > PRIVACY_LEVEL_STRICTNESS[drawnPrivacyLevel]) {
-      sessionManager.expire()
-      return
+    // Whether this session is collected is read off the session itself rather than reconstructed
+    // by comparing rates: the session IS the outcome its draw produced, and an outcome is the only
+    // thing 0 and 100 let us assert anything about.
+    const isCollected = isTypeTracked(session.trackingType)
+
+    // Only a session that is being collected can be recording, and only a recording can be too
+    // plain. A sampled-out visitor uploads nothing, so a stricter level has nothing to protect
+    // there — and nothing to compare against either: a session that is not collected is given no
+    // id, so no draw is recorded for it and what it was drawn under cannot be read back here. The
+    // comparison would fall through to the init value on every announcement and keep answering
+    // "tighter", ending one empty session after another for as long as the visitor stays.
+    if (isCollected) {
+      // What this session is masking pages with right now, which is not the previously stored
+      // settings: settings are stored while a session runs, and the session was drawn under
+      // whatever was stored before that. No record means the draw used the init value, and so does
+      // the recorder — see `startRecording`, which falls back the same way.
+      const drawnPrivacyLevel = drawnHistory.find()?.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
+      const nextPrivacyLevel = remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
+      if (PRIVACY_LEVEL_STRICTNESS[nextPrivacyLevel] > PRIVACY_LEVEL_STRICTNESS[drawnPrivacyLevel]) {
+        sessionManager.expire()
+        return
+      }
     }
 
     if (forcedSession) {
       // The host application has taken this page off the rates deliberately, and every draw it
       // makes from now on is collected whatever the console says. Ending the session on a rate
-      // would only replace it with another forced one — the same difference, forever.
+      // would only replace it with another forced one — the same difference, forever. The flag is
+      // this page's: another tab of the same visitor that never called `setForcedSession` reads
+      // the shared session as an ordinary one and may end it on a rate.
       return
     }
 
-    // Whether this session is collected is read off the session itself rather than reconstructed
-    // by comparing rates: the session IS the outcome its draw produced, and an outcome is the only
-    // thing 0 and 100 let us assert anything about.
-    const isCollected = isTypeTracked(session.trackingType)
     const { sessionSampleRate } = resolveSampleRates(configuration, remote)
     if ((sessionSampleRate === 0 && isCollected) || (sessionSampleRate === 100 && !isCollected)) {
       sessionManager.expire()

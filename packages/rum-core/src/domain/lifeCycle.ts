@@ -38,10 +38,11 @@ export const enum LifeCycleEventType {
   RUM_EVENT_COLLECTED,
   RAW_ERROR_COLLECTED,
 
-  // FLASHCAT FORK - a remote configuration response has just been written to storage. Emitted only
-  // when the write actually happened, so a response refused as stale and a storage failure both
-  // stay silent: a subscriber acting on settings that are not in storage would act on values the
-  // next draw is not going to read.
+  // FLASHCAT FORK - a remote configuration response has just changed what is in storage. Emitted
+  // only when the write actually happened and actually changed something, so a response refused as
+  // stale, one that merely repeats the settings already held, and a storage failure all stay
+  // silent: a subscriber acting on settings the next draw would have read anyway would be acting
+  // on no news at all.
   //
   // Added last on purpose. The values of a const enum are inlined at build time and shift when an
   // entry is inserted, and everything above this line is upstream's — keeping the fork's own entry

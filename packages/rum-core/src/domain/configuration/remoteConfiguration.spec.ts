@@ -229,6 +229,22 @@ describe('remoteConfiguration', () => {
       start(configurationWith())
     })
 
+    it('stays silent about an answer that repeats the settings it already holds', (done) => {
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 42, version: 7 }))
+      const notified = watchStoredNotifications()
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ version: 7, rum: { sessionSampleRate: 42 } }))
+
+        // The ordinary answer: every new session asks again and most find nothing changed. A
+        // subscriber woken by those would act on no news, once per session, for as long as the
+        // visitor stays.
+        expect(notified).not.toHaveBeenCalled()
+        done()
+      })
+      start(configurationWith())
+    })
+
     it('stays silent when the answer never reached storage', (done) => {
       const notified = watchStoredNotifications()
       spyOn(Storage.prototype, 'setItem').and.throwError('storage is full')

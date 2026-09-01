@@ -64,9 +64,9 @@ export interface RumInitConfiguration extends InitConfiguration {
    *
    * The SDK also calls it away from a draw: when new settings arrive it asks which rate would
    * apply now, to decide whether the running session has to end for them to take effect. So it
-   * must answer the same way for the same input — one that answers differently each time can keep
-   * ending the session it was just asked about — and anything it does besides returning a rate (a
-   * metric, a log, a counter) happens more often than there are sessions.
+   * must answer the same way for the same input — one that answers differently each time can end a
+   * session that a steady one would have left running — and anything it does besides returning a
+   * rate (a metric, a log, a counter) happens more often than there are sessions.
    *
    * Its failure modes never reach session creation: a thrown error or an out-of-range value leaves
    * the incoming rate in place, and a value that is not a function at all is reported once and
@@ -96,10 +96,12 @@ export interface RumInitConfiguration extends InitConfiguration {
    * re-decided in place. Three changes do not wait for that session to end on its own, because
    * their effect on it can be told without drawing again: a session sample rate of 0 while the
    * visitor is being collected, a rate of 100 while they are not, and a stricter
-   * `defaultPrivacyLevel`. Each of those ends the current session, and the visitor's next action
-   * starts a new one under the new settings — the old session is collected to its end as it was
-   * begun, so no recording is left masked in one half and plain in the other. Every other change,
-   * a loosening privacy level included, waits for the next session.
+   * `defaultPrivacyLevel` while they are being collected — a visitor who is not being collected
+   * records nothing, so a stricter level has no plaintext to catch there. Each of those ends the
+   * current session, and the visitor's next action starts a new one under the new settings — the
+   * old session is collected to its end as it was begun, so no recording is left masked in one
+   * half and plain in the other. Every other change, a loosening privacy level included, waits for
+   * the next session.
    *
    * The values below stay in use until the first settings arrive, and whenever the settings cannot
    * be reached.

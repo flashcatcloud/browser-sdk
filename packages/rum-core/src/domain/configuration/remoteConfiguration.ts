@@ -287,9 +287,10 @@ function keepConfigFresh(configuration: RumConfiguration, setup: RemoteConfigSet
       if (response) {
         failedAttempts = 0
         if (store(setup, response)) {
-          // Announced only once the settings are in storage, because that is where the next draw
+          // Announced only once new settings are in storage, because that is where the next draw
           // reads them: a subscriber that ends the running session so the new values can take
-          // effect immediately has to be sure the draw that follows will find them.
+          // effect immediately has to be sure the draw that follows will find them, and must not
+          // be woken by an answer that changed nothing.
           lifeCycle.notify(LifeCycleEventType.REMOTE_CONFIGURATION_STORED)
         }
         return
@@ -402,9 +403,10 @@ function fetchRemoteConfiguration(
 }
 
 /**
- * Writes the response to storage, and answers whether it actually landed there. A refused or
- * unwritable response answers `false`: nothing changed for the next draw, so nothing downstream
- * should act as if it had.
+ * Writes the response to storage, and answers whether it brought settings this client did not
+ * already hold. A refused or unwritable response answers `false`, and so does one that repeats the
+ * version already stored: settings only ever change under a higher number, so by that contract a
+ * repeat leaves the next draw reading what it would have read anyway.
  */
 function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) {
   // Settings are published under a number that only ever goes up — rolling back republishes the
@@ -424,6 +426,14 @@ function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) 
   if (storedVersion !== undefined && response.version < storedVersion) {
     return false
   }
+
+  // Settings only ever change under a higher number, so a response repeating the number already
+  // stored carries nothing new — and that is the ordinary answer, since every new session refetches
+  // and most of them find the settings unchanged. It is written anyway, which costs one small
+  // `setItem` and keeps the entry in the shape this build writes, but it is not announced: a
+  // subscriber that ends the running session must hear about changes only, or an unchanged answer
+  // arriving at every renewal would end a session per renewal, forever.
+  const isNew = storedVersion === undefined || response.version > storedVersion
 
   const values: RemoteConfigValues = { version: response.version }
   if (response.enabled && response.rum) {
@@ -456,7 +466,7 @@ function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) 
     // settings" looks like — so that the version is kept either way and the console can still see
     // that this client is up to date with the change that turned it off.
     localStorage.setItem(setup.storeKey, JSON.stringify(values))
-    return true
+    return isNew
   } catch {
     // Storage unavailable, or the origin is out of room. The previous entry stays as it is, which
     // is the same "keep what is already working" answer a failed request gets — the client goes on

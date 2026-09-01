@@ -925,6 +925,35 @@ describe('rum session manager', () => {
         expect(isSessionEnded()).toBeFalse()
       })
 
+      it('leaves a session that is not being collected alone when the privacy level tightens', () => {
+        storeRemote({ version: 1, sessionSampleRate: 0, defaultPrivacyLevel: 'allow' })
+        startWith({ sessionSampleRate: 0, defaultPrivacyLevel: 'allow' })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+
+        // Nothing is being recorded for this visitor, so there is no plaintext for the stricter
+        // level to catch and nothing to gain by ending their session.
+        deliver({ version: 2, sessionSampleRate: 0, defaultPrivacyLevel: 'mask' })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('does not end one sampled-out session after another as settings keep arriving', () => {
+        // A session that is not collected is given no id, so no record of its draw is kept and the
+        // level it was drawn under cannot be read back. Ending it would not change that, so acting
+        // on the comparison would end every session this visitor is ever given.
+        storeRemote({ version: 1, sessionSampleRate: 0, defaultPrivacyLevel: 'allow' })
+        startWith({ sessionSampleRate: 0, defaultPrivacyLevel: 'allow' })
+
+        deliver({ version: 2, sessionSampleRate: 0, defaultPrivacyLevel: 'mask' })
+        clock.tick(STORAGE_POLL_DELAY)
+        document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+        deliver({ version: 3, sessionSampleRate: 0, defaultPrivacyLevel: 'mask' })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
       it('leaves the session alone when the privacy level loosens', () => {
         storeRemote({ version: 1, sessionSampleRate: 100, defaultPrivacyLevel: 'mask' })
         startWith({ sessionSampleRate: 100 })
