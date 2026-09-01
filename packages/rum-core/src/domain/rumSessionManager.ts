@@ -1,6 +1,7 @@
-import type { DefaultPrivacyLevel, RelativeTime, TrackingConsentState } from '@flashcatcloud/browser-core'
+import type { RelativeTime, TrackingConsentState } from '@flashcatcloud/browser-core'
 import {
   BridgeCapability,
+  DefaultPrivacyLevel,
   Observable,
   SESSION_TIME_OUT_DELAY,
   STORAGE_POLL_DELAY,
@@ -206,6 +207,88 @@ export function startRumSessionManager(
     lifeCycle.notify(LifeCycleEventType.SESSION_RENEWED)
   })
 
+  // FLASHCAT FORK - a change published mid-session normally waits for that session to end on its
+  // own, which for a visitor who never goes idle is hours away. Three changes cannot afford the
+  // wait, and what makes exactly those three special is that their outcome for the running session
+  // can be asserted without drawing again:
+  //
+  //   - a session sample rate of 0 while this session is being collected: nothing is meant to be
+  //     collected any more, and this is the emergency stop the console offers;
+  //   - a session sample rate of 100 while this session is not: everything is meant to be
+  //     collected, and this visitor is the exception;
+  //   - a stricter default privacy level while this session is being collected: every further
+  //     second recorded is a second of plaintext uploaded, and masking cannot reach back for it.
+  //
+  // No other rate says anything about whether THIS session should have been kept — only a second
+  // draw could, and drawing twice silently turns a rate p into p². So everything else waits for
+  // the next session, a loosening privacy level included. Loosening waits on purpose: the delay
+  // is what leaves an operator room to undo a mistake, and what it costs meanwhile is more of the
+  // data already being collected.
+  //
+  // The action is always to end the session and let the next activity start a new one — never to
+  // flip the running one, which would leave a replay masked in its first half and plain in its
+  // second, or invent a session that begins in the middle of a visit.
+  //
+  // It stays idempotent with no bookkeeping at all: it compares what this session was drawn under
+  // against what a draw would use now, and ending the session is exactly what makes that
+  // difference disappear. The same response arriving again — another tab, a retry, a reload —
+  // finds nothing left to act on.
+  function endSessionIfSettingsAreDecisive() {
+    const session = sessionManager.findSession()
+    if (!session) {
+      // Nothing to end. Whatever starts the next session draws on the settings just stored, which
+      // is the ordinary path and already gives them their effect.
+      return
+    }
+
+    const remote = readRemoteConfig(configuration.remoteConfig)
+
+    // Whether this session is collected is read off the session itself rather than reconstructed
+    // by comparing rates: the session IS the outcome its draw produced, and an outcome is the only
+    // thing 0 and 100 let us assert anything about.
+    const isCollected = isTypeTracked(session.trackingType)
+
+    // Only a session that is being collected can be recording, and only a recording can be too
+    // plain. A sampled-out visitor uploads nothing, so a stricter level has nothing to protect
+    // there — and nothing to compare against either: a session that is not collected is given no
+    // id, so no draw is recorded for it and what it was drawn under cannot be read back here. The
+    // comparison would fall through to the init value on every announcement and keep answering
+    // "tighter", ending one empty session after another for as long as the visitor stays.
+    if (isCollected) {
+      // What this session is masking pages with right now, which is not the previously stored
+      // settings: settings are stored while a session runs, and the session was drawn under
+      // whatever was stored before that. No record means the draw used the init value, and so does
+      // the recorder — see `startRecording`, which falls back the same way.
+      const drawnPrivacyLevel = drawnHistory.find()?.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
+      const nextPrivacyLevel = remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
+      if (PRIVACY_LEVEL_STRICTNESS[nextPrivacyLevel] > PRIVACY_LEVEL_STRICTNESS[drawnPrivacyLevel]) {
+        sessionManager.expire()
+        return
+      }
+    }
+
+    if (forcedSession && isCollected) {
+      // The host application has taken this page off the rates deliberately, and every draw it
+      // makes from now on is collected whatever the console says. Ending a collected session on a
+      // rate would only replace it with another collected one — the same difference, forever. That
+      // reasoning runs out when the session is not collected: this page can adopt one an unforced
+      // tab drew, and there a rate of 100 has something to change, so it is left to the rule
+      // below. The flag is this page's either way — another tab that never called
+      // `setForcedSession` reads the shared session as an ordinary one.
+      return
+    }
+
+    const { sessionSampleRate } = resolveSampleRates(configuration, remote)
+    if ((sessionSampleRate === 0 && isCollected) || (sessionSampleRate === 100 && !isCollected)) {
+      sessionManager.expire()
+    }
+  }
+
+  const remoteConfigSubscription = lifeCycle.subscribe(
+    LifeCycleEventType.REMOTE_CONFIGURATION_STORED,
+    endSessionIfSettingsAreDecisive
+  )
+
   sessionManager.sessionStateUpdateObservable.subscribe(({ previousState, newState }) => {
     if (!previousState.forcedReplay && newState.forcedReplay) {
       const sessionEntity = sessionManager.findSession()
@@ -238,6 +321,7 @@ export function startRumSessionManager(
     expireObservable: sessionManager.expireObservable,
     stop: () => {
       consentSubscription.unsubscribe()
+      remoteConfigSubscription.unsubscribe()
       drawnHistory.stop()
     },
     setForcedReplay: () => sessionManager.updateSessionState({ forcedReplay: '1' }),
@@ -387,34 +471,7 @@ function computeSessionState(
     // the decision it was created with: settings arriving mid-session never start or stop
     // collecting for a visitor already on the site.
     const remote = readRemoteConfig(configuration.remoteConfig)
-
-    let sessionSampleRate = remote.sessionSampleRate ?? configuration.sessionSampleRate
-    let sessionReplaySampleRate = remote.sessionReplaySampleRate ?? configuration.sessionReplaySampleRate
-
-    // FLASHCAT FORK - the application gets the last word, right at the draw. This is what turns the
-    // delivered custom values into sampling decisions without a wasted first draw or a session
-    // restart: the console ships the data (an allow-list, a cohort rule), the application's own
-    // code interprets it here. Its failure modes must never reach session creation, so a thrown
-    // error or a value outside 0..100 leaves the incoming rate in place.
-    if (configuration.beforeSampling) {
-      try {
-        const override = configuration.beforeSampling({
-          sessionSampleRate,
-          sessionReplaySampleRate,
-          custom: remote.custom,
-        })
-        if (override) {
-          if (isRate(override.sessionSampleRate)) {
-            sessionSampleRate = override.sessionSampleRate
-          }
-          if (isRate(override.sessionReplaySampleRate)) {
-            sessionReplaySampleRate = override.sessionReplaySampleRate
-          }
-        }
-      } catch (e) {
-        display.error('beforeSampling threw an error:', e)
-      }
-    }
+    const { sessionSampleRate, sessionReplaySampleRate } = resolveSampleRates(configuration, remote)
 
     reportDraw(configuration, remote, sessionSampleRate, sessionReplaySampleRate, onDraw)
 
@@ -430,6 +487,56 @@ function computeSessionState(
     trackingType,
     isTracked: isTypeTracked(trackingType),
   }
+}
+
+/**
+ * FLASHCAT FORK - the rates a draw would use right now: what the console delivered, falling back to
+ * what the site passed to init, with the application's `beforeSampling` given the last word. This
+ * is what turns the delivered custom values into sampling decisions without a wasted first draw or
+ * a session restart: the console ships the data (an allow-list, a cohort rule), the application's
+ * own code interprets it here. Its failure modes must never reach session creation, so a thrown
+ * error or a value outside 0..100 leaves the incoming rate in place.
+ *
+ * It resolves rates and never draws on them, which is what lets the same question be asked away
+ * from a draw — see `endSessionIfSettingsAreDecisive`, which needs to know which rate would apply
+ * without spending a lottery ticket to find out.
+ */
+function resolveSampleRates(configuration: RumConfiguration, remote: RemoteConfigValues) {
+  let sessionSampleRate = remote.sessionSampleRate ?? configuration.sessionSampleRate
+  let sessionReplaySampleRate = remote.sessionReplaySampleRate ?? configuration.sessionReplaySampleRate
+
+  if (configuration.beforeSampling) {
+    try {
+      const override = configuration.beforeSampling({
+        sessionSampleRate,
+        sessionReplaySampleRate,
+        custom: remote.custom,
+      })
+      if (override) {
+        if (isRate(override.sessionSampleRate)) {
+          sessionSampleRate = override.sessionSampleRate
+        }
+        if (isRate(override.sessionReplaySampleRate)) {
+          sessionReplaySampleRate = override.sessionReplaySampleRate
+        }
+      }
+    } catch (e) {
+      display.error('beforeSampling threw an error:', e)
+    }
+  }
+
+  return { sessionSampleRate, sessionReplaySampleRate }
+}
+
+/**
+ * FLASHCAT FORK - how much of a page each level keeps out of a recording, ordered so two levels can
+ * be compared. Only the direction matters: tightening is the change that cannot be undone after the
+ * fact, because a second already recorded in the clear has already been uploaded in the clear.
+ */
+const PRIVACY_LEVEL_STRICTNESS: { [level in DefaultPrivacyLevel]: number } = {
+  [DefaultPrivacyLevel.ALLOW]: 0,
+  [DefaultPrivacyLevel.MASK_USER_INPUT]: 1,
+  [DefaultPrivacyLevel.MASK]: 2,
 }
 
 /**

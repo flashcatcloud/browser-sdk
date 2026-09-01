@@ -196,6 +196,83 @@ describe('remoteConfiguration', () => {
     })
   })
 
+  describe('announcing that new settings are in storage', () => {
+    function watchStoredNotifications() {
+      const notified = jasmine.createSpy('remoteConfigurationStored')
+      lifeCycle.subscribe(LifeCycleEventType.REMOTE_CONFIGURATION_STORED, notified)
+      return notified
+    }
+
+    it('announces settings that reached storage, so a subscriber can act on them', (done) => {
+      const notified = watchStoredNotifications()
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: { sessionSampleRate: 0 } }))
+
+        expect(notified).toHaveBeenCalledTimes(1)
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('stays silent about settings it refused as older than the ones it holds', (done) => {
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 42, version: 8 }))
+      const notified = watchStoredNotifications()
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ version: 7, rum: { sessionSampleRate: 0 } }))
+
+        // Nothing changed in storage, so nothing downstream may behave as though it had.
+        expect(notified).not.toHaveBeenCalled()
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('stays silent about an answer that repeats the settings it already holds', (done) => {
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 42, version: 7 }))
+      const notified = watchStoredNotifications()
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ version: 7, rum: { sessionSampleRate: 42 } }))
+
+        // The ordinary answer: every new session asks again and most find nothing changed. A
+        // subscriber woken by those would act on no news, once per session, for as long as the
+        // visitor stays.
+        expect(notified).not.toHaveBeenCalled()
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('stays silent when the answer never reached storage', (done) => {
+      const notified = watchStoredNotifications()
+      spyOn(Storage.prototype, 'setItem').and.throwError('storage is full')
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: { sessionSampleRate: 0 } }))
+
+        // The next draw will not find these settings, so ending a session for their sake would end
+        // it for nothing.
+        expect(notified).not.toHaveBeenCalled()
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('stays silent about an answer that never made it', (done) => {
+      const notified = watchStoredNotifications()
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(500)
+
+        expect(notified).not.toHaveBeenCalled()
+        done()
+      })
+      start(configurationWith())
+    })
+  })
+
   describe('refusing a payload it cannot read', () => {
     const STORED = { sessionSampleRate: 42, version: 2 }
 

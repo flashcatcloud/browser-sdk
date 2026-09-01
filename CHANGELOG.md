@@ -18,6 +18,46 @@
 
 ---
 
+## Unreleased
+
+- ✨ Three changes published from the console now end the running session, so they reach the
+  visitor at their next interaction instead of waiting for that session to end on its own: a
+  session sample rate of 0 while the visitor is being collected — the emergency stop — a rate of
+  100 while they are not, and a stricter Session Replay privacy level while they are being
+  collected. The session that ends is collected to its end as it began, so no recording is left
+  masked in one half and plain in the other. Every other change — any rate between 0 and 100, a
+  loosening privacy level, the replay and trace rates — still waits for the next session. Custom
+  values wait on their own too, but not once `beforeSampling` turns them into one of the three: a
+  callback answering 0 for the values just published ends the session exactly as a published 0
+  would. Nothing here happens without `remoteConfigurationEnabled: true`.
+- 📝 What you will see on the day you publish one of those three: session counts rise and average
+  session length drops, because each affected visitor's running session is split at that moment; a
+  replay in progress ends at the split, and the session that follows draws again, so it carries a
+  new recording only if that draw keeps one; a rate of 100 makes previously invisible visitors
+  appear within hours rather than the next day, so collected volume climbs the same day. That is
+  the change taking effect, not a defect.
+- 📝 "At once" means "as soon as this client hears of the change". Settings are fetched at page load
+  and at each new session, never on a timer, so a page nobody reloads hears of a publish at its next
+  session boundary — at most four hours away, the cap on a session's life. Opening a tab or
+  reloading any page fetches immediately and ends the session every tab shares, which is why a
+  visitor who touches the site converges in seconds. A change that is not one of the three still
+  takes effect one session after that.
+- 📝 The three act on what actually changed, not on the activation mode recorded with the publish:
+  a change the console files as "next session" still ends the running session if it is one of them.
+- 📝 `beforeSampling` is now also consulted when settings arrive, away from any draw, to work out
+  which rate would apply. It must stay free of side effects and answer the same way for the same
+  input: a callback that draws its own lottery — answering 0 or 100 at random — can end a session
+  that a steady answer would have left running.
+- 📝 A session forced with `setForcedSession()` is not ended by a rate while it is being collected:
+  forcing decides whether this visitor is collected, and every draw the page makes is collected
+  whatever the console says, so ending it would only produce the same session again. A
+  stricter privacy level still ends it, because forcing says nothing about how much of the page may
+  be uploaded in the clear. The page forces the next session on its own, so the visit continues as
+  two sessions.
+- 📝 Turning remote configuration off is itself a change: the rates go back to the ones passed to
+  `init`. On a site whose init rate is 0, switching it off stops collection at once rather than at
+  the next session.
+
 ## v0.2.0
 
 - 💥 **Breaking**: `remoteConfigurationId` is gone from `RumInitConfiguration`. It fetched a
