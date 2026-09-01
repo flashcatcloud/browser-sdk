@@ -107,6 +107,38 @@ describe('validateAndBuildRumConfiguration', () => {
     })
   })
 
+  describe('sessionOnErrorSampleRate', () => {
+    it('warns when the default session rate leaves it nothing to draw from', () => {
+      validateAndBuildRumConfiguration({
+        ...DEFAULT_INIT_CONFIGURATION,
+        sessionOnErrorSampleRate: 50,
+      })
+
+      expect(displayWarnSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('says nothing once the plain session rate leaves room for it', () => {
+      validateAndBuildRumConfiguration({
+        ...DEFAULT_INIT_CONFIGURATION,
+        sessionSampleRate: 20,
+        sessionOnErrorSampleRate: 50,
+      })
+
+      expect(displayWarnSpy).not.toHaveBeenCalled()
+    })
+
+    it('makes a replay-on-error rate meaningful even with no plainly sampled session', () => {
+      validateAndBuildRumConfiguration({
+        ...DEFAULT_INIT_CONFIGURATION,
+        sessionSampleRate: 0,
+        sessionOnErrorSampleRate: 100,
+        sessionReplayOnErrorSampleRate: 50,
+      })
+
+      expect(displayWarnSpy).not.toHaveBeenCalled()
+    })
+  })
+
   describe('traceSampleRate', () => {
     it('defaults to 100 if the option is not provided', () => {
       expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.traceSampleRate).toBe(100)
