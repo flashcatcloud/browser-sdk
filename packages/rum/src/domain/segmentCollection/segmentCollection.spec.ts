@@ -476,6 +476,24 @@ describe('startSegmentCollection withholding (error session replay)', () => {
     expect((await readMetadataFromReplayPayload(httpRequestSpy.send.calls.mostRecent().args[0])).index_in_view).toBe(0)
   })
 
+  it('does not hand the next segment an index the dropped one still holds when a record lands mid-flush', async () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(RECORD))
+
+    addRecord(RECORD)
+    // The flush is posted to the worker but not answered yet - in production that round trip always
+    // happens, because flushing writes the trailer before finishing. A record arriving now creates
+    // the next segment, which reads its index while the dropped one is still counted.
+    clock.tick(BUFFER_CHECKOUT_TIME)
+    addRecord(RECORD)
+    worker.processAllMessages()
+
+    reportError()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    expect((await readMetadataFromReplayPayload(httpRequestSpy.send.calls.mostRecent().args[0])).index_in_view).toBe(0)
+  })
+
   it('leaves no trace of a dropped buffer in the replay stats', () => {
     addRecord(RECORD)
     clock.tick(BUFFER_CHECKOUT_TIME)

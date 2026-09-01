@@ -20,16 +20,28 @@ export function addWroteData(viewId: string, additionalBytesCount: number) {
 }
 
 /**
- * Rolls back what a segment contributed to the stats. Used when a withheld segment is dropped
- * instead of sent: it never reached the intake, so it must leave no trace in the numbers reported
- * on view events, and the next segment must reuse its `index_in_view`.
+ * Gives back the segment count {@link addSegment} took, and with it the `index_in_view` the segment
+ * was holding. Undone in the same phase it was taken - synchronously - because the index is read at
+ * creation: a segment created before this runs would hold an index the dropped one still occupies.
  */
-export function discardSegment(viewId: string, rawBytesCount: number, recordsCount: number) {
+export function removeSegment(viewId: string) {
   const replayStats = statsPerView?.get(viewId)
   if (!replayStats) {
     return
   }
   replayStats.segments_count = Math.max(0, replayStats.segments_count - 1)
+}
+
+/**
+ * Rolls back what a dropped segment's records contributed. These are the counters reported on view
+ * events, and a withheld segment that is dropped never reached the intake, so it must leave no
+ * trace in them.
+ */
+export function discardSegmentData(viewId: string, rawBytesCount: number, recordsCount: number) {
+  const replayStats = statsPerView?.get(viewId)
+  if (!replayStats) {
+    return
+  }
   replayStats.records_count = Math.max(0, replayStats.records_count - recordsCount)
   replayStats.segments_total_raw_size = Math.max(0, replayStats.segments_total_raw_size - rawBytesCount)
 }
