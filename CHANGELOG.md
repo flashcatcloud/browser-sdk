@@ -18,7 +18,7 @@
 
 ---
 
-## Unreleased
+## v0.2.0
 
 - 💥 **Breaking**: `remoteConfigurationId` is gone from `RumInitConfiguration`. It fetched a
   different endpoint under a different contract, and is replaced by `remoteConfigurationEnabled`.
