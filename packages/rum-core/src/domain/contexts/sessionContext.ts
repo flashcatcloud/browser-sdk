@@ -31,7 +31,11 @@ export function startSessionContext(
     let sampledForErrorReplay
     let isActive
     if (eventType === RumEventType.VIEW) {
-      hasReplay = !isReplayWithheld && recorderApi.getReplayStats(view.id) ? true : undefined
+      // Counted rather than merely present: a withheld buffer that was dropped rolls its segments
+      // back, which leaves a view with replay stats and no replay at all - and offering a replay
+      // that was never uploaded is worse than not offering one.
+      const replayStats = recorderApi.getReplayStats(view.id)
+      hasReplay = !isReplayWithheld && replayStats && replayStats.segments_count > 0 ? true : undefined
       sampledForReplay = session.sessionReplay === SessionReplayState.SAMPLED
       // Tells the backend that this session's detail only starts where the buffer reached, so the
       // gap before it reads as "not collected" rather than as missing data.
