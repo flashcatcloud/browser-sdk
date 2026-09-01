@@ -17,7 +17,7 @@ export interface RumSessionManagerMock extends RumSessionManager {
   setTrackedOnError(): RumSessionManagerMock
   setForcedReplay(): RumSessionManagerMock
   setSessionHasError(): RumSessionManagerMock
-  setSessionDetailSampledFrom(timestamp: number): RumSessionManagerMock
+  setSessionDetailSampledFrom(timestamp: number, sessionId: string): RumSessionManagerMock
 }
 
 const DEFAULT_ID = 'session-id'
