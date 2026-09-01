@@ -373,6 +373,26 @@ describe('remoteConfiguration', () => {
     })
   })
 
+  describe('when building or sending the request throws', () => {
+    it('does not let a proxy function take the page down with it', () => {
+      // `proxy` as a function is the application's own code, run synchronously while the url is
+      // built. This call sits inside `startRum` ahead of everything that collects, and inside a
+      // lifecycle notification on every renewal — a throw escaping here would take the page's whole
+      // collection with it, silently, over a settings request.
+      const throwing = mockRumConfiguration({
+        remoteConfig: buildRemoteConfigSetup({
+          ...INIT_CONFIGURATION,
+          proxy: () => {
+            throw new Error('the application decided otherwise')
+          },
+        }),
+      })
+
+      expect(() => start(throwing)).not.toThrow()
+      expect(readRemoteConfig(setup)).toEqual({})
+    })
+  })
+
   describe('the fetch timeout', () => {
     it('asks the request to give up after the value the site passed', () => {
       expect(
@@ -466,6 +486,32 @@ describe('remoteConfiguration', () => {
       // The next natural trigger starts a fresh attempt (with a fresh retry budget).
       lifeCycle.notify(LifeCycleEventType.SESSION_RENEWED)
       expect(requests.length).toBe(4)
+    })
+
+    it('treats a request that could not be built as a failed attempt, and retries it', () => {
+      // `proxy` as a function is the application's own code. When it throws, nothing was sent — but
+      // the in-flight guard must not stay set, or every later refresh on the page would be dropped.
+      const requests: MockXhr[] = []
+      let firstUrl = true
+      const flaky = mockRumConfiguration({
+        remoteConfig: buildRemoteConfigSetup({
+          ...INIT_CONFIGURATION,
+          proxy: ({ path, parameters }) => {
+            if (firstUrl) {
+              firstUrl = false
+              throw new Error('not this time')
+            }
+            return `https://proxy.example.com${path}?${parameters}`
+          },
+        }),
+      })
+      interceptor.withMockXhr((xhr) => requests.push(xhr))
+
+      start(flaky)
+      expect(requests.length).toBe(0)
+
+      clock.tick(6 * ONE_SECOND + ONE_SECOND)
+      expect(requests.length).toBe(1)
     })
 
     it('asks for nothing more once it has been stopped', () => {

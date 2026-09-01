@@ -324,7 +324,15 @@ function fetchRemoteConfiguration(
   appliedVersion: number | undefined,
   callback: (response: RemoteConfigurationResponse | undefined) => void
 ) {
-  const xhr = new XMLHttpRequest()
+  let xhr: XMLHttpRequest
+  try {
+    xhr = new XMLHttpRequest()
+  } catch {
+    // A page that replaced the global with something unusable. Nothing else here can run, and
+    // there is no request to wait for, so this attempt ends the way a network failure does.
+    callback(undefined)
+    return
+  }
 
   addEventListener(configuration, xhr, 'load', () => {
     if (xhr.status !== 200) {
@@ -341,9 +349,19 @@ function fetchRemoteConfiguration(
   addEventListener(configuration, xhr, 'error', () => callback(undefined))
   addEventListener(configuration, xhr, 'timeout', () => callback(undefined))
 
-  xhr.open('GET', setup.buildUrl(appliedVersion))
-  xhr.timeout = setup.fetchTimeout
-  xhr.send()
+  try {
+    // Building the url runs the application's own code when `proxy` is a function, and `open`
+    // refuses a url that function may return. Both throw synchronously, on a stack that starts
+    // either inside `startRum` — where everything after this would never run, taking the whole
+    // page's collection with it — or inside a lifecycle notification, whose remaining subscribers
+    // would be skipped. Neither is a price worth paying for a settings request, so a throw here
+    // ends the attempt exactly as a network failure does.
+    xhr.open('GET', setup.buildUrl(appliedVersion))
+    xhr.timeout = setup.fetchTimeout
+    xhr.send()
+  } catch {
+    callback(undefined)
+  }
 }
 
 function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) {
@@ -517,9 +535,11 @@ function buildParameters(initConfiguration: RumInitConfiguration, appliedVersion
     // `ddforward` — the substring match still finds them there.
     //
     // A `proxy` given as a function builds its own URL and may drop them, in which case this
-    // request is collected like any other. That is the same exposure the intake requests
-    // themselves already have under such a proxy, so it is left as it is rather than given a
-    // second, divergent mechanism here.
+    // request is collected like any other: a resource event is filed for it, and — the part a
+    // customer notices on their dashboard — it counts towards the page activity that decides when
+    // a view finished loading, so a slow endpoint can stretch that measurement. That is the same
+    // exposure the intake requests themselves already have under such a proxy, so it is left as it
+    // is rather than given a second, divergent mechanism here.
     'ddsource=browser',
     `ddtags=${encodeURIComponent(`sdk_version:${__BUILD_ENV__SDK_VERSION__}`)}`,
     `client_token=${encodeURIComponent(initConfiguration.clientToken)}`,
