@@ -4,7 +4,6 @@ import {
   isPageExitReason,
   ONE_SECOND,
   clearTimeout,
-  noop,
   relativeNow,
   setTimeout,
 } from '@flashcatcloud/browser-core'
@@ -77,12 +76,6 @@ export interface SegmentBuffering {
   restartFromFullSnapshot: () => void
 }
 
-const NO_BUFFERING: SegmentBuffering = {
-  getWithholdingSessionId: () => undefined,
-  isReleased: () => false,
-  restartFromFullSnapshot: noop,
-}
-
 export function startSegmentCollection(
   lifeCycle: LifeCycle,
   configuration: RumConfiguration,
@@ -90,7 +83,7 @@ export function startSegmentCollection(
   viewHistory: ViewHistory,
   httpRequest: HttpRequest,
   encoder: DeflateEncoder,
-  buffering: SegmentBuffering = NO_BUFFERING
+  buffering: SegmentBuffering
 ) {
   return doStartSegmentCollection(
     lifeCycle,
@@ -138,7 +131,7 @@ export function doStartSegmentCollection(
   getSegmentContext: () => SegmentContext | undefined,
   httpRequest: HttpRequest,
   encoder: DeflateEncoder,
-  buffering: SegmentBuffering = NO_BUFFERING
+  buffering: SegmentBuffering
 ) {
   let state: SegmentCollectionState = {
     status: SegmentCollectionStatus.WaitingForInitialRecord,

@@ -1,5 +1,5 @@
 import type { ClocksState, HttpRequest, TimeStamp } from '@flashcatcloud/browser-core'
-import { DeflateEncoderStreamId, PageExitReason } from '@flashcatcloud/browser-core'
+import { DeflateEncoderStreamId, noop, PageExitReason } from '@flashcatcloud/browser-core'
 import type { ViewHistory, ViewHistoryEntry, RumConfiguration } from '@flashcatcloud/browser-rum-core'
 import { LifeCycle, LifeCycleEventType } from '@flashcatcloud/browser-rum-core'
 import type { Clock } from '@flashcatcloud/browser-core/test'
@@ -72,7 +72,8 @@ describe('startSegmentCollection', () => {
       lifeCycle,
       () => context,
       httpRequestSpy,
-      createDeflateEncoder(configuration, worker, DeflateEncoderStreamId.REPLAY)
+      createDeflateEncoder(configuration, worker, DeflateEncoderStreamId.REPLAY),
+      { getWithholdingSessionId: () => undefined, isReleased: () => false, restartFromFullSnapshot: noop }
     ))
 
     registerCleanupTask(() => {
