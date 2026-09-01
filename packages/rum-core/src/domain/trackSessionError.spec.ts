@@ -17,7 +17,7 @@ describe('startSessionErrorTracking', () => {
 
   beforeEach(() => {
     lifeCycle = new LifeCycle()
-    sessionManager = createRumSessionManagerMock()
+    sessionManager = createRumSessionManagerMock().setTrackedWithErrorSessionReplay()
     setSessionHasErrorSpy = spyOn(sessionManager, 'setSessionHasError').and.callThrough()
     const { stop } = startSessionErrorTracking(lifeCycle, sessionManager)
     registerCleanupTask(stop)
@@ -27,6 +27,22 @@ describe('startSessionErrorTracking', () => {
     collect('error')
 
     expect(setSessionHasErrorSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves a session that withholds nothing alone, so an ordinary session store is never written', () => {
+    sessionManager.setTrackedWithSessionReplay()
+
+    collect('error')
+
+    expect(setSessionHasErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('leaves an untracked session alone', () => {
+    sessionManager.setNotTracked()
+
+    collect('error')
+
+    expect(setSessionHasErrorSpy).not.toHaveBeenCalled()
   })
 
   it('does not mark the session on other event types', () => {
