@@ -213,11 +213,40 @@ describe('remoteConfiguration', () => {
       start(configurationWith())
     })
 
-    it('accepts a response from a server too old to stamp a schema version', (done) => {
+    it('keeps the settings in force when a response carries no schema version at all', (done) => {
       interceptor.withMockXhr((xhr) => {
-        xhr.complete(200, body({ rum: { sessionSampleRate: 5 }, schemaVersion: undefined }))
+        // Written out rather than built through `body`, because a destructuring default treats an
+        // explicit `undefined` as "not passed" — the reason the test this replaces was stamping a
+        // schema version while claiming to omit one, and so never exercised this branch.
+        //
+        // The stamp is what tells a configuration from any other JSON. Without it the envelope is
+        // `version` and `enabled`, which an ordinary health or feature-flag payload also has.
+        xhr.complete(200, '{"version":9,"enabled":true,"rum":{"sessionSampleRate":5}}')
 
-        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 5, version: 3 })
+        expect(readRemoteConfig(setup)).toEqual(STORED)
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('reads a null rum as an empty one rather than refusing the response', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        // Serializers write `null` for an empty optional struct. The field's contract says absent
+        // means empty, so `null` has to mean it too — refusing the response over it would freeze a
+        // whole fleet on the settings it already had.
+        xhr.complete(200, '{"schema_version":1,"version":9,"enabled":true,"rum":null}')
+
+        expect(readRemoteConfig(setup)).toEqual({ version: 9 })
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('refuses a response whose rum is not an object at all', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, '{"schema_version":1,"version":9,"enabled":true,"rum":"none"}')
+
+        expect(readRemoteConfig(setup)).toEqual(STORED)
         done()
       })
       start(configurationWith())
@@ -295,6 +324,26 @@ describe('remoteConfiguration', () => {
       start(configurationWith())
     })
 
+    it('ignores a stored version that is not a whole number', (done) => {
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 42, version: 7.5 }))
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ version: 3, rum: { sessionSampleRate: 1 } }))
+
+        // A publish counter is a whole number. Anything else was not written by this SDK, so it
+        // does not get to hold the floor — otherwise 7.5 would refuse every publish up to 8.
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 1, version: 3 })
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('ignores a stored custom bag that is not keyed', () => {
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ version: 4, custom: [1, 2] }))
+
+      expect(readRemoteConfig(setup)).toEqual({ version: 4 })
+    })
+
     it('ignores a stored version that could not have been published, rather than letting it refuse everything', (done) => {
       localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 42, version: 1e308 }))
 
@@ -334,15 +383,25 @@ describe('remoteConfiguration', () => {
     it('falls back to the default rather than refusing init, and says so', () => {
       const displaySpy = spyOn(display, 'error')
 
-      // `xhr.timeout` takes an unsigned long: a string lands as 0 and a negative number wraps to
-      // weeks, and either way the request never gives up — which would leave the in-flight guard
-      // set and silently end every later refresh on the page.
-      for (const bad of [-1, 0, 'abc' as unknown as number, NaN, Infinity]) {
+      // `xhr.timeout` takes an unsigned long, which truncates and then wraps modulo 2^32. So a
+      // string lands as 0, `0.5` from someone thinking in seconds truncates to 0, a negative
+      // number wraps to weeks, and 2^32 wraps back to 0 — and every one of those means the request
+      // never gives up, which leaves the in-flight guard set and silently ends every later refresh
+      // on the page.
+      for (const bad of [-1, 0, 0.5, 'abc' as unknown as number, NaN, Infinity, 4294967296, 1e21]) {
         expect(
           buildRemoteConfigSetup({ ...INIT_CONFIGURATION, remoteConfigurationFetchTimeout: bad })!.fetchTimeout
         ).toBe(3 * ONE_SECOND)
       }
-      expect(displaySpy).toHaveBeenCalledTimes(5)
+      expect(displaySpy).toHaveBeenCalledTimes(8)
+
+      // The bounds are inclusive where they should be: one whole millisecond is usable, and so is
+      // the largest value the unsigned long holds.
+      for (const good of [1, 500, 4294967295]) {
+        expect(
+          buildRemoteConfigSetup({ ...INIT_CONFIGURATION, remoteConfigurationFetchTimeout: good })!.fetchTimeout
+        ).toBe(good)
+      }
     })
   })
 
@@ -558,10 +617,15 @@ describe('remoteConfiguration', () => {
       // separates on it — and forgetting the third is silent: two clients entitled to different
       // answers would share one entry and overwrite each other's on every fetch.
       //
-      // So the rule is derived rather than listed: if changing a field changes the request, the
-      // server can vary its answer on it, and the key must change too. The day a field starts
-      // being reported, this fails until it is keyed by. The converse is not required — a key
-      // finer than the server's targeting only costs an extra entry, never a wrong one.
+      // The check is derived: if changing a field changes the request, the server can vary its
+      // answer on it, so the key must change too. The converse is not required — a key finer than
+      // the server's targeting only costs an extra entry, never a wrong one.
+      //
+      // What it cannot do is notice a field nobody listed below, so the list is the maintained
+      // part. `service` is on it while it is still inert: nothing reports it today, so the check
+      // skips it, and the day it starts being reported this turns into a real assertion. Fields
+      // that identify the application rather than target it are left off — `clientToken` travels
+      // on the request but the key separates the same clients through `applicationId`.
       const urlOf = (partial: Partial<RumInitConfiguration>) =>
         buildRemoteConfigSetup({ ...INIT_CONFIGURATION, ...partial })!.buildUrl(undefined)
       const keyOf = (partial: Partial<RumInitConfiguration>) =>

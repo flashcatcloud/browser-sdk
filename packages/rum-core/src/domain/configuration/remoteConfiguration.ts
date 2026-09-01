@@ -133,8 +133,11 @@ export interface RemoteConfigSetup {
  * build does not recognise means the payload changed in a way it could misread — so the whole
  * response is discarded and the settings already in force are kept.
  *
- * Absent is treated as compatible: only a server older than the field itself omits it, and such a
- * server predates every shape change this guards against.
+ * Required, not optional. Treating an absent stamp as compatible would only ever have helped a
+ * server older than the field, and this endpoint has carried it since it existed — while the cost
+ * is severe: without the stamp the rest of the envelope is `version` and `enabled`, which is also
+ * the shape of an ordinary health or feature-flag payload, and taking one of those for settings
+ * blanks the rates and leaves a version no later publish can climb over.
  */
 const SUPPORTED_SCHEMA_VERSION = 1
 
@@ -162,7 +165,7 @@ function isSupportedResponse(body: unknown): body is RemoteConfigurationResponse
     return false
   }
   const candidate = body as Partial<RemoteConfigurationResponse>
-  if (candidate.schema_version !== undefined && candidate.schema_version !== SUPPORTED_SCHEMA_VERSION) {
+  if (candidate.schema_version !== SUPPORTED_SCHEMA_VERSION) {
     return false
   }
   // Every field the contract makes mandatory is checked, not just one of them. A body carrying a
@@ -345,11 +348,15 @@ function fetchRemoteConfiguration(
 
 function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) {
   // Settings are published under a number that only ever goes up — rolling back republishes the
-  // old settings under a new, higher one — so a response numbered below what is already stored can
-  // only be an older answer arriving late: another tab's request that crossed this one, or a copy
+  // old settings under a new, higher one — so a response numbered below what is already stored is
+  // taken for an older answer arriving late: another tab's request that crossed this one, or a copy
   // an intermediary kept. Applying it would put this client back on settings the console has
   // already replaced, and the next request would report a version the console believes nobody is
   // running any more.
+  //
+  // It is a floor with no way back, which is why nothing but a stamped configuration response is
+  // allowed to set it — see `isSupportedResponse`. A server that broke the only-goes-up contract
+  // would strand every client that had seen the higher number until the entry is replaced.
   //
   // What it is compared against is storage, not a version held in memory here, because the two
   // requests that can cross are two pages, and storage is the only thing they share.
@@ -413,17 +420,23 @@ export function buildRemoteConfigSetup(initConfiguration: RumInitConfiguration):
 /**
  * An unusable timeout is replaced by the default rather than refusing `init`: this is a knob on a
  * background request, and losing every event on the page because of it would cost far more than it
- * could ever save. It cannot simply be passed through either — `xhr.timeout` takes an unsigned
- * long, so a string lands as `0` and a negative number wraps to weeks, and both mean the request
- * never gives up. Nothing resets the in-flight guard until a request finishes, so one that never
- * does would silently end every later refresh on the page.
+ * could ever save.
+ *
+ * The bounds are `xhr.timeout`'s own. It takes an unsigned long, which truncates and then wraps
+ * modulo 2^32 — so a string lands as `0`, `0.5` from someone thinking in seconds truncates to `0`,
+ * and anything from 2^32 wraps back down to around it. Every one of those means `0`, which for
+ * `xhr.timeout` means no timeout at all. Nothing resets the in-flight guard until a request
+ * finishes, so a request that never does would silently end every later refresh on the page — the
+ * failure this exists to prevent. Hence at least one whole millisecond, and under 2^32.
  */
+const MAX_XHR_TIMEOUT = 4294967296
+
 function validFetchTimeout(timeout: number | undefined) {
   if (timeout === undefined) {
     return DEFAULT_FETCH_TIMEOUT
   }
-  if (typeof timeout !== 'number' || !(timeout > 0) || timeout === Infinity) {
-    display.error('remoteConfigurationFetchTimeout should be a positive number of milliseconds')
+  if (typeof timeout !== 'number' || !(timeout >= 1) || timeout >= MAX_XHR_TIMEOUT) {
+    display.error('remoteConfigurationFetchTimeout should be a number of milliseconds between 1 and 4294967295')
     return DEFAULT_FETCH_TIMEOUT
   }
   return timeout
@@ -451,8 +464,11 @@ function validFetchTimeout(timeout: number | undefined) {
  * from the entry of a tab still open on yesterday's release, and deleting the latter drops that tab
  * to its local settings for a whole session — after which the two tabs delete each other's entry at
  * every renewal, which is a worse failure than the leak. A correct fix needs a way to know that no
- * page is still reading an entry: an age written beside the values and swept well past the session
- * timeout would do it, and is the shape to reach for if the accumulation ever bites.
+ * page is still reading an entry: an age written beside the values would do it, and is the shape to
+ * reach for if the accumulation ever bites. Two things to get right if it is ever built — the
+ * threshold has to clear the longest session AND the longest plausible endpoint outage, since only
+ * a stored response refreshes the age, and the stale-version early return above skips that write,
+ * so it must refresh the age even when it declines the values.
  */
 function buildStoreKey(initConfiguration: RumInitConfiguration) {
   return buildKey(STORE_KEY_PREFIX, identityParts(initConfiguration).concat(initConfiguration.version ?? ''))
@@ -552,8 +568,13 @@ function isBag(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
+/**
+ * Absent, or present and a keyed object. `null` counts as absent: a serializer that writes one for
+ * an empty optional struct is describing the same thing the field's own contract calls absent, and
+ * refusing the response over it would freeze a whole fleet on the settings it already had.
+ */
 function isOptionalBag(value: unknown): value is Record<string, unknown> | undefined {
-  return value === undefined || isBag(value)
+  return value === undefined || value === null || isBag(value)
 }
 
 export function isPrivacyLevel(value: unknown): value is DefaultPrivacyLevel {
