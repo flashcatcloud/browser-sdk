@@ -182,6 +182,13 @@ export function startSessionStore<TrackingType extends string>(
     delete sessionState.isExpired
     if (isTracked && !sessionState.id) {
       sessionState.id = generateUUID()
+    }
+    // Stamp every started session, tracked or not. The creation date is what caps a session at
+    // SESSION_TIME_OUT_DELAY, and a not-tracked session that carried none would be held open
+    // indefinitely by the visibility timer refreshing `expire` -- the same escape this change
+    // closes for tracked sessions, left open for the sampled-out half. Without the cap those
+    // users never get to re-roll the sampling decision.
+    if (!sessionState.created) {
       sessionState.created = String(dateNow())
     }
     // Stamp the deadline before returning. The caller decides whether the session is expired

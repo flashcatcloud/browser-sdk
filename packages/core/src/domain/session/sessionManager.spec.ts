@@ -146,6 +146,16 @@ describe('startSessionManager', () => {
       expectTrackingTypeToBe(sessionManager, FIRST_PRODUCT_KEY, FakeTrackingType.NOT_TRACKED)
     })
 
+    it('should stamp a creation date on a not-tracked session too', () => {
+      // The creation date is what caps a session at SESSION_TIME_OUT_DELAY. Without one, the
+      // visibility timer keeps pushing `expire` forward and a sampled-out session on a page that
+      // stays open never expires -- so those users never get to re-roll the sampling decision.
+      startSessionManagerWithDefaults({ computeSessionState: () => NOT_TRACKED_SESSION_STATE })
+
+      expect(getSessionState(SESSION_STORE_KEY).id).toBeUndefined()
+      expect(getSessionState(SESSION_STORE_KEY).created).toMatch(/^\d+$/)
+    })
+
     it('when tracked should keep existing tracking type and session id', () => {
       setCookie(
         SESSION_STORE_KEY,
@@ -344,7 +354,13 @@ describe('startSessionManager', () => {
     })
 
     it('should renew an existing timed out session', () => {
-      setCookie(SESSION_STORE_KEY, `id=abcde&first=tracked&created=${Date.now() - SESSION_TIME_OUT_DELAY}`, DURATION)
+      // `expire` is still ahead, so the creation cap is what has to end this session -- without it
+      // the session would expire for the mundane reason of having no deadline at all.
+      setCookie(
+        SESSION_STORE_KEY,
+        `id=abcde&first=tracked&created=${Date.now() - SESSION_TIME_OUT_DELAY}&expire=${Date.now() + SESSION_EXPIRATION_DELAY}`,
+        DURATION
+      )
 
       const sessionManager = startSessionManagerWithDefaults()
       const expireSessionSpy = jasmine.createSpy()

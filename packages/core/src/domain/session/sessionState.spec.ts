@@ -48,8 +48,7 @@ describe('session state utilities', () => {
     })
 
     it('should expire a session that cannot say when it started or when it lapses', () => {
-      // A missing stamp used to short-circuit the comparison to `true`, which is how a session
-      // outlived both bounds and kept running for days on a page that was never closed.
+      // A missing stamp used to short-circuit the comparison to `true`. See getExpireDate.
       expect(isSessionInExpiredState({ first: 'not-tracked' })).toBe(true)
       expect(isSessionInExpiredState({ first: 'tracked' })).toBe(true)
       expect(isSessionInExpiredState({ id: '123', first: 'tracked', expire: dateNowWithOffset(1000) })).toBe(true)

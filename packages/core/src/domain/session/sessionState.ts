@@ -63,11 +63,11 @@ export function getExpireDate(state: SessionState): number | undefined {
   if (createdDate) {
     return Math.min(expireDate, createdDate + SESSION_TIME_OUT_DELAY)
   }
-  // A session is stamped with `created` in the same step that generates its id, so one holding an
-  // id but no creation date cannot be shown to sit inside the cap and gets no expiry date at all.
-  // A session without an id is not tracked and is never stamped here, so `expire` alone bounds it
-  // -- this is where we part from upstream, which stamps every started session and can therefore
-  // require both unconditionally.
+  // Every session this bundle starts is stamped, so a missing creation date means the state was
+  // written elsewhere: either by a build that predates the stamp, or by another bundle sharing the
+  // cookie. A state holding an id is judged strictly -- it cannot be shown to sit inside the cap.
+  // One without an id is not tracked, carries no identity, and falls back to `expire` alone rather
+  // than being expired on sight, which would make old and new builds fight over the same cookie.
   return state.id === undefined ? expireDate : undefined
 }
 

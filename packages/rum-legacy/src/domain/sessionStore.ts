@@ -115,6 +115,13 @@ export function createSessionStore(sessionSampleRate: number) {
         state.id = generateUUID()
       }
 
+      // Stamp every session, tracked or not, so the cap above always has something to count from.
+      // A session adopted from a build that did not stamp would otherwise keep having its deadline
+      // pushed forward on every access and never reach the cap at all.
+      if (!state.created) {
+        state.created = String(now)
+      }
+
       state.expire = String(now + SESSION_EXPIRATION_DELAY)
       inMemoryState = state
       lastCookieAccess = now
@@ -158,10 +165,24 @@ function extractForeignFields(state: SessionState | undefined): SessionState {
   return kept
 }
 
+/**
+ * Mirrors the modern bundle's rule (`core/domain/session/sessionState.ts`): a session lives until
+ * whichever comes first — its sliding deadline, or the cap counted from when it was created — and a
+ * state that cannot produce either is expired rather than assumed young. Both builds share `_dd_s`,
+ * so any difference here would let one build resurrect a session the other had already ended.
+ */
 function isExpired(state: SessionState, now: number): boolean {
-  const createdAt = Number(state.created)
-  const expiresAt = Number(state.expire)
-  return (createdAt && now - createdAt >= SESSION_TIME_OUT_DELAY) || (expiresAt && now >= expiresAt) ? true : false
+  const expiresAt = state.expire && Number(state.expire)
+  if (!expiresAt || !isFinite(expiresAt)) {
+    return true
+  }
+  const createdAt = state.created && Number(state.created)
+  if (createdAt && isFinite(createdAt)) {
+    return now >= Math.min(expiresAt, createdAt + SESSION_TIME_OUT_DELAY)
+  }
+  // No creation date: written by a build that predates the stamp. A state holding an id cannot be
+  // shown to sit inside the cap; one without an id is not tracked and falls back to the deadline.
+  return state.id !== undefined || now >= expiresAt
 }
 
 /**
