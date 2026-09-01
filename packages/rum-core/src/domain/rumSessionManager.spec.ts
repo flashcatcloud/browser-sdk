@@ -290,7 +290,7 @@ describe('rum session manager', () => {
       expect(sessionManager.findTrackedSession()!.sampledOnErrorReplay).toBeTrue()
 
       // still true once released, so what was stored can be told apart afterwards
-      sessionManager.setSessionHasError()
+      sessionManager.setSessionHasError(sessionManager.findTrackedSession()!.id)
 
       expect(sessionManager.findTrackedSession()!.sampledOnErrorReplay).toBeTrue()
     })
