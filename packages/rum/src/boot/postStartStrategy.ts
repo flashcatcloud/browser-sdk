@@ -136,7 +136,6 @@ function shouldForceReplay(session: RumSession, options?: StartRecordingOptions)
     options.force &&
     // A withheld replay is as much in need of forcing as one that was never sampled: the host asked
     // for this user's replay, so it must not go on waiting for an error that may never come.
-    (session.sessionReplay === SessionReplayState.OFF ||
-      session.sessionReplay === SessionReplayState.BUFFERED_ON_ERROR)
+    (session.sessionReplay === SessionReplayState.OFF || session.sessionReplay === SessionReplayState.BUFFERED_ON_ERROR)
   )
 }

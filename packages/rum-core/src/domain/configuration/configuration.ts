@@ -289,6 +289,25 @@ export function validateAndBuildRumConfiguration(
     }
   }
 
+  // Each of these is a rate the customer set that cannot draw a single session. They are valid
+  // numbers, so validation lets them through - but silence would leave them waiting for data that
+  // is never coming.
+  if (sessionReplayOnErrorSampleRate > 0) {
+    if (sessionReplaySampleRate === 100) {
+      display.warn(
+        'sessionReplayOnErrorSampleRate is drawn only for sessions sessionReplaySampleRate did not draw, and that rate is 100: it will never apply.'
+      )
+    }
+    if ((initConfiguration.sessionSampleRate ?? 100) === 0) {
+      display.warn('sessionReplayOnErrorSampleRate has no effect while sessionSampleRate is 0: no session is tracked.')
+    }
+    if (initConfiguration.startSessionReplayRecordingManually) {
+      display.warn(
+        'sessionReplayOnErrorSampleRate needs the recording to already be running when the error happens, and startSessionReplayRecordingManually keeps it stopped until you start it: there would be nothing to release.'
+      )
+    }
+  }
+
   return {
     applicationId: initConfiguration.applicationId,
     version: initConfiguration.version || undefined,
