@@ -275,6 +275,53 @@ describe('startWithheldEventBuffer', () => {
     expect(releasedViewIds).not.toContain('old-view')
     expect(releasedViewIds).toContain('current-view')
   })
+
+  it('drops a straggler of a session whose buffer was already thrown away', () => {
+    collect(RumEventType.VIEW, { session: { id: 'session-id' } })
+    collect(RumEventType.RESOURCE, { session: { id: 'session-id' } })
+
+    lifeCycle.notify(LifeCycleEventType.SESSION_EXPIRED)
+    sessionManager.setNotTracked()
+
+    // a request that started before the session ended completes after it, still carrying its id -
+    // uploading it would store the very session the withholding was there to avoid
+    collect(RumEventType.RESOURCE, { session: { id: 'session-id' } })
+
+    expect(releasedAfterJitter().length).toBe(0)
+  })
+
+  it('does not let a straggler of the previous session ride the new one buffer', () => {
+    sessionManager.setId('session-1')
+    collect(RumEventType.VIEW, { session: { id: 'session-1' } })
+    collect(RumEventType.RESOURCE, { session: { id: 'session-1' } })
+
+    lifeCycle.notify(LifeCycleEventType.SESSION_EXPIRED)
+    sessionManager.setId('session-2')
+
+    collect(RumEventType.RESOURCE, { session: { id: 'session-1' } })
+    collect(RumEventType.VIEW, { session: { id: 'session-2' } })
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR, { session: { id: 'session-2' } })
+
+    const releasedSessionIds = releasedAfterJitter().map((event) => (event.session as Context).id)
+    expect(releasedSessionIds).toEqual(['session-2', 'session-2'])
+  })
+
+  it('keeps the view an error hangs from when a view that already ended is updated late', () => {
+    collect(RumEventType.VIEW, { date: 1000, view: { id: 'first-view' } })
+    collect(RumEventType.VIEW, { date: 2000, view: { id: 'second-view' } })
+    // nothing happens in the second view for longer than the window
+    clock.tick(WITHHELD_BUFFER_DURATION + ONE_SECOND)
+    // a late update of the view that already ended: it carries that view's start date, so it must
+    // not become current again - otherwise the view the error hangs from is the one pruned away
+    collect(RumEventType.VIEW, { date: 1000, view: { id: 'first-view' } })
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR, { view: { id: 'second-view' } })
+
+    expect(releasedAfterJitter().map((event) => event.type)).toContain(RumEventType.ERROR)
+  })
 })
 
 describe('computeReleaseDelay', () => {

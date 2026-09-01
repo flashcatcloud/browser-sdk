@@ -70,25 +70,40 @@ export function startWithheldEventBuffer(
   let details: WithheldEvent[] = []
   let bytes = 0
   let currentViewId: string | undefined
+  let currentViewDate = -Infinity
   let withheldForSessionId: string | undefined
+  /** The last session whose buffer was thrown away, so its stragglers are thrown away too. */
+  let discardedSessionId: string | undefined
   let releaseTimeoutId: TimeoutId | undefined
   let droppedCount = 0
 
   const eventSubscription = lifeCycle.subscribe(LifeCycleEventType.RUM_EVENT_COLLECTED, (event) => {
     const session = sessionManager.findTrackedSession()
+    // Which session an event belongs to is what the event says, not whichever session is current:
+    // assembly resolves the session at the event's own start time, so a request or a view update
+    // that finishes after its session ended still carries that session's id. An event that does not
+    // say is treated as the current one's, which is how it was handled before there was a buffer.
+    const eventSessionId = event.session?.id
+    const isFrom = (sessionId: string | undefined) => eventSessionId === undefined || eventSessionId === sessionId
 
-    if (session?.eventsWithheld) {
+    if (eventSessionId !== undefined && eventSessionId === discardedSessionId) {
+      // Its session ended without ever reporting an error and everything held for it was thrown
+      // away. Letting a straggler through would store the very session the withholding avoided.
+      return
+    }
+
+    if (session?.eventsWithheld && isFrom(session.id)) {
       if (withheldForSessionId !== undefined && withheldForSessionId !== session.id) {
         // A renewed session is a different session: it draws its own sampling and starts without an
         // error, so what the previous one collected must not ride along.
-        clearBuffer()
+        discardBuffer()
       }
       withheldForSessionId = session.id
       hold(event)
       return
     }
 
-    if (withheldForSessionId !== undefined) {
+    if (withheldForSessionId !== undefined && isFrom(withheldForSessionId)) {
       if (session && session.id === withheldForSessionId) {
         // The session just reported its error. This event - typically the error itself - joins what
         // is held so that the whole history leaves in order, and behind the same jitter.
@@ -96,8 +111,10 @@ export function startWithheldEventBuffer(
         scheduleRelease()
         return
       }
-      // The session that was withholding is gone without ever reporting an error.
-      clearBuffer()
+      // The session that was withholding is gone without ever reporting an error, and this event is
+      // one of its own, so it goes the same way as everything held for it.
+      discardBuffer()
+      return
     }
 
     forward(event)
@@ -125,7 +142,7 @@ export function startWithheldEventBuffer(
     if (releaseTimeoutId !== undefined || hasSinceErrored) {
       release()
     } else if (discardIfUnreleased) {
-      clearBuffer()
+      discardBuffer()
     }
   }
 
@@ -143,7 +160,13 @@ export function startWithheldEventBuffer(
       // the first view seen rather than the least recently updated one.
       views.delete(event.view.id)
       views.set(event.view.id, event)
-      currentViewId = event.view.id
+      // A view event carries its view's start date, so a late update of a view that already ended
+      // does not make it current again. Letting it would have `prune` drop the view the next error
+      // hangs from, and the release would then filter that error out of its own buffer.
+      if (event.date >= currentViewDate) {
+        currentViewDate = event.date
+        currentViewId = event.view.id
+      }
       while (views.size > WITHHELD_BUFFER_VIEWS_LIMIT) {
         views.delete(views.keys().next().value!)
       }
@@ -262,6 +285,12 @@ export function startWithheldEventBuffer(
     clearBuffer()
   }
 
+  /** Throws the buffer away, and remembers whose it was so its stragglers go the same way. */
+  function discardBuffer() {
+    discardedSessionId = withheldForSessionId
+    clearBuffer()
+  }
+
   /** Empties the buffer, whether it was just released or is being thrown away. */
   function clearBuffer() {
     clearTimeout(releaseTimeoutId)
@@ -271,6 +300,7 @@ export function startWithheldEventBuffer(
     bytes = 0
     droppedCount = 0
     currentViewId = undefined
+    currentViewDate = -Infinity
     withheldForSessionId = undefined
   }
 
