@@ -288,9 +288,10 @@ export interface RumPublicApi extends PublicApi {
    *
    * The forced state belongs to the page that called, but the session belongs to every tab. So if
    * the visitor has this site open in another tab and acts there first, that tab draws the
-   * replacement session under the ordinary rates and this call has no effect — silently, since
-   * nothing failed. Call it from the page the visitor is actually using, or have them close the
-   * others.
+   * replacement session under the ordinary rates and the visitor is not collected after all —
+   * silently, since nothing failed. The call is not lost: this page stays forced, so a later
+   * session it draws itself is collected. But nothing forces one to arrive soon. Call it from the
+   * page the visitor is actually using, or have them close the others.
    *
    * Inside a WebView the host application owns the session, so only the recording half applies:
    * replay starts, but the session's own sampling decision belongs to the mobile SDK and is left

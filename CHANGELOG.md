@@ -26,8 +26,14 @@
   a TypeScript project passing it no longer compiles and should drop the option.
 - ✨ `remoteConfigurationEnabled` lets the sampling rates, the trace sample rate and the Session
   Replay privacy level be set from the console instead of only at `init`. Off by default: without
-  it the SDK makes no extra request and behaves exactly as before. A change applies to sessions
-  created after it arrives, never to one already under way.
+  it the SDK makes no extra request. A change applies to sessions created after it arrives, never
+  to one already under way. `remoteConfigurationFetchTimeout` (default 3000 ms) bounds how long
+  that request may take; an unusable value falls back to the default rather than refusing `init`.
+- 📝 This release reads and writes `localStorage` on every site, not only those that opt into
+  remote configuration: the sampling draw a session was created under is recorded there, so that
+  another tab on the same session, and the page load that restores it, report and trace it the same
+  way. Sessions themselves are unaffected and stay in a cookie unless `sessionPersistence` says
+  otherwise. Called out for privacy reviews.
 - ✨ `beforeSampling` gives the application the last word on the rates at the moment a session is
   drawn, with the console's custom values in hand.
 - ✨ `setForcedSession()` collects the current visitor regardless of the rates, and

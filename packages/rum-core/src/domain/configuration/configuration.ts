@@ -81,9 +81,12 @@ export interface RumInitConfiguration extends InitConfiguration {
    * decision it was created with. The values below stay in use until the first settings arrive, and
    * whenever the settings cannot be reached.
    *
-   * Requires `localStorage`, which the SDK does not otherwise touch by default: sessions are kept
-   * in a cookie unless `sessionPersistence` says otherwise. Turning this on therefore adds a
-   * storage surface this site did not have before — worth knowing for a privacy review. Where
+   * Requires `localStorage`. Sessions themselves are kept in a cookie unless `sessionPersistence`
+   * says otherwise, but this SDK already reads one `localStorage` entry on every site — the record
+   * of the sampling draw, read at start-up and at each new session — and writes it whenever a draw
+   * lands somewhere other than the values passed to init. Turning this option on adds a second
+   * entry and the request that fills it; it is not what introduces `localStorage`. Worth stating
+   * precisely for a privacy review. Where
    * `localStorage` is unavailable (a third-party iframe under storage partitioning, a browser set
    * to block site data) sessions keep working from the cookie and this feature simply stays off,
    * falling back to the values passed here. Private browsing is not one of those cases: storage
