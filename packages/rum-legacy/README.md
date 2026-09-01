@@ -45,9 +45,13 @@ names, which those engines cannot even parse and no runtime guard could catch.
 Released bundles are served from the CDN under the directory of the release they belong to:
 
 ```
-https://static.flashcat.cloud/browser-sdk/v0.0.8/fc-rum-legacy.js
-https://static.flashcat.cloud/browser-sdk/v0.0.8/flashcat-rum.js
+https://static.flashcat.cloud/browser-sdk/<version>/fc-rum-legacy.js
+https://static.flashcat.cloud/browser-sdk/<version>/flashcat-rum.js
 ```
+
+`<version>` is the release tag, `v` prefix included. The [SDK versions page](https://docs.flashcat.cloud/en/rum/sdk/versions) is where to
+look the current one up. This build ships from `v0.1.0` onwards; the directories of earlier
+releases exist but hold no `fc-rum-legacy.js`.
 
 Each release gets its own directory and earlier ones are left as they were, so a url pins the
 version it names. Updating a self-hosted copy means pointing at the next release, not
@@ -59,11 +63,17 @@ chunk files that must match it exactly. `scripts/deploy/sync-bundles.js` downloa
 coherent set instead:
 
 ```bash
-node scripts/deploy/sync-bundles.js prod v0 ./cdn-bundles
+node scripts/deploy/sync-bundles.js
 ```
 
-It needs no credentials, fails loudly if any file is missing, and the resulting directory is served
-as-is from the hosting origin — the `<static host>` in the snippet below.
+Run from the checkout of the release being deployed: with no arguments it takes the version from
+`lerna.json`, so the set it downloads matches the source it was run from and no version has to be
+typed out. Its arguments are positional — `[env] [version] [outputDir]` — and naming an output
+directory means naming the version before it.
+
+It needs no credentials, fails loudly if any file is missing, and the resulting directory
+(`./cdn-bundles`) is served as-is from the hosting origin — the `<static host>` in the snippet
+below.
 
 ## Setup
 
