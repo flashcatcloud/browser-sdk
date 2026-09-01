@@ -513,6 +513,27 @@ describe('startWithheldEventBuffer', () => {
     expect(forwarded.length).toBe(0)
   })
 
+  it('keeps the view an error hangs from even when the view cap has to evict one', () => {
+    const last = WITHHELD_BUFFER_VIEWS_LIMIT - 1
+    // a page that has been through exactly as many views as the buffer will hold
+    for (let i = 0; i <= last; i++) {
+      collect(RumEventType.VIEW, { date: i + 1, view: { id: `view-${i}` } })
+      collect(RumEventType.RESOURCE, { view: { id: `view-${i}` } })
+    }
+    // every earlier view is updated late, which moves each of them behind the current one - so the
+    // view in progress ends up the oldest entry, and the cap takes from the oldest
+    for (let i = 0; i < last; i++) {
+      collect(RumEventType.VIEW, { date: i + 1, view: { id: `view-${i}` } })
+    }
+    // one more late update, for a view old enough to have been dropped already, tips it over the cap
+    collect(RumEventType.VIEW, { date: 1, view: { id: 'long-gone-view' } })
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR, { view: { id: `view-${last}` } })
+
+    expect(releasedAfterJitter().map((event) => event.type)).toContain(RumEventType.ERROR)
+  })
+
   it('keeps the view an error hangs from when a view that already ended is updated late', () => {
     collect(RumEventType.VIEW, { date: 1000, view: { id: 'first-view' } })
     collect(RumEventType.VIEW, { date: 2000, view: { id: 'second-view' } })

@@ -21,8 +21,11 @@ export function startSessionContext(
     }
 
     // A session withholding its replay is recording, but nothing has been uploaded and nothing may
-    // ever be. Reporting `has_replay` here would offer a replay that does not exist.
+    // ever be, so reporting `has_replay` would offer a replay that does not exist. Unless the events
+    // are withheld alongside it: those only ever leave together with that replay, so by the time
+    // they are read the replay is there.
     const isReplayWithheld = session.sessionReplay === SessionReplayState.BUFFERED_ON_ERROR
+    const shipsWithoutItsReplay = isReplayWithheld && !session.eventsWithheld
 
     let hasReplay
     let sampledForReplay
@@ -35,12 +38,12 @@ export function startSessionContext(
       // back, which leaves a view with replay stats and no replay at all - and offering a replay
       // that was never uploaded is worse than not offering one.
       const replayStats = recorderApi.getReplayStats(view.id)
-      hasReplay = !isReplayWithheld && replayStats && replayStats.segments_count > 0 ? true : undefined
+      hasReplay = !shipsWithoutItsReplay && replayStats && replayStats.segments_count > 0 ? true : undefined
       // A session that withholds its events withholds its replay alongside them, so if these events
       // are ever uploaded that replay is on its way with them. Reporting the state as it stands at
       // assembly time would mark the whole released burst as a session that has no replay.
       sampledForReplay =
-        session.sessionReplay === SessionReplayState.SAMPLED || (session.eventsWithheld && isReplayWithheld)
+        session.sessionReplay === SessionReplayState.SAMPLED || (isReplayWithheld && session.eventsWithheld)
       // Tells the backend that this session's detail only starts where the buffer reached, so the
       // gap before it reads as "not collected" rather than as missing data.
       sampledForError = session.sampledOnError || undefined
@@ -50,7 +53,7 @@ export function startSessionContext(
       sampledForErrorReplay = session.sampledOnErrorReplay || undefined
       isActive = view.sessionIsActive ? undefined : false
     } else {
-      hasReplay = !isReplayWithheld && recorderApi.isRecording() ? true : undefined
+      hasReplay = !shipsWithoutItsReplay && recorderApi.isRecording() ? true : undefined
     }
 
     return {

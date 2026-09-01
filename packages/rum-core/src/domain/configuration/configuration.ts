@@ -282,11 +282,18 @@ export function validateAndBuildRumConfiguration(
         'sessionReplayOnErrorSampleRate has no effect while sessionSampleRate is 0 and sessionOnErrorSampleRate is unset: no session is tracked.'
       )
     }
-    if (initConfiguration.startSessionReplayRecordingManually) {
-      display.warn(
-        'sessionReplayOnErrorSampleRate needs the recording to already be running when the error happens, and startSessionReplayRecordingManually keeps it stopped until you start it: there would be nothing to release.'
-      )
-    }
+  }
+
+  // A session drawn on error withholds whichever replay it draws, so the same trap is reachable
+  // through the plain replay rate as well - and there it is worse than silence, since the released
+  // views would report a replay for a recording that never ran.
+  if (
+    initConfiguration.startSessionReplayRecordingManually &&
+    (sessionReplayOnErrorSampleRate > 0 || (sessionOnErrorSampleRate > 0 && sessionReplaySampleRate > 0))
+  ) {
+    display.warn(
+      'A replay kept until the session errors has to be recording before that error, and startSessionReplayRecordingManually keeps it stopped until you start it: there would be nothing to release.'
+    )
   }
 
   return {

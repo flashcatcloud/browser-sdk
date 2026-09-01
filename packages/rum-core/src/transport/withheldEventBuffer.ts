@@ -41,9 +41,11 @@ export const WITHHELD_BUFFER_VIEWS_LIMIT = 50
 export const WITHHELD_BUFFER_RELEASE_MAX_DELAY = 3 * ONE_SECOND
 
 /**
- * How many thrown-away sessions to remember, so their stragglers are thrown away too. A late event
- * can only still be assembled for a session while the session context history holds it, which is far
- * shorter than the life of one session - a handful covers every straggler that can still arrive.
+ * How many thrown-away sessions to remember, so their stragglers are thrown away too. The session
+ * context history holds a session for up to its maximum length, so a request that outlives this many
+ * discarded sessions - hours of them - is forwarded after all. What escapes is a lone detail event
+ * with no view of its own, which has nothing to attach to at the other end; paying for a longer
+ * memory to catch it would cost more than it saves.
  */
 const DISCARDED_SESSIONS_REMEMBERED = 4
 
@@ -182,6 +184,15 @@ export function startWithheldEventBuffer(
         currentViewId = event.view.id
       }
       while (views.size > WITHHELD_BUFFER_VIEWS_LIMIT) {
+        const oldestViewId: string = views.keys().next().value!
+        if (oldestViewId === currentViewId) {
+          // The view in progress is the container the error will hang from, which is why `prune`
+          // spares it too. Late updates of ended views can push it to the front of the map, so it is
+          // moved to the back here rather than dropped - which, as above, takes a delete.
+          const currentView = views.get(oldestViewId)!
+          views.delete(oldestViewId)
+          views.set(oldestViewId, currentView)
+        }
         views.delete(views.keys().next().value!)
       }
       prune()

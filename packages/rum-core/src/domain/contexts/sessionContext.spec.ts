@@ -171,6 +171,20 @@ describe('session context', () => {
     expect(event.session!.sampled_for_replay).toBe(true)
   })
 
+  it('should set hasReplay on the events of a session that withholds them alongside its replay', () => {
+    // they only ever leave together with that replay, so the error that releases them must not say
+    // there is no replay to watch
+    sessionManager.setTrackedOnErrorWithSessionReplay()
+    isRecordingSpy.and.returnValue(true)
+
+    const event = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'error',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(event.session!.has_replay).toBe(true)
+  })
+
   it('should not claim a replay for a session that withholds its events and has none', () => {
     sessionManager.setTrackedOnError()
 
