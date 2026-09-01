@@ -210,6 +210,31 @@ describe('session store', () => {
     expect(second.id).not.toBe(first.id)
   })
 
+  it('does not adopt a session that carries no creation date', () => {
+    // Such a cookie has no cap to count from, so every access would push its deadline forward and
+    // the session would never end. The modern bundle stops trusting these too -- both builds share
+    // this cookie, so a difference here would let this one resurrect a session the other ended.
+    document.cookie = `${SESSION_COOKIE_NAME}=id=abcdef&rum=2&expire=${Date.now() + ONE_MINUTE};path=/`
+
+    const session = createSessionStore(100).getOrCreateSession()
+
+    expect(session.id).not.toBe('abcdef')
+    expect(readRawCookie()).toMatch(/created=\d+/)
+  })
+
+  it('stamps a creation date on a sampled-out session it adopts without one', () => {
+    // An id-less state is a legitimately sampled-out session, so it is adopted rather than redrawn.
+    // Adopting it without stamping would leave the cap nothing to count from, and every access
+    // pushes the deadline forward — the sampled-out user on a page that stays open would then
+    // never get to re-run the draw.
+    document.cookie = `${SESSION_COOKIE_NAME}=rum=0&expire=${Date.now() + ONE_MINUTE};path=/`
+
+    createSessionStore(100).getOrCreateSession()
+
+    expect(readRawCookie()).toMatch(/rum=0/)
+    expect(readRawCookie()).toMatch(/created=\d+/)
+  })
+
   describe('sampling', () => {
     it('tracks the session when the sample rate is 100', () => {
       expect(createSessionStore(100).getOrCreateSession().isTracked).toBe(true)

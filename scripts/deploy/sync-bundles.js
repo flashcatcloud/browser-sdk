@@ -29,7 +29,7 @@ const ENTRY_BUNDLES = ['flashcat-logs.js', 'flashcat-rum.js', 'flashcat-rum-slim
  * Usage:
  * node sync-bundles.js [env] [version] [outputDir]
  * env = prod|staging, defaults to prod
- * version = the release directory, ex: v0.0.8. Defaults to the version in lerna.json
+ * version = the release directory, ex: v0.1.0. Defaults to the version in lerna.json
  * outputDir = defaults to ./cdn-bundles
  *
  * The script needs no credentials: it downloads over plain HTTPS from the same URLs a page would

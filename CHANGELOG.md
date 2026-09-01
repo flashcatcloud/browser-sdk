@@ -54,7 +54,27 @@
 - ✨ `setForcedSession()` collects the current visitor regardless of the rates, and
   `getRemoteConfig()` returns the console's custom values verbatim.
 
----
+## v0.1.1
+
+Sessions on pages that stay open no longer run without end. A stored session whose state could not
+say when it started was treated as still valid, and on a visible page the inactivity deadline is
+pushed forward once a minute on its own — so the four hour cap was the only bound left, and it was
+the one being skipped. Both bounds now collapse into a single deadline, whichever of the two comes
+first, and a session that cannot produce one is ended rather than assumed young. A session that is
+not sampled in is stamped and capped the same way; previously a sampled-out user on a long-lived
+page never got to re-run the draw. The ES5 build follows the same rule, so a page that loads it
+cannot revive a session the modern build has ended.
+
+**What you may notice.** A screen left on and untouched — a wall dashboard, a monitoring view — now
+ends its session at the four hour cap, and starts a new one when someone next interacts with the
+page. If such a page had been holding a single session open for days, its data will appear to stop
+four hours in. That is the cap working, not data being lost.
+
+The ES5 build's verification page reports what went wrong when it cannot load the SDK, instead of
+failing silently, and reloads by its own url so it works when served from a subdirectory.
+
+Documentation now points at the SDK versions page for the version to use, and the ES5 build's CDN
+examples point at paths that exist.
 
 ## v0.1.0
 

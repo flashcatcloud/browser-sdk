@@ -21,7 +21,16 @@ This repository contains several packages:
 
 ## CDN bundle
 
-https://static.flashcat.cloud/browser-sdk/v0/flashcat-rum.js
+```
+https://static.flashcat.cloud/browser-sdk/<version>/flashcat-rum.js
+```
+
+`<version>` is the release tag, `v` prefix included. The [SDK versions page][versions] is where to
+look the current one up. Each release gets its own directory and earlier ones are never rewritten,
+so a url serves the version it names.
+
+The earlier `/browser-sdk/v0/` path, named for the major version rather than the release, is no
+longer updated. It still resolves, but stays at the release it last held.
 
 ## License Information
 
@@ -31,6 +40,7 @@ This project is modified and distributed by flashcat under the Apache License 2.
 
 For complete license information, please refer to the [LICENSE](./LICENSE) file.
 
+[versions]: https://docs.flashcat.cloud/en/rum/sdk/versions
 [18]: https://docs.flashcat.cloud/zh/flashduty/rum/introduction
 [01]: https://badge.fury.io/js/%40flashcatcloud%2Fbrowser-logs.svg
 [02]: https://badge.fury.io/js/%40flashcatcloud%2Fbrowser-logs

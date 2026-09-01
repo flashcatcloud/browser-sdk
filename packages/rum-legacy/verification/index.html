@@ -172,7 +172,14 @@
       function showEnvironment() {
         var mode =
           typeof document.documentMode === 'undefined' ? '(none - documentMode needs IE8+, or not Trident at all)' : document.documentMode
+        /* The protocol decides two results on this page and neither failure names it: over file://
+           the browser refuses to write the session cookie, and there is no origin to send a
+           same-origin request to. Both then read as a broken SDK. */
+        var protocol = window.location.protocol
+        var protocolNote =
+          protocol === 'file:' ? 'file: (serve this page over http(s) - see the notes below)' : protocol
         var pairs = [
+          ['location.protocol', protocolNote],
           ['document.documentMode', String(mode)],
           ['navigator.userAgent', navigator.userAgent],
           [
@@ -290,7 +297,12 @@
           loadBundle(function (loaded) {
             if (!loaded || !window.FC_RUM) {
               record('The bundle parses and loads', 'fail', 'window.FC_RUM is ' + typeof window.FC_RUM)
-              note('Stopped: nothing else can be checked while the script does not load.')
+              note(
+                'Stopped: fc-rum-legacy.js did not load. It has to be served from the same ' +
+                  'directory as this page. This repository does not carry the built bundle - run ' +
+                  'the package build, then open this page through scripts/verification-server.js, ' +
+                  'which serves the two together.'
+              )
               return
             }
             record('The bundle parses and loads', 'pass', 'FC_RUM.version = ' + window.FC_RUM.version)
@@ -511,11 +523,19 @@
       document.getElementById('exit').onclick = function () {
         // Remember how many requests the intake had, reload to fire beforeunload, and let the
         // reloaded page prove the exit added one more, sent synchronously or lost.
+        //
+        // Reload whatever url this page was actually opened at, rather than a literal index.html:
+        // this file is copied into offline packages for customers who serve it from their own host,
+        // where it is often renamed to avoid colliding with their site's own index. A hardcoded
+        // name sends that copy to a url that does not exist, and the only symptom is a page that
+        // stops loading - no error, on browsers that frequently have no usable devtools. Dropping
+        // the query rather than appending keeps a second press idempotent, and preserves a
+        // directory-style url instead of rewriting it to /index.html.
         readReceived(function (arrived) {
           try {
             window.sessionStorage.setItem(PRE_EXIT_KEY, String(arrived.length))
           } catch (error) {}
-          window.location.href = 'index.html?after-exit=1'
+          window.location.href = window.location.href.split('?')[0] + '?after-exit=1'
         })
       }
 
