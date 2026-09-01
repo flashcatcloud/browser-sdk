@@ -45,12 +45,12 @@ names, which those engines cannot even parse and no runtime guard could catch.
 Released bundles are served from the CDN under the directory of the release they belong to:
 
 ```
-https://static.flashcat.cloud/browser-sdk/<version>/fc-rum-legacy.js
-https://static.flashcat.cloud/browser-sdk/<version>/flashcat-rum.js
+https://static.flashcat.cloud/browser-sdk/v0.1.0/fc-rum-legacy.js
+https://static.flashcat.cloud/browser-sdk/v0.1.0/flashcat-rum.js
 ```
 
-`<version>` is the release tag, `v` prefix included. This build ships from `v0.1.0` onwards; the
-directories of earlier releases exist but hold no `fc-rum-legacy.js`.
+`v0.1.0` is the current release, and the first one to carry this build: the directories of earlier
+releases exist but hold no `fc-rum-legacy.js`.
 
 Each release gets its own directory and earlier ones are left as they were, so a url pins the
 version it names. Updating a self-hosted copy means pointing at the next release, not
