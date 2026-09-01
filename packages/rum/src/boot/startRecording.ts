@@ -47,7 +47,16 @@ export function startRecording(
         },
         isReleased: (sessionId) => {
           const session = sessionManager.findTrackedSession()
-          return !!session && session.id === sessionId && session.sessionReplay !== SessionReplayState.BUFFERED_ON_ERROR
+          // Still the same session, still one whose replay is kept only on an error, and no longer
+          // withholding. The middle condition matters: a session can stop withholding without ever
+          // erroring - an older SDK sharing the same store does not know these tracking types and
+          // redraws them - and that is a session ending, not a replay earning its way out.
+          return (
+            !!session &&
+            session.id === sessionId &&
+            session.sampledOnErrorReplay &&
+            session.sessionReplay !== SessionReplayState.BUFFERED_ON_ERROR
+          )
         },
         restartFromFullSnapshot: () => takeSubsequentFullSnapshot(),
       }
