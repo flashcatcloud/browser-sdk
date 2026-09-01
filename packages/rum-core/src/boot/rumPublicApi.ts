@@ -280,9 +280,10 @@ export interface RumPublicApi extends PublicApi {
   stopSession: () => void
 
   /**
-   * Force the session to be collected, with Session Replay, regardless of the configured sample
-   * rates. Call it when your own code decides a visitor needs debugging (an allow-list, a support
-   * flow). If the current session was not being collected, it ends and a collected one starts at
+   * Force the session to be collected, with Session Replay where this build records it at all,
+   * regardless of the configured sample rates. Call it when your own code decides a visitor needs
+   * debugging (an allow-list, a support flow). On the slim build there is no recorder, so the
+   * visitor is collected without a replay. If the current session was not being collected, it ends and a collected one starts at
    * the next user interaction; a session already collected keeps running and gets replay recording.
    * The forced state lasts for the page lifetime — decide on each page load whether to call again.
    *

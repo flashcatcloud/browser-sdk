@@ -113,6 +113,13 @@ export interface RumInitConfiguration extends InitConfiguration {
    * Not used inside a WebView. Under an event bridge the host application owns the sampling
    * decision, so no request is made and `getRemoteConfig()` answers `undefined`.
    *
+   * Behind a `proxy`, the settings travel to `/api/v2/rum/config`, which is a different path from
+   * the intake ones. A proxy that forwards whatever arrives passes it through unchanged; one that
+   * checks the forwarded path against a list of known intake paths has to be told about this one,
+   * or it rejects every settings request. The SDK carries on with the values passed here — that is
+   * the designed fallback and nothing breaks — so the symptom is simply that the console's
+   * settings never seem to arrive.
+   *
    * Turning this on hands the console authority over `defaultPrivacyLevel`, which is what decides
    * how much of a page Session Replay masks. The console may relax it below what is passed here —
    * that is the point of being able to change it without a release — so whoever can publish

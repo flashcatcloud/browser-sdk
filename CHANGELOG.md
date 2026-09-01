@@ -24,6 +24,10 @@
   different endpoint under a different contract, and is replaced by `remoteConfigurationEnabled`.
   A site still passing it in JavaScript keeps working and gets the settings it passed to `init`;
   a TypeScript project passing it no longer compiles and should drop the option.
+- 📝 Behind a `proxy`, the settings request travels to `/api/v2/rum/config`. A proxy that checks the
+  forwarded path against a list of known intake paths must be told about this one, or the settings
+  never arrive — the SDK keeps collecting with the values passed to `init`, so the only symptom is
+  that the console appears to have no effect.
 - 💥 **Breaking for TypeScript code that implements our interfaces**: `RumPublicApi` gains
   `setForcedSession` and `getRemoteConfig`, and `RumSessionManager` gains `setForcedSession`. Code
   that only calls these interfaces is unaffected; code that implements or hand-mocks them needs the
