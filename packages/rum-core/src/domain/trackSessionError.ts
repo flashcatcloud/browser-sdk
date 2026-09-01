@@ -34,7 +34,7 @@ export function startSessionErrorTracking(lifeCycle: LifeCycle, sessionManager: 
       return
     }
     hasReportedError = true
-    sessionManager.setSessionHasError()
+    sessionManager.setSessionHasError(session.id)
   })
 
   // A renewed session is a different session: it draws its own sampling and starts out without an

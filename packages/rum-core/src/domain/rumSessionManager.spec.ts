@@ -9,6 +9,7 @@ import {
   createTrackingConsentState,
   TrackingConsent,
   BridgeCapability,
+  isChromium,
 } from '@flashcatcloud/browser-core'
 import type { Clock } from '@flashcatcloud/browser-core/test'
 import {
@@ -235,8 +236,41 @@ describe('rum session manager', () => {
 
       expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.BUFFERED_ON_ERROR)
 
-      sessionManager.setSessionHasError()
+      sessionManager.setSessionHasError(sessionManager.findTrackedSession()!.id)
 
+      expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.SAMPLED)
+    })
+
+    it('does not mark a session that has since been replaced by another one', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnErrorSampleRate: 100 },
+      })
+
+      // another tab renewed the session while the mark was on its way to the store
+      setCookie(SESSION_STORE_KEY, 'id=other-session&rum=3', DURATION)
+
+      sessionManager.setSessionHasError('a-session-that-is-gone')
+
+      expect(getSessionState(SESSION_STORE_KEY).hasError).toBeUndefined()
+    })
+
+    it('releases the replay before the store write lands, since that write can be deferred', () => {
+      if (!isChromium()) {
+        pending('the store lock, and so a deferred write, only exists on Chromium')
+      }
+      const sessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnErrorSampleRate: 100 },
+      })
+      const sessionId = sessionManager.findTrackedSession()!.id
+
+      // another tab holds the store lock, so the write is deferred through retries
+      setCookie(SESSION_STORE_KEY, `lock=other-tab&id=${sessionId}&rum=3`, DURATION)
+
+      sessionManager.setSessionHasError(sessionId)
+
+      expect(getSessionState(SESSION_STORE_KEY).hasError).toBeUndefined()
+      // and yet the buffer must already see it as released: the page or the session may end before
+      // the write ever lands, and the buffer would otherwise be thrown away
       expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.SAMPLED)
     })
 

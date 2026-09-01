@@ -25,10 +25,11 @@ export interface RumSessionManager {
   expireObservable: Observable<void>
   setForcedReplay: () => void
   /**
-   * Marks the session as having reported an error. For a session sampled by
-   * `sessionReplayOnErrorSampleRate`, this is what releases the withheld replay.
+   * Marks the given session as having reported an error. For a session sampled by
+   * `sessionReplayOnErrorSampleRate`, this is what releases the withheld replay. The id is required
+   * because the store write can be deferred by the lock, and it must not land on a later session.
    */
-  setSessionHasError: () => void
+  setSessionHasError: (sessionId: string) => void
 }
 
 export type RumSession = {
@@ -111,8 +112,18 @@ export function startRumSessionManager(
     },
     expire: sessionManager.expire,
     expireObservable: sessionManager.expireObservable,
-    setForcedReplay: () => sessionManager.updateSessionState({ forcedReplay: '1' }),
-    setSessionHasError: () => sessionManager.updateSessionState({ hasError: '1' }),
+    setForcedReplay: () => sessionManager.updateSessionState(() => ({ forcedReplay: '1' })),
+    setSessionHasError: (sessionId) => {
+      const sessionEntity = sessionManager.findSession()
+      if (sessionEntity?.id === sessionId) {
+        // Marked in memory straight away, and not only once the store write lands: that write goes
+        // through a lock that can defer it by several retries, and until then the withheld buffer
+        // would still read the session as withholding - so an error followed closely by the page or
+        // the session ending would throw away the very buffer the error was meant to release.
+        sessionEntity.hasError = true
+      }
+      sessionManager.updateSessionState((state) => (state.id === sessionId ? { hasError: '1' } : undefined))
+    },
   }
 }
 
