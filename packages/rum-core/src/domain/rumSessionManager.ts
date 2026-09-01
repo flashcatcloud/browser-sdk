@@ -17,7 +17,7 @@ import {
   startSessionManager,
 } from '@flashcatcloud/browser-core'
 import type { RemoteConfigValues, RumConfiguration } from './configuration'
-import { isPrivacyLevel, isRate, readRemoteConfig } from './configuration'
+import { isPrivacyLevel, isRate, isVersion, readRemoteConfig } from './configuration'
 import type { LifeCycle } from './lifeCycle'
 import { LifeCycleEventType } from './lifeCycle'
 
@@ -517,7 +517,7 @@ function readDrawRecord(configuration: RumConfiguration, sessionId: string): Dra
     // Same reasoning as the two below: a settings version can only have come from settings. On a
     // site that opted out it would put a version onto every event that no delivered configuration
     // ever stood behind — and that number is exactly what an auditor uses to look the settings up.
-    version: mayHaveBeenDelivered && typeof record.version === 'number' ? record.version : undefined,
+    version: mayHaveBeenDelivered && isVersion(record.version) ? record.version : undefined,
     sessionSampleRate: record.sessionSampleRate,
     sessionReplaySampleRate: record.sessionReplaySampleRate,
     // A record written before these two existed has neither, and so does one holding something we

@@ -149,6 +149,11 @@ export function startRum(
   const { observable: windowOpenObservable, stop: stopWindowOpen } = createWindowOpenObservable()
   cleanupTasks.push(stopWindowOpen)
 
+  // FLASHCAT FORK - registration order is load-bearing from here on: the assemble hooks are
+  // combined in the order they register, later results winning, and `startSessionContext` below
+  // relies on that to report the rates a session was actually drawn under in place of the init
+  // ones this emits. Moving it after the session context would silently put the init values back
+  // on every event while different rates were in force.
   startDefaultContext(hooks, configuration)
   const pageStateHistory = startPageStateHistory(hooks, configuration)
   const viewHistory = startViewHistory(lifeCycle)

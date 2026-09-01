@@ -59,6 +59,7 @@ export function startSessionContext(
         is_active: isActive,
       },
       // FLASHCAT FORK - overrides the init values reported by the default context with the rates
+      // (which works only because this hook registers after that one — see `startRum`)
       // this session was actually drawn under (remote settings and `beforeSampling` included), plus
       // the remote settings version they came from. Extrapolation and audits must line up with the
       // draw that kept the session, and the version lets an auditor recover the exact settings from

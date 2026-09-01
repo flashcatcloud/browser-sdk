@@ -23,8 +23,14 @@ declare const __BUILD_ENV__SDK_VERSION__: string
  * through and never starts being recorded halfway through. Fetching follows the same rhythm: once
  * at start-up and once whenever a new session begins — a change can only matter at the next draw,
  * so asking more often than sessions are drawn would be requests for nothing. There is no timer
- * between sessions; the server's `ttl` field is accepted and ignored, reserved for a future
- * polling mode.
+ * between sessions.
+ *
+ * Three fields the server sends are accepted and ignored, deliberately: `ttl` and
+ * `refresh_on_foreground`, which describe when to ask again and are moot without a timer, and
+ * `activation`, which offers to end a running session so a change applies at once. Everything here
+ * is next-session, so a console that ever offers "apply immediately" would not be obeyed by this
+ * build — named here so the mismatch is found by reading rather than by an operator wondering why
+ * nothing happened.
  *
  * Nothing here runs unless `remoteConfigurationEnabled: true`. Left off — the default — the SDK makes no
  * extra request and behaves exactly as it did before this existed.
@@ -361,6 +367,13 @@ function fetchRemoteConfiguration(
     })
     addEventListener(configuration, xhr, 'error', () => answer(undefined))
     addEventListener(configuration, xhr, 'timeout', () => answer(undefined))
+    // The one that always arrives. A request aborted out from under us — `window.stop()`, a
+    // navigation, a page restored from the back/forward cache with its request already dead —
+    // fires neither `load` nor `error` nor `timeout`, and the timeout cannot save us because it
+    // does not tick while the page is frozen. Without this the in-flight guard would stay set and
+    // every later refresh on the page would be dropped, which is the very thing the timeout floor
+    // exists to prevent. It is answered at most once, so on an ordinary response this is inert.
+    addEventListener(configuration, xhr, 'loadend', () => answer(undefined))
 
     xhr.open('GET', setup.buildUrl(appliedVersion))
     xhr.timeout = setup.fetchTimeout
@@ -585,7 +598,7 @@ export function isRate(value: unknown): value is number {
  * `MAX_SAFE_INTEGER` is spelled out rather than named so this keeps working on the ES5 targets the
  * bundle is checked against.
  */
-function isVersion(value: unknown): value is number {
+export function isVersion(value: unknown): value is number {
   return typeof value === 'number' && value >= 0 && value <= 9007199254740991 && Math.floor(value) === value
 }
 

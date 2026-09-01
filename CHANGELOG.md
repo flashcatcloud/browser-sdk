@@ -41,11 +41,14 @@
 - 📝 Withdrawing tracking consent now also removes the record of the sampling draw, which holds the
   session id. The session store was already rewritten without that id on withdrawal; this keeps the
   copy in `localStorage` from outliving it.
-- 📝 This release reads and writes `localStorage` on every site, not only those that opt into
-  remote configuration: the sampling draw a session was created under is recorded there, so that
-  another tab on the same session, and the page load that restores it, report and trace it the same
-  way. Sessions themselves are unaffected and stay in a cookie unless `sessionPersistence` says
-  otherwise. Called out for privacy reviews.
+- 📝 This release reads `localStorage` on every site, not only those that opt into remote
+  configuration: at start-up and at each new session it looks for the record of the sampling draw
+  that session was created under, so that another tab on the same session, and the page load that
+  restores it, report and trace it the same way. It only WRITES that record when a draw lands
+  somewhere other than the values passed to `init` — which needs remote configuration,
+  `beforeSampling`, or `setForcedSession()`; a site using none of them never writes. Sessions
+  themselves are unaffected and stay in a cookie unless `sessionPersistence` says otherwise. Called
+  out for privacy reviews.
 - ✨ `beforeSampling` gives the application the last word on the rates at the moment a session is
   drawn, with the console's custom values in hand.
 - ✨ `setForcedSession()` collects the current visitor regardless of the rates, and

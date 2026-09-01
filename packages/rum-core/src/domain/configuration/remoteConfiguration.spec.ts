@@ -531,6 +531,23 @@ describe('remoteConfiguration', () => {
       expect(requests.length).toBe(1)
     })
 
+    it('is not wedged by a request aborted out from under it', () => {
+      // `window.stop()`, a navigation, or a page restored from the back/forward cache with its
+      // request already dead: neither load nor error nor timeout ever arrives, and the timeout does
+      // not tick while a page is frozen. Without an answer the in-flight guard stays set and every
+      // later refresh on the page is dropped.
+      const requests: MockXhr[] = []
+      interceptor.withMockXhr((xhr) => requests.push(xhr))
+
+      start(configurationWith())
+      expect(requests.length).toBe(1)
+
+      requests[0].abort()
+      lifeCycle.notify(LifeCycleEventType.SESSION_RENEWED)
+
+      expect(requests.length).toBe(2)
+    })
+
     it('asks for nothing more once it has been stopped', () => {
       const requests: MockXhr[] = []
       // Left in flight on purpose: the answer arrives after the SDK has been stopped, which is the
