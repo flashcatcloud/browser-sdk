@@ -178,6 +178,27 @@ describe('makeRecorderApi', () => {
       expect(setForcedReplaySpy).toHaveBeenCalledTimes(1)
     })
 
+    it('releases a withheld replay when forced, although it is already recording', async () => {
+      const setForcedReplaySpy = jasmine.createSpy()
+
+      setupRecorderApi({
+        sessionManager: {
+          ...createRumSessionManagerMock().setTrackedWithErrorSessionReplay(),
+          setForcedReplay: setForcedReplaySpy,
+        },
+        startSessionReplayRecordingManually: false,
+      })
+
+      rumInit()
+      await collectAsyncCalls(startRecordingSpy, 1)
+
+      // the recording is already running - what forcing asks for here is that what it holds stops
+      // waiting for an error
+      recorderApi.start({ force: true })
+
+      expect(setForcedReplaySpy).toHaveBeenCalledTimes(1)
+    })
+
     it('uses the previously created worker if available', async () => {
       setupRecorderApi({ startSessionReplayRecordingManually: true })
       rumInit({ worker: mockWorker })

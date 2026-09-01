@@ -87,6 +87,13 @@ export function createPostStartStrategy(
       return
     }
 
+    if (shouldForceReplay(session!, options)) {
+      // Applied before the guard below, not after starting: a session that withholds its replay is
+      // already recording, so the guard would return without ever releasing it - and releasing what
+      // is held is the whole of what forcing means for such a session.
+      sessionManager.setForcedReplay()
+    }
+
     if (isRecordingInProgress(status)) {
       return
     }
@@ -95,10 +102,6 @@ export function createPostStartStrategy(
 
     // Intentionally not awaiting doStart() to keep it asynchronous
     doStart().catch(monitorError)
-
-    if (shouldForceReplay(session!, options)) {
-      sessionManager.setForcedReplay()
-    }
   }
 
   function stop() {
@@ -128,5 +131,12 @@ function isRecordingInProgress(status: RecorderStatus) {
 }
 
 function shouldForceReplay(session: RumSession, options?: StartRecordingOptions) {
-  return options && options.force && session.sessionReplay === SessionReplayState.OFF
+  return (
+    options &&
+    options.force &&
+    // A withheld replay is as much in need of forcing as one that was never sampled: the host asked
+    // for this user's replay, so it must not go on waiting for an error that may never come.
+    (session.sessionReplay === SessionReplayState.OFF ||
+      session.sessionReplay === SessionReplayState.BUFFERED_ON_ERROR)
+  )
 }
