@@ -267,12 +267,14 @@ export function startRumSessionManager(
       }
     }
 
-    if (forcedSession) {
+    if (forcedSession && isCollected) {
       // The host application has taken this page off the rates deliberately, and every draw it
-      // makes from now on is collected whatever the console says. Ending the session on a rate
-      // would only replace it with another forced one — the same difference, forever. The flag is
-      // this page's: another tab of the same visitor that never called `setForcedSession` reads
-      // the shared session as an ordinary one and may end it on a rate.
+      // makes from now on is collected whatever the console says. Ending a collected session on a
+      // rate would only replace it with another collected one — the same difference, forever. That
+      // reasoning runs out when the session is not collected: this page can adopt one an unforced
+      // tab drew, and there a rate of 100 has something to change, so it is left to the rule
+      // below. The flag is this page's either way — another tab that never called
+      // `setForcedSession` reads the shared session as an ordinary one.
       return
     }
 
