@@ -324,43 +324,53 @@ function fetchRemoteConfiguration(
   appliedVersion: number | undefined,
   callback: (response: RemoteConfigurationResponse | undefined) => void
 ) {
-  let xhr: XMLHttpRequest
-  try {
-    xhr = new XMLHttpRequest()
-  } catch {
-    // A page that replaced the global with something unusable. Nothing else here can run, and
-    // there is no request to wait for, so this attempt ends the way a network failure does.
-    callback(undefined)
-    return
-  }
-
-  addEventListener(configuration, xhr, 'load', () => {
-    if (xhr.status !== 200) {
-      callback(undefined)
+  // Answered at most once, whatever the page has put in place of `XMLHttpRequest`: a replacement
+  // that both dispatches an event and throws would otherwise be counted as two attempts, and the
+  // second would schedule a retry the first one's timer no longer owns.
+  let settled = false
+  function answer(response: RemoteConfigurationResponse | undefined) {
+    if (settled) {
       return
     }
-    try {
-      const body: unknown = JSON.parse(xhr.responseText)
-      callback(isSupportedResponse(body) ? body : undefined)
-    } catch {
-      callback(undefined)
-    }
-  })
-  addEventListener(configuration, xhr, 'error', () => callback(undefined))
-  addEventListener(configuration, xhr, 'timeout', () => callback(undefined))
+    settled = true
+    callback(response)
+  }
 
+  // The whole exchange is guarded, not merely the parts that look risky. Constructing the request
+  // touches a global the page can replace, registering the listeners calls a method that
+  // replacement may not have, and building the url runs the application's own code when `proxy` is
+  // a function — which `open` may then refuse. Every one of them throws synchronously, on a stack
+  // that starts either inside `startRum`, where everything after this would never run and the page
+  // would collect nothing at all, or inside a lifecycle notification, whose remaining subscribers
+  // would be skipped. No settings request is worth either, so anything thrown here ends the
+  // attempt exactly as a network failure does.
   try {
-    // Building the url runs the application's own code when `proxy` is a function, and `open`
-    // refuses a url that function may return. Both throw synchronously, on a stack that starts
-    // either inside `startRum` — where everything after this would never run, taking the whole
-    // page's collection with it — or inside a lifecycle notification, whose remaining subscribers
-    // would be skipped. Neither is a price worth paying for a settings request, so a throw here
-    // ends the attempt exactly as a network failure does.
+    const xhr = new XMLHttpRequest()
+
+    addEventListener(configuration, xhr, 'load', () => {
+      if (xhr.status !== 200) {
+        answer(undefined)
+        return
+      }
+      try {
+        const body: unknown = JSON.parse(xhr.responseText)
+        answer(isSupportedResponse(body) ? body : undefined)
+      } catch {
+        answer(undefined)
+      }
+    })
+    addEventListener(configuration, xhr, 'error', () => answer(undefined))
+    addEventListener(configuration, xhr, 'timeout', () => answer(undefined))
+
     xhr.open('GET', setup.buildUrl(appliedVersion))
     xhr.timeout = setup.fetchTimeout
     xhr.send()
-  } catch {
-    callback(undefined)
+  } catch (error) {
+    // Said out loud, unlike a network failure. A request that could not even be sent means the page
+    // or the application broke it, and without this the feature would be dead for the rest of the
+    // visit with nothing to tell it apart from an endpoint that is merely down.
+    display.error('remote configuration request could not be sent:', error)
+    answer(undefined)
   }
 }
 

@@ -62,6 +62,11 @@ export interface DrawnConfiguration {
   // level on every recorded node — so both have to answer with what this session started under
   // rather than with whatever the console has since delivered.
   //
+  // Latched for the page that drew them, and for any page that may read them back — which is only
+  // a page that opted into remote configuration. A page that did not always answers with its own
+  // init values, because nothing available to it could have moved these two in the first place, so
+  // a stored value disagreeing is not one this SDK wrote. See `readDrawRecord`.
+  //
   // Undefined means no rule set a trace rate at all — neither the console nor `init`. That is a
   // different statement from "100", and the events have to keep it: `rule_psr` describes the rule
   // the tracer drew under, and the backend extrapolates from it, so a site that never asked for
@@ -490,7 +495,10 @@ function readDrawRecord(configuration: RumConfiguration, sessionId: string): Dra
   // it. Opted out, there is no authority for the value at all.
   const mayHaveBeenDelivered = configuration.remoteConfig !== undefined
   return {
-    version: typeof record.version === 'number' ? record.version : undefined,
+    // Same reasoning as the two below: a settings version can only have come from settings. On a
+    // site that opted out it would put a version onto every event that no delivered configuration
+    // ever stood behind — and that number is exactly what an auditor uses to look the settings up.
+    version: mayHaveBeenDelivered && typeof record.version === 'number' ? record.version : undefined,
     sessionSampleRate: record.sessionSampleRate,
     sessionReplaySampleRate: record.sessionReplaySampleRate,
     // A record written before these two existed has neither, and so does one holding something we

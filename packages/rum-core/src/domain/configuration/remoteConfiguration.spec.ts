@@ -374,6 +374,23 @@ describe('remoteConfiguration', () => {
   })
 
   describe('when building or sending the request throws', () => {
+    it('survives a page that replaced XMLHttpRequest with something unusable', () => {
+      // The same threat the proxy case has: whatever throws — the constructor, the listener
+      // registration, or the url — reaches `startRum` ahead of everything that collects.
+      const original = window.XMLHttpRequest
+      window.XMLHttpRequest = function () {
+        return {} as XMLHttpRequest
+      } as unknown as typeof XMLHttpRequest
+      registerCleanupTask(() => {
+        window.XMLHttpRequest = original
+      })
+      const displaySpy = spyOn(display, 'error')
+
+      expect(() => start(configurationWith())).not.toThrow()
+      expect(displaySpy).toHaveBeenCalled()
+      expect(readRemoteConfig(setup)).toEqual({})
+    })
+
     it('does not let a proxy function take the page down with it', () => {
       // `proxy` as a function is the application's own code, run synchronously while the url is
       // built. This call sits inside `startRum` ahead of everything that collects, and inside a
