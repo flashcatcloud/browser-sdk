@@ -94,6 +94,24 @@ describe('session context', () => {
     expect(eventWithoutHasReplay.session!.has_replay).toBeUndefined()
   })
 
+  it('should tell a replay kept only because the session errored apart from an unconditional one', () => {
+    sessionManager.setTrackedWithErrorSessionReplay()
+    const errorReplayEvent = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    sessionManager.setTrackedWithSessionReplay()
+    const plainEvent = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(errorReplayEvent.session!.sampled_for_error_replay).toBeTrue()
+    // absent rather than false, so it costs nothing on every ordinary session
+    expect(plainEvent.session!.sampled_for_error_replay).toBeUndefined()
+  })
+
   it('should not set hasReplay when a dropped buffer left the view with no segment', () => {
     // a withheld buffer that was dropped rolls its segments back, and a view left with zero of them
     // has no replay to offer however many records were once counted
