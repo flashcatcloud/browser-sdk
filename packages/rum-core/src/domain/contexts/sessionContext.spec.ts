@@ -94,6 +94,19 @@ describe('session context', () => {
     expect(eventWithoutHasReplay.session!.has_replay).toBeUndefined()
   })
 
+  it('should not set hasReplay when a dropped buffer left the view with no segment', () => {
+    // a withheld buffer that was dropped rolls its segments back, and a view left with zero of them
+    // has no replay to offer however many records were once counted
+    getReplayStatsSpy.and.returnValue({ ...fakeStats, segments_count: 0 })
+
+    const event = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(event.session!.has_replay).toBeUndefined()
+  })
+
   it('should set session.is_active when the session is active', () => {
     findViewSpy.and.returnValue({ ...fakeView, sessionIsActive: true })
     const eventWithActiveSession = hooks.triggerHook(HookNames.Assemble, {
