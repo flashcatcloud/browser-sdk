@@ -124,14 +124,24 @@ describe('startWithheldEventBuffer', () => {
     expect(types).toContain(RumEventType.ACTION)
   })
 
-  it('drops the buffer when the session expires without ever reporting an error', () => {
+  it('drops the buffer, and what is still arriving for it, when the session ends without an error', () => {
     collect(RumEventType.VIEW)
     collect(RumEventType.RESOURCE)
 
     sessionManager.setNotTracked()
     collect(RumEventType.RESOURCE)
 
-    expect(releasedAfterJitter().filter((event) => event.type === RumEventType.RESOURCE).length).toBe(1)
+    expect(releasedAfterJitter().length).toBe(0)
+  })
+
+  it('forwards the events of a new session that withholds nothing', () => {
+    sessionManager.setId('session-1')
+    collect(RumEventType.VIEW, { session: { id: 'session-1' } })
+
+    sessionManager.setId('session-2').setTrackedWithSessionReplay()
+    collect(RumEventType.RESOURCE, { session: { id: 'session-2' } })
+
+    expect(releasedAfterJitter().map((event) => (event.session as Context).id)).toEqual(['session-2'])
   })
 
   it('releases on page exit when the session errored without the buffer having noticed yet', () => {

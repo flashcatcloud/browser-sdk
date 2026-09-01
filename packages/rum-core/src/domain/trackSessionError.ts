@@ -30,7 +30,7 @@ export function startSessionErrorTracking(lifeCycle: LifeCycle, sessionManager: 
     // write also pushes the session's expiry out (`processSessionStoreOperations` expands every
     // state it persists), which would move where their sessions end.
     const session = sessionManager.findTrackedSession()
-    if (!session?.sampledOnErrorReplay) {
+    if (!session || (!session.sampledOnError && !session.sampledOnErrorReplay)) {
       return
     }
     hasReportedError = true

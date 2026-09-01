@@ -37,6 +37,14 @@ describe('startSessionErrorTracking', () => {
     expect(setSessionHasErrorSpy).not.toHaveBeenCalled()
   })
 
+  it('marks a session that withholds only its events, which has no replay to release', () => {
+    sessionManager.setTrackedOnError()
+
+    collect('error')
+
+    expect(setSessionHasErrorSpy).toHaveBeenCalledTimes(1)
+  })
+
   it('leaves an untracked session alone', () => {
     sessionManager.setNotTracked()
 

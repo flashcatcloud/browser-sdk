@@ -92,28 +92,28 @@ export function startWithheldEventBuffer(
       return
     }
 
-    if (session?.eventsWithheld && isFrom(session.id)) {
-      if (withheldForSessionId !== undefined && withheldForSessionId !== session.id) {
-        // A renewed session is a different session: it draws its own sampling and starts without an
-        // error, so what the previous one collected must not ride along.
-        discardBuffer()
+    if (withheldForSessionId !== undefined && session?.id !== withheldForSessionId) {
+      // The session that was withholding is gone - expired, or renewed into another one - without
+      // ever reporting an error, so what it collected never earned its way out. A session that did
+      // report one keeps its id and is left alone here.
+      const wasWithheldFor = withheldForSessionId
+      discardBuffer()
+      if (isFrom(wasWithheldFor)) {
+        return
       }
+    }
+
+    if (session?.eventsWithheld && isFrom(session.id)) {
       withheldForSessionId = session.id
       hold(event)
       return
     }
 
     if (withheldForSessionId !== undefined && isFrom(withheldForSessionId)) {
-      if (session && session.id === withheldForSessionId) {
-        // The session just reported its error. This event - typically the error itself - joins what
-        // is held so that the whole history leaves in order, and behind the same jitter.
-        hold(event)
-        scheduleRelease()
-        return
-      }
-      // The session that was withholding is gone without ever reporting an error, and this event is
-      // one of its own, so it goes the same way as everything held for it.
-      discardBuffer()
+      // The session just reported its error. This event - typically the error itself - joins what is
+      // held so that the whole history leaves in order, and behind the same jitter.
+      hold(event)
+      scheduleRelease()
       return
     }
 
