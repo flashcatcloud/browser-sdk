@@ -280,6 +280,38 @@ export interface RumPublicApi extends PublicApi {
   stopSession: () => void
 
   /**
+   * Force the session to be collected, with Session Replay where this build records it at all,
+   * regardless of the configured sample rates. Call it when your own code decides a visitor needs
+   * debugging (an allow-list, a support flow). On the slim build there is no recorder, so the
+   * visitor is collected without a replay. If the current session was not being collected, it ends and a collected one starts at
+   * the next user interaction; a session already collected keeps running and gets replay recording.
+   * The forced state lasts for the page lifetime — decide on each page load whether to call again.
+   *
+   * The forced state belongs to the page that called, but the session belongs to every tab. So if
+   * the visitor has this site open in another tab and acts there first, that tab draws the
+   * replacement session under the ordinary rates and the visitor is not collected after all —
+   * silently, since nothing failed. The call is not lost: this page stays forced, so a later
+   * session it draws itself is collected. But nothing forces one to arrive soon. Call it from the
+   * page the visitor is actually using, or have them close the others.
+   *
+   * Inside a WebView the host application owns the session, so only the recording half applies:
+   * replay starts, but the session's own sampling decision belongs to the mobile SDK and is left
+   * to it. Force the session there through the host application instead.
+   */
+  setForcedSession: () => void
+
+  /**
+   * Read the custom values published for this application in the console. The SDK delivers them
+   * verbatim and never interprets them — what a value means is entirely up to your own code (a
+   * debug allow-list to pair with `setForcedSession()`, a feature toggle). Values are cached
+   * locally, so the bag published while a previous page was open answers immediately on the next.
+   * Returns undefined when nothing has been published, when remote configuration is off, and
+   * inside a WebView, where the host application owns these settings and nothing is fetched. The
+   * content is readable by anyone holding the public client token — it is public information.
+   */
+  getRemoteConfig: () => Record<string, unknown> | undefined
+
+  /**
    * Add a feature flag evaluation,
    * stored in `@feature_flags.<feature_flag_key>`
    *
@@ -397,6 +429,8 @@ export interface Strategy {
   initConfiguration: RumInitConfiguration | undefined
   getInternalContext: StartRumResult['getInternalContext']
   stopSession: StartRumResult['stopSession']
+  setForcedSession: StartRumResult['setForcedSession']
+  getRemoteConfig: StartRumResult['getRemoteConfig']
   addTiming: StartRumResult['addTiming']
   startView: StartRumResult['startView']
   setViewName: StartRumResult['setViewName']
@@ -624,6 +658,12 @@ export function makeRumPublicApi(
       strategy.stopSession()
       addTelemetryUsage({ feature: 'stop-session' })
     }),
+
+    setForcedSession: monitor(() => {
+      strategy.setForcedSession()
+    }),
+
+    getRemoteConfig: monitor(() => strategy.getRemoteConfig()),
 
     addFeatureFlagEvaluation: monitor((key, value) => {
       strategy.addFeatureFlagEvaluation(sanitize(key)!, sanitize(value))

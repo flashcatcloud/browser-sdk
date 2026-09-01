@@ -28,13 +28,13 @@ import { startActionCollection } from '../domain/action/actionCollection'
 import { startErrorCollection } from '../domain/error/errorCollection'
 import { startResourceCollection } from '../domain/resource/resourceCollection'
 import { startViewCollection } from '../domain/view/viewCollection'
-import type { RumSessionManager } from '../domain/rumSessionManager'
 import { startRumSessionManager, startRumSessionManagerStub } from '../domain/rumSessionManager'
 import { startRumBatch } from '../transport/startRumBatch'
 import { startRumEventBridge } from '../transport/startRumEventBridge'
 import { startUrlContexts } from '../domain/contexts/urlContexts'
 import { createLocationChangeObservable } from '../browser/locationChangeObservable'
 import type { RumConfiguration } from '../domain/configuration'
+import { startRemoteConfiguration, readRemoteConfig } from '../domain/configuration'
 import type { ViewOptions } from '../domain/view/trackViews'
 import { startFeatureFlagContexts } from '../domain/contexts/featureFlagContext'
 import { startCustomerDataTelemetry } from '../domain/startCustomerDataTelemetry'
@@ -114,17 +114,21 @@ export function startRum(
   })
   cleanupTasks.push(() => pageActivationSubscription.unsubscribe())
 
-  let session: RumSessionManager
-  if (!canUseEventBridge()) {
-    session = startRumSessionManager(configuration, lifeCycle, trackingConsentState)
-  } else {
-    // FLASHCAT FORK - the stub watches the host application's session, so it owns a timer to stop.
-    const sessionStub = startRumSessionManagerStub(configuration, lifeCycle)
-    cleanupTasks.push(sessionStub.stop)
-    session = sessionStub
-  }
+  // FLASHCAT FORK - under an event bridge the host application owns the session and the stub
+  // follows it; either way this page started the manager, so it stops it.
+  const session = canUseEventBridge()
+    ? startRumSessionManagerStub(configuration, lifeCycle)
+    : startRumSessionManager(configuration, lifeCycle, trackingConsentState)
+  cleanupTasks.push(session.stop)
 
   if (!canUseEventBridge()) {
+    // FLASHCAT FORK - keep the console's sampling rates fresh, at the rhythm the sessions read
+    // them: once now and once per session renewal. It is skipped under an event bridge, where the
+    // host application owns the sampling decision. Nothing waits on the first response: the rates
+    // already in storage, or the ones passed to init, carry this page either way, so an endpoint
+    // having a bad minute never costs a visit.
+    cleanupTasks.push(startRemoteConfiguration(configuration, lifeCycle))
+
     const batch = startRumBatch(
       configuration,
       lifeCycle,
@@ -145,6 +149,11 @@ export function startRum(
   const { observable: windowOpenObservable, stop: stopWindowOpen } = createWindowOpenObservable()
   cleanupTasks.push(stopWindowOpen)
 
+  // FLASHCAT FORK - registration order is load-bearing from here on: the assemble hooks are
+  // combined in the order they register, later results winning, and `startSessionContext` below
+  // relies on that to report the rates a session was actually drawn under in place of the init
+  // ones this emits. Moving it after the session context would silently put the init values back
+  // on every event while different rates were in force.
   startDefaultContext(hooks, configuration)
   const pageStateHistory = startPageStateHistory(hooks, configuration)
   const viewHistory = startViewHistory(lifeCycle)
@@ -198,7 +207,7 @@ export function startRum(
 
   cleanupTasks.push(stopViewCollection)
 
-  const { stop: stopResourceCollection } = startResourceCollection(lifeCycle, configuration, pageStateHistory)
+  const { stop: stopResourceCollection } = startResourceCollection(lifeCycle, configuration, pageStateHistory, session)
   cleanupTasks.push(stopResourceCollection)
 
   if (configuration.trackLongTasks) {
@@ -240,6 +249,14 @@ export function startRum(
     viewHistory,
     session,
     stopSession: () => session.expire(),
+    getRemoteConfig: () => readRemoteConfig(configuration.remoteConfig).custom,
+    setForcedSession: () => {
+      session.setForcedSession()
+      // A session that was collected without replay needs the recorder actually started on top of
+      // the session-state flip; the forced-replay start path already handles every other case as a
+      // no-op.
+      recorderApi.start({ force: true })
+    },
     getInternalContext: internalContext.get,
     startDurationVital: vitalCollection.startDurationVital,
     stopDurationVital: vitalCollection.stopDurationVital,

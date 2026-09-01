@@ -24,11 +24,13 @@ import {
   validateAndBuildRumConfiguration,
   type RumConfiguration,
   type RumInitConfiguration,
+  readRemoteConfig,
+  buildRemoteConfigSetup,
 } from '../domain/configuration'
 import type { ViewOptions } from '../domain/view/trackViews'
 import type { DurationVital, CustomVitalsState } from '../domain/vital/vitalCollection'
 import { startDurationVital, stopDurationVital } from '../domain/vital/vitalCollection'
-import { fetchAndApplyRemoteConfiguration, serializeRumConfiguration } from '../domain/configuration'
+import { serializeRumConfiguration } from '../domain/configuration'
 import { callPluginsMethod } from '../domain/plugins'
 import { buildGlobalContextManager } from '../domain/contexts/globalContext'
 import { buildUserContextManager } from '../domain/contexts/userContext'
@@ -175,11 +177,7 @@ export function createPreStartStrategy(
 
       callPluginsMethod(initConfiguration.plugins, 'onInit', { initConfiguration, publicApi })
 
-      if (initConfiguration.remoteConfigurationId) {
-        fetchAndApplyRemoteConfiguration(initConfiguration, doInit)
-      } else {
-        doInit(initConfiguration)
-      }
+      doInit(initConfiguration)
     },
 
     get initConfiguration() {
@@ -189,6 +187,18 @@ export function createPreStartStrategy(
     getInternalContext: noop as () => undefined,
 
     stopSession: noop,
+
+    setForcedSession() {
+      bufferApiCalls.add((startRumResult) => startRumResult.setForcedSession())
+    },
+
+    getRemoteConfig() {
+      // Before the SDK starts, the last stored bag still answers — that is what lets application
+      // code read it right after init() without waiting for the first fetch.
+      return cachedInitConfiguration
+        ? readRemoteConfig(buildRemoteConfigSetup(cachedInitConfiguration)).custom
+        : undefined
+    },
 
     addTiming(name, time = timeStampNow()) {
       bufferApiCalls.add((startRumResult) => startRumResult.addTiming(name, time))

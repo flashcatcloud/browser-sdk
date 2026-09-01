@@ -1,7 +1,8 @@
-import type { RelativeTime } from '@flashcatcloud/browser-core'
+import type { RelativeTime, TrackingConsentState } from '@flashcatcloud/browser-core'
 import {
   STORAGE_POLL_DELAY,
   SESSION_STORE_KEY,
+  relativeNow,
   setCookie,
   stopSessionManager,
   ONE_SECOND,
@@ -48,6 +49,8 @@ describe('rum session manager', () => {
     lifeCycle.subscribe(LifeCycleEventType.SESSION_RENEWED, renewSessionSpy)
 
     registerCleanupTask(() => {
+      // Tests that do not name their own key write the record of their draw to the default one.
+      localStorage.removeItem(mockRumConfiguration().drawStoreKey)
       // remove intervals first
       stopSessionManager()
       // flush pending callbacks to avoid random failures
@@ -210,8 +213,618 @@ describe('rum session manager', () => {
     )
   })
 
-  function startRumSessionManagerWithDefaults({ configuration }: { configuration?: Partial<RumConfiguration> } = {}) {
-    return startRumSessionManager(
+  // FLASHCAT FORK - sampling rates set in the console.
+  describe('remote sampling', () => {
+    const STORE_KEY = 'test-remote-sampling'
+    const REMOTE_SAMPLING_SETUP = {
+      buildUrl: () => 'https://example.com/config',
+      storeKey: STORE_KEY,
+      fetchTimeout: 3000,
+    }
+
+    function storeRemoteConfigValues(values: {
+      version?: number
+      sessionSampleRate?: number
+      sessionReplaySampleRate?: number
+      traceSampleRate?: number
+      defaultPrivacyLevel?: string
+    }) {
+      localStorage.setItem(STORE_KEY, JSON.stringify(values))
+      registerCleanupTask(() => localStorage.removeItem(STORE_KEY))
+    }
+
+    it('draws a new session on the remote rate rather than the one passed to init', () => {
+      storeRemoteConfigValues({ sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
+    it('draws replay on the remote replay rate', () => {
+      storeRemoteConfigValues({ sessionReplaySampleRate: 100 })
+
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
+    it('falls back to the rate passed to init for a knob the console did not set', () => {
+      storeRemoteConfigValues({ sessionReplaySampleRate: 100 })
+
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+    })
+
+    it('leaves a session already under way on the decision it was created with', () => {
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
+      storeRemoteConfigValues({ sessionSampleRate: 0, sessionReplaySampleRate: 0 })
+
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, remoteConfig: REMOTE_SAMPLING_SETUP },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY).id).toBe('abcdef')
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
+    it('ignores anything in storage when the site did not opt in', () => {
+      storeRemoteConfigValues({ sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+      startRumSessionManagerWithDefaults({ configuration: { sessionSampleRate: 0 } })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+    })
+  })
+
+  describe('beforeSampling', () => {
+    const STORE_KEY = 'test-before-sampling'
+    const REMOTE_SAMPLING_SETUP = {
+      buildUrl: () => 'https://example.com/config',
+      storeKey: STORE_KEY,
+      fetchTimeout: 3000,
+    }
+
+    function storeRemote(stored: object) {
+      localStorage.setItem(STORE_KEY, JSON.stringify(stored))
+      registerCleanupTask(() => localStorage.removeItem(STORE_KEY))
+    }
+
+    it('gets the last word on the rates at the draw', () => {
+      startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 0,
+          sessionReplaySampleRate: 0,
+          beforeSampling: () => ({ sessionSampleRate: 100, sessionReplaySampleRate: 100 }),
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
+    it('receives the delivered rates and custom values', () => {
+      storeRemote({ sessionSampleRate: 42, custom: { viplist: ['u-1'] } })
+      const beforeSampling = jasmine.createSpy('beforeSampling')
+
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, beforeSampling },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(beforeSampling).toHaveBeenCalledOnceWith({
+        sessionSampleRate: 42,
+        sessionReplaySampleRate: 50,
+        custom: { viplist: ['u-1'] },
+      })
+    })
+
+    it('ignores an out-of-range rate', () => {
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, beforeSampling: () => ({ sessionSampleRate: 150 }) },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+    })
+
+    it('never lets a thrown error reach session creation', () => {
+      startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 100,
+          sessionReplaySampleRate: 100,
+          beforeSampling: () => {
+            throw new Error('boom')
+          },
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
+    it('is not consulted for a session already under way', () => {
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
+      const beforeSampling = jasmine.createSpy('beforeSampling')
+
+      startRumSessionManagerWithDefaults({ configuration: { beforeSampling } })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(beforeSampling).not.toHaveBeenCalled()
+      expect(getSessionState(SESSION_STORE_KEY).id).toBe('abcdef')
+    })
+  })
+
+  describe('forced session', () => {
+    it('forces the next session to be collected with replay despite a zero rate', () => {
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, sessionReplaySampleRate: 0 },
+      })
+
+      rumSessionManager.setForcedSession()
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
+    it('ends a session that was not being collected so a collected one can start', () => {
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=0&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, sessionReplaySampleRate: 0 },
+      })
+
+      rumSessionManager.setForcedSession()
+      expect(getSessionState(SESSION_STORE_KEY).isExpired).toBe('1')
+
+      clock.tick(STORAGE_POLL_DELAY)
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+      expect(getSessionState(SESSION_STORE_KEY).id).not.toBe('abcdef')
+    })
+
+    it('keeps a session collected without replay and forces replay onto it', () => {
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=2&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
+      const rumSessionManager = startRumSessionManagerWithDefaults()
+
+      rumSessionManager.setForcedSession()
+
+      const session = rumSessionManager.findTrackedSession()!
+      expect(session.id).toBe('abcdef')
+      expect(session.sessionReplay).toBe(SessionReplayState.FORCED)
+    })
+
+    it('leaves a session already collected with replay untouched', () => {
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
+      const rumSessionManager = startRumSessionManagerWithDefaults()
+
+      rumSessionManager.setForcedSession()
+
+      const session = rumSessionManager.findTrackedSession()!
+      expect(session.id).toBe('abcdef')
+      expect(session.sessionReplay).toBe(SessionReplayState.SAMPLED)
+      expect(expireSessionSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('drawn configuration', () => {
+    const STORE_KEY = 'test-drawn-configuration'
+    const DRAW_KEY = 'test-drawn-configuration-draw'
+    const REMOTE_SAMPLING_SETUP = {
+      buildUrl: () => 'https://example.com/config',
+      storeKey: STORE_KEY,
+      fetchTimeout: 3000,
+    }
+
+    afterEach(() => localStorage.removeItem(DRAW_KEY))
+
+    function storeRemote(stored: object) {
+      localStorage.setItem(STORE_KEY, JSON.stringify(stored))
+      registerCleanupTask(() => localStorage.removeItem(STORE_KEY))
+    }
+
+    it('leaves the delivered rate in place when it throws, rather than handing the draw back to init', () => {
+      // The rates in hand at the moment the callback failed are the console's, and they are what
+      // must survive. Written with init and console disagreeing on purpose: with both at 100 a
+      // `catch` that reset the rates to the init values would pass too, and that is exactly the
+      // regression this is here to catch.
+      storeRemote({ version: 2, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 0,
+          sessionReplaySampleRate: 0,
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+          drawStoreKey: DRAW_KEY,
+          beforeSampling: () => {
+            throw new Error('boom')
+          },
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toEqual({
+        version: 2,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: undefined,
+        defaultPrivacyLevel: 'mask',
+      })
+    })
+
+    it('exposes the rates and version the session was drawn under', () => {
+      storeRemote({ version: 12, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toEqual({
+        version: 12,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        // No rule set a trace rate: this configuration passed none to init and the console
+        // delivered none. That is not the same as a rule of 100, and the draw has to keep the
+        // difference — see `rule_psr` in resourceCollection.
+        traceSampleRate: undefined,
+        defaultPrivacyLevel: 'mask',
+      })
+    })
+
+    it('reports the rate beforeSampling decided, not the delivered one', () => {
+      storeRemote({ version: 3, sessionSampleRate: 0, sessionReplaySampleRate: 0 })
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 0,
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+          drawStoreKey: DRAW_KEY,
+          beforeSampling: () => ({ sessionSampleRate: 100, sessionReplaySampleRate: 100 }),
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toEqual({
+        version: 3,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: undefined,
+        defaultPrivacyLevel: 'mask',
+      })
+    })
+
+    it('records a forced session as drawn at 100', () => {
+      storeRemote({ version: 5, sessionSampleRate: 0, sessionReplaySampleRate: 0 })
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+      })
+      rumSessionManager.setForcedSession()
+      clock.tick(STORAGE_POLL_DELAY)
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toEqual({
+        version: 5,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: undefined,
+        defaultPrivacyLevel: 'mask',
+      })
+    })
+
+    it('survives a page reload through storage', () => {
+      storeRemote({ version: 7, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+      stopSessionManager()
+
+      const restartedManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+      })
+
+      expect(restartedManager.findTrackedSession()!.drawnConfiguration).toEqual({
+        version: 7,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: undefined,
+        defaultPrivacyLevel: 'mask',
+      })
+    })
+
+    it('refuses a stored record whose rates are not rates', () => {
+      // The record is read back on every event assembled for the session, so one holding a string
+      // where a number belongs would carry that string into the arithmetic. Anything in a browser
+      // profile can be edited by hand, so it is checked on the way out as well as on the way in.
+      // Refused, it reads exactly like a site that never wrote one: the session carries no drawn
+      // configuration and events fall back to the settings init was given.
+      storeRemote({ version: 7, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+      stopSessionManager()
+
+      const tampered = JSON.parse(localStorage.getItem(DRAW_KEY)!) as Record<string, unknown>
+      localStorage.setItem(DRAW_KEY, JSON.stringify({ ...tampered, sessionSampleRate: 'all of them' }))
+
+      const restartedManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+      })
+
+      // The sibling test above shows the same flow without tampering restores the record, so this
+      // is evidence of a refusal rather than of the record never having been written.
+      expect(restartedManager.findTrackedSession()!.drawnConfiguration).toBeUndefined()
+    })
+
+    it('latches the delivered trace rate and privacy level, not just the sampling rates', () => {
+      storeRemote({
+        version: 21,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: 10,
+        defaultPrivacyLevel: 'allow',
+      })
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 0,
+          traceSampleRate: 100,
+          defaultPrivacyLevel: 'mask',
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+          drawStoreKey: DRAW_KEY,
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toEqual({
+        version: 21,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: 10,
+        defaultPrivacyLevel: 'allow',
+      })
+    })
+
+    it('keeps the drawn trace rate and privacy level when a later delivery changes them', () => {
+      storeRemote({ version: 1, sessionSampleRate: 100, sessionReplaySampleRate: 100, traceSampleRate: 10 })
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 0,
+          traceSampleRate: 100,
+          defaultPrivacyLevel: 'mask',
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+          drawStoreKey: DRAW_KEY,
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      // A new configuration lands while the session is still running.
+      storeRemote({
+        version: 2,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: 90,
+        defaultPrivacyLevel: 'allow',
+      })
+
+      const drawn = rumSessionManager.findTrackedSession()!.drawnConfiguration!
+      expect(drawn.traceSampleRate).toBe(10)
+      expect(drawn.defaultPrivacyLevel).toBe('mask')
+      expect(drawn.version).toBe(1)
+    })
+
+    it('falls back to init for a record written before these two were stored', () => {
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
+      localStorage.setItem(
+        DRAW_KEY,
+        JSON.stringify({ id: 'abcdef', version: 4, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+      )
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: {
+          traceSampleRate: 42,
+          rulePsr: 0.42,
+          defaultPrivacyLevel: 'mask-user-input',
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+          drawStoreKey: DRAW_KEY,
+        },
+      })
+
+      const drawn = rumSessionManager.findTrackedSession()!.drawnConfiguration!
+      expect(drawn.traceSampleRate).toBe(42)
+      expect(drawn.defaultPrivacyLevel).toBe('mask-user-input')
+    })
+
+    it('refuses a stored privacy level on a site that never opted into remote configuration', () => {
+      // Only remote configuration can move the privacy level: `beforeSampling` and
+      // `setForcedSession()` shape the rates and reach neither it nor the trace rate. So on a site
+      // that did not opt in, a record carrying `allow` is not one this SDK wrote — and honouring it
+      // would let any same-origin script take a site that asked for `mask` into an unmasked replay
+      // with a single storage write.
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
+      localStorage.setItem(
+        DRAW_KEY,
+        JSON.stringify({
+          id: 'abcdef',
+          sessionSampleRate: 100,
+          sessionReplaySampleRate: 100,
+          traceSampleRate: 3,
+          defaultPrivacyLevel: 'allow',
+        })
+      )
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { defaultPrivacyLevel: 'mask', drawStoreKey: DRAW_KEY },
+      })
+
+      const drawn = rumSessionManager.findTrackedSession()!.drawnConfiguration!
+      expect(drawn.defaultPrivacyLevel).toBe('mask')
+      expect(drawn.traceSampleRate).toBeUndefined()
+      // The rates are still read back: those two APIs really can move them with the feature off.
+      expect(drawn.sessionSampleRate).toBe(100)
+    })
+
+    it('forgets the record when the visitor withdraws consent', () => {
+      // Withdrawing consent is the one moment the SDK promises the session id stops existing — the
+      // session store is rewritten without it. Storage does not expire on its own, so the copy kept
+      // here has to go with it, or it outlives the withdrawal for a consent audit to find.
+      const trackingConsentState = createTrackingConsentState(TrackingConsent.GRANTED)
+      storeRemote({ version: 4, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+      startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+        trackingConsentState,
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+      expect(localStorage.getItem(DRAW_KEY)).not.toBeNull()
+
+      trackingConsentState.update(TrackingConsent.NOT_GRANTED)
+
+      expect(localStorage.getItem(DRAW_KEY)).toBeNull()
+    })
+
+    it('keeps the record when a session merely expires', () => {
+      // The negative control on the line above. Sessions expire and renew constantly, and the tab
+      // that notices an expiry is not always the tab that drew what replaced it — removing the
+      // record there would let a page still polling delete what another page had just written for
+      // the new session, putting every tab back on its own settings.
+      storeRemote({ version: 4, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+      expect(localStorage.getItem(DRAW_KEY)).not.toBeNull()
+
+      rumSessionManager.expire()
+
+      expect(localStorage.getItem(DRAW_KEY)).not.toBeNull()
+    })
+
+    it('never matches a session the record was not written for', () => {
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
+      localStorage.setItem(
+        DRAW_KEY,
+        JSON.stringify({ id: 'other-session', version: 9, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+      )
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+      })
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toBeUndefined()
+    })
+
+    it('is absent when the draw landed on exactly what init passed', () => {
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 100, drawStoreKey: DRAW_KEY },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toBeUndefined()
+      expect(localStorage.getItem(DRAW_KEY)).toBeNull()
+    })
+
+    it('records a draw beforeSampling moved, with remote configuration off', () => {
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 0,
+          sessionReplaySampleRate: 0,
+          drawStoreKey: DRAW_KEY,
+          beforeSampling: () => ({ sessionSampleRate: 100, sessionReplaySampleRate: 100 }),
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration).toEqual({
+        version: undefined,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: undefined,
+        defaultPrivacyLevel: 'mask',
+      })
+    })
+
+    it('adopts the record another tab wrote for the session it renewed onto', () => {
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+      })
+
+      // Another tab draws the next session and records it. Nothing is drawn on this page, so
+      // reading that record back is the only way it can report and trace the session it now shares
+      // the way the tab that drew it does.
+      setCookie(
+        SESSION_STORE_KEY,
+        `id=drawn-elsewhere&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`,
+        DURATION
+      )
+      localStorage.setItem(
+        DRAW_KEY,
+        JSON.stringify({
+          id: 'drawn-elsewhere',
+          version: 8,
+          sessionSampleRate: 20,
+          sessionReplaySampleRate: 20,
+          traceSampleRate: 30,
+          defaultPrivacyLevel: 'allow',
+        })
+      )
+      clock.tick(STORAGE_POLL_DELAY)
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      const session = rumSessionManager.findTrackedSession()!
+      expect(session.id).toBe('drawn-elsewhere')
+      expect(session.drawnConfiguration).toEqual({
+        version: 8,
+        sessionSampleRate: 20,
+        sessionReplaySampleRate: 20,
+        traceSampleRate: 30,
+        defaultPrivacyLevel: 'allow',
+      })
+    })
+
+    it('answers for the session an event belongs to, not the one that is current', () => {
+      storeRemote({ version: 1, sessionSampleRate: 100, sessionReplaySampleRate: 100, traceSampleRate: 10 })
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+      const duringFirstSession = relativeNow()
+
+      // The console changes the trace rate; the session it applies to is the next one.
+      storeRemote({ version: 2, sessionSampleRate: 100, sessionReplaySampleRate: 100, traceSampleRate: 90 })
+      expireCookie()
+      clock.tick(STORAGE_POLL_DELAY)
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration!.traceSampleRate).toBe(90)
+      expect(rumSessionManager.findTrackedSession(duringFirstSession)!.drawnConfiguration!.traceSampleRate).toBe(10)
+    })
+  })
+
+  function startRumSessionManagerWithDefaults({
+    configuration,
+    trackingConsentState = createTrackingConsentState(TrackingConsent.GRANTED),
+  }: { configuration?: Partial<RumConfiguration>; trackingConsentState?: TrackingConsentState } = {}) {
+    const sessionManager = startRumSessionManager(
       mockRumConfiguration({
         sessionSampleRate: 50,
         sessionReplaySampleRate: 50,
@@ -220,8 +833,10 @@ describe('rum session manager', () => {
         ...configuration,
       }),
       lifeCycle,
-      createTrackingConsentState(TrackingConsent.GRANTED)
+      trackingConsentState
     )
+    registerCleanupTask(sessionManager.stop)
+    return sessionManager
   }
 })
 

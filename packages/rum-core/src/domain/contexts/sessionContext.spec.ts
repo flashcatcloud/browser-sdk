@@ -127,6 +127,38 @@ describe('session context', () => {
     expect(eventSampledOutForReplay.session!.sampled_for_replay).toBe(false)
   })
 
+  it('should report the configuration the session was drawn under', () => {
+    sessionManager.setDrawnConfiguration({
+      version: 12,
+      sessionSampleRate: 100,
+      sessionReplaySampleRate: 25,
+      traceSampleRate: 100,
+      defaultPrivacyLevel: 'mask',
+    })
+
+    const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'action',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(defaultRumEventAttributes._dd).toEqual({
+      configuration: {
+        session_sample_rate: 100,
+        session_replay_sample_rate: 25,
+        rc_version: 12,
+      } as NonNullable<DefaultRumEventAttributes['_dd']>['configuration'],
+    })
+  })
+
+  it('should not override the configuration when the session has no draw record', () => {
+    const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'action',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(defaultRumEventAttributes._dd).toBeUndefined()
+  })
+
   it('should discard the event if no session', () => {
     sessionManager.setNotTracked()
     const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {

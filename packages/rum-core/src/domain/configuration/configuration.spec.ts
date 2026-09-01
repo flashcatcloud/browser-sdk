@@ -543,6 +543,7 @@ describe('serializeRumConfiguration', () => {
       ...EXHAUSTIVE_INIT_CONFIGURATION,
       applicationId: 'applicationId',
       beforeSend: () => true,
+      beforeSampling: () => undefined,
       excludedActivityUrls: ['toto.com'],
       workerUrl: './worker.js',
       compressIntakeRequests: true,
@@ -561,7 +562,8 @@ describe('serializeRumConfiguration', () => {
       trackWebVitals: true,
       trackResources: true,
       trackLongTasks: true,
-      remoteConfigurationId: '123',
+      remoteConfigurationEnabled: true,
+      remoteConfigurationFetchTimeout: 3000,
       plugins: [{ name: 'foo', getConfigurationTelemetry: () => ({ bar: true }) }],
       trackFeatureFlagsForEvents: ['vital'],
       profilingSampleRate: 0,
@@ -577,12 +579,14 @@ describe('serializeRumConfiguration', () => {
           : Key extends
                 | 'applicationId'
                 | 'subdomain'
-                | 'remoteConfigurationId'
+                | 'remoteConfigurationEnabled'
+                | 'remoteConfigurationFetchTimeout'
                 | 'profilingSampleRate'
                 | 'propagateTraceBaggage'
                 | 'trackWebVitals'
                 // FLASHCAT FORK: not reported to telemetry
                 | 'sessionReplayDirectUpload'
+                | 'beforeSampling'
             ? never
             : CamelToSnakeCase<Key>
     // By specifying the type here, we can ensure that serializeConfiguration is returning an
@@ -611,6 +615,27 @@ describe('serializeRumConfiguration', () => {
       compress_intake_requests: true,
       plugins: [{ name: 'foo', bar: true }],
       track_feature_flags_for_events: ['vital'],
+    })
+  })
+
+  describe('beforeSampling', () => {
+    it('is reported and ignored when it is not a function, and collection carries on', () => {
+      // One callback on the sampling draw is not worth the site's entire collection. Refusing init
+      // here would take every view, error and resource down with it.
+      const displaySpy = spyOn(display, 'error')
+
+      const configuration = validateAndBuildRumConfiguration({
+        ...DEFAULT_INIT_CONFIGURATION,
+        beforeSampling: 'not a function' as any,
+      })
+
+      expect(configuration).toBeDefined()
+      expect(configuration!.beforeSampling).toBeUndefined()
+      expect(displaySpy).toHaveBeenCalledOnceWith('beforeSampling should be a function, and is ignored')
+    })
+
+    it('is accepted when it is absent', () => {
+      expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.beforeSampling).toBeUndefined()
     })
   })
 })

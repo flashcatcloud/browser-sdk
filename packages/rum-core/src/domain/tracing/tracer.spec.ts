@@ -100,6 +100,25 @@ describe('tracer', () => {
       expect(xhr.headers).toEqual(tracingHeadersFor(context.traceId!, context.spanId!, '1'))
     })
 
+    it('draws on the rate the session was drawn with, not the one init passed', () => {
+      // The console lowered the trace rate to 0 and this session was created under it. Reading the
+      // init value back would trace a session the draw already decided against.
+      const sessionManager = createRumSessionManagerMock().setDrawnConfiguration({
+        version: 8,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: 0,
+        defaultPrivacyLevel: 'mask',
+      })
+      const tracer = startTracerWithDefaults({ initConfiguration: { traceSampleRate: 100 }, sessionManager })
+      const context = { ...ALLOWED_DOMAIN_CONTEXT }
+      tracer.traceXhr(context, xhr as unknown as XMLHttpRequest)
+
+      // With the default injection mode an unsampled request carries nothing at all.
+      expect(context.traceId).toBeUndefined()
+      expect(xhr.headers).toEqual({})
+    })
+
     it("should trace request with priority '0' when not sampled and config set to all", () => {
       const tracer = startTracerWithDefaults({
         initConfiguration: { traceSampleRate: 0, traceContextInjection: TraceContextInjection.ALL },

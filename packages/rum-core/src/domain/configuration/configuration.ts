@@ -23,6 +23,8 @@ import type { RumEvent } from '../../rumEvent.types'
 import type { RumPlugin } from '../plugins'
 import { isTracingOption } from '../tracing/tracer'
 import type { PropagatorType, TracingOption } from '../tracing/tracer.types'
+import type { BeforeSamplingCallback, RemoteConfigSetup } from './remoteConfiguration'
+import { buildDrawStoreKey, buildRemoteConfigSetup } from './remoteConfiguration'
 
 export const DEFAULT_PROPAGATOR_TYPES: PropagatorType[] = ['tracecontext']
 
@@ -48,6 +50,24 @@ export interface RumInitConfiguration extends InitConfiguration {
    */
   beforeSend?: ((event: RumEvent, context: RumEventDomainContext) => boolean) | undefined
   /**
+   * The application's last word on session sampling, called synchronously each time a new session
+   * is about to be drawn, with the rates that would apply (console-delivered, falling back to
+   * init) and the console-delivered custom values. Return a rate to override — 100 always
+   * collects, 0 never does — or nothing to leave the incoming rates alone. A session already under
+   * way is never re-decided.
+   *
+   * Runs inside session creation, which holds a lock the browser's other tabs of this site wait
+   * on, and which starts over if another tab writes while it runs. So it must be fast and
+   * synchronous — a slow callback delays the other tabs — and it may be called MORE THAN ONCE for
+   * a single session. Keep it a pure decision: side effects will be repeated, and only the last
+   * call's return value is used.
+   *
+   * Its failure modes never reach session creation: a thrown error or an out-of-range value leaves
+   * the incoming rate in place, and a value that is not a function at all is reported once and
+   * then ignored rather than refusing `init`.
+   */
+  beforeSampling?: BeforeSamplingCallback | undefined
+  /**
    * A list of request origins ignored when computing the page activity.
    * See [How page activity is calculated](https://docs.datadoghq.com/real_user_monitoring/browser/monitoring_page_performance/#how-page-activity-is-calculated) for further information.
    */
@@ -62,7 +82,67 @@ export interface RumInitConfiguration extends InitConfiguration {
    * See [Content Security Policy guidelines](https://docs.datadoghq.com/integrations/content_security_policy_logs/?tab=firefox#use-csp-with-real-user-monitoring-and-session-replay) for further information.
    */
   compressIntakeRequests?: boolean | undefined
-  remoteConfigurationId?: string | undefined
+  /**
+   * Take the sampling rates from the application's settings in the console instead of only from the
+   * values passed here, so they can be changed without releasing a new version of this site.
+   *
+   * A change applies to sessions started after it arrives; a session already under way keeps the
+   * decision it was created with. The values below stay in use until the first settings arrive, and
+   * whenever the settings cannot be reached.
+   *
+   * Requires `localStorage`. Sessions themselves are kept in a cookie unless `sessionPersistence`
+   * says otherwise, but this SDK already reads one `localStorage` entry on every site — the record
+   * of the sampling draw, read at start-up and at each new session — and writes it whenever a draw
+   * lands somewhere other than the values passed to init. Turning this option on adds a second
+   * entry and the request that fills it; it is not what introduces `localStorage`. Worth stating
+   * precisely for a privacy review. Where
+   * `localStorage` is unavailable (a third-party iframe under storage partitioning, a browser set
+   * to block site data) sessions keep working from the cookie and this feature simply stays off,
+   * falling back to the values passed here. Private browsing is not one of those cases: storage
+   * works there and is cleared when the window closes, so only the first session of each private
+   * visit starts on the values passed here.
+   *
+   * Scoped to one origin, while a session is not. `localStorage` belongs to the origin, but the
+   * session cookie can be shared across subdomains (`trackSessionAcrossSubdomains`) — so with that
+   * option on, a session drawn on one subdomain arrives at the next without the record of its draw:
+   * there it reports the values passed to `init`, carries no settings version, and is traced and
+   * masked by them too. Each subdomain also keeps its own copy of the settings and fetches them for
+   * itself. Turn this on per subdomain expecting per-subdomain settings, or keep the rates equal
+   * across them.
+   *
+   * Not used inside a WebView. Under an event bridge the host application owns the sampling
+   * decision, so no request is made and `getRemoteConfig()` answers `undefined`.
+   *
+   * Behind a `proxy`, the settings travel to `/api/v2/rum/config`, which is a different path from
+   * the intake ones. A proxy that forwards whatever arrives passes it through unchanged; one that
+   * checks the forwarded path against a list of known intake paths has to be told about this one,
+   * or it rejects every settings request. The SDK carries on with the values passed here — that is
+   * the designed fallback and nothing breaks — so the symptom is simply that the console's
+   * settings never seem to arrive.
+   *
+   * Turning this on hands the console authority over `defaultPrivacyLevel`, which is what decides
+   * how much of a page Session Replay masks. The console may relax it below what is passed here —
+   * that is the point of being able to change it without a release — so whoever can publish
+   * settings for this application can unmask new sessions across the site. Left off, the value
+   * passed here is the only one that can ever apply.
+   *
+   * Deliberately not offered in the session cookie, for three reasons. The session store holds
+   * flat strings matched against `[a-z0-9-]`, which fits neither a fractional rate nor the custom
+   * bag. A cookie rides on every same-origin request, and this is read once per session draw and
+   * never needed by the server — which sent it, and already learns the applied version from the
+   * request parameter. And a cookie would not rescue the cases above anyway: partitioning and a
+   * block on site data take cookies and `localStorage` together.
+   *
+   * @default false
+   */
+  remoteConfigurationEnabled?: boolean | undefined
+  /**
+   * How long to wait for the sampling settings before giving up on that attempt, in milliseconds.
+   * Giving up is harmless: the SDK keeps collecting with the settings it already has.
+   *
+   * @default 3000
+   */
+  remoteConfigurationFetchTimeout?: number | undefined
 
   // tracing options
   /**
@@ -216,6 +296,33 @@ export interface RumConfiguration extends Configuration {
   trackFeatureFlagsForEvents: FeatureFlagsForEvents[]
   profilingSampleRate: number
   propagateTraceBaggage: boolean
+  /**
+   * Where to fetch the console's sampling rates and where to keep them, or undefined when the site
+   * did not opt into remote configuration. Resolved once here because the sampling draw needs it,
+   * and the draw only has the built configuration to work from.
+   */
+  remoteConfig: RemoteConfigSetup | undefined
+  beforeSampling: BeforeSamplingCallback | undefined
+  /**
+   * Where the session manager keeps the record of the draw that created the current session. Set
+   * for every site, not only the ones that opted into remote configuration: `beforeSampling` and
+   * `setForcedSession()` move a draw off the init values on their own.
+   */
+  drawStoreKey: string
+}
+
+/**
+ * An unusable `beforeSampling` is reported and then ignored, not a reason to refuse `init`. It is
+ * one callback consulted at the sampling draw; refusing would take the site's entire collection
+ * down — every view, error and resource — over a mistake that costs nothing but the callback
+ * itself. That is also what every other value on this feature already does with a bad input.
+ */
+function validBeforeSampling(beforeSampling: BeforeSamplingCallback | undefined) {
+  if (beforeSampling !== undefined && typeof beforeSampling !== 'function') {
+    display.error('beforeSampling should be a function, and is ignored')
+    return undefined
+  }
+  return beforeSampling
 }
 
 export function validateAndBuildRumConfiguration(
@@ -293,6 +400,9 @@ export function validateAndBuildRumConfiguration(
     trackFeatureFlagsForEvents: initConfiguration.trackFeatureFlagsForEvents || [],
     profilingSampleRate: profilingEnabled ? (initConfiguration.profilingSampleRate ?? 0) : 0, // Enforce 0 if profiling is not enabled, and set 0 as default when not set.
     propagateTraceBaggage: !!initConfiguration.propagateTraceBaggage,
+    remoteConfig: buildRemoteConfigSetup(initConfiguration),
+    beforeSampling: validBeforeSampling(initConfiguration.beforeSampling),
+    drawStoreKey: buildDrawStoreKey(initConfiguration),
     ...baseConfiguration,
   }
 }

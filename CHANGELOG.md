@@ -18,6 +18,42 @@
 
 ---
 
+## Unreleased
+
+- 💥 **Breaking**: `remoteConfigurationId` is gone from `RumInitConfiguration`. It fetched a
+  different endpoint under a different contract, and is replaced by `remoteConfigurationEnabled`.
+  A site still passing it in JavaScript keeps working and gets the settings it passed to `init`;
+  a TypeScript project passing it no longer compiles and should drop the option.
+- 📝 Behind a `proxy`, the settings request travels to `/api/v2/rum/config`. A proxy that checks the
+  forwarded path against a list of known intake paths must be told about this one, or the settings
+  never arrive — the SDK keeps collecting with the values passed to `init`, so the only symptom is
+  that the console appears to have no effect.
+- 💥 **Breaking for TypeScript code that implements our interfaces**: `RumPublicApi` gains
+  `setForcedSession` and `getRemoteConfig`, and `RumSessionManager` gains `setForcedSession`. Code
+  that only calls these interfaces is unaffected; code that implements or hand-mocks them needs the
+  new members. The two new methods are also absent from the legacy ES5 bundle, so feature-detect
+  them if the same code runs against both.
+- ✨ `remoteConfigurationEnabled` lets the sampling rates, the trace sample rate and the Session
+  Replay privacy level be set from the console instead of only at `init`. Off by default: without
+  it the SDK makes no extra request. A change applies to sessions created after it arrives, never
+  to one already under way. `remoteConfigurationFetchTimeout` (default 3000 ms) bounds how long
+  that request may take; an unusable value falls back to the default rather than refusing `init`.
+- 📝 Withdrawing tracking consent now also removes the record of the sampling draw, which holds the
+  session id. The session store was already rewritten without that id on withdrawal; this keeps the
+  copy in `localStorage` from outliving it.
+- 📝 This release reads `localStorage` on every site, not only those that opt into remote
+  configuration: at start-up and at each new session it looks for the record of the sampling draw
+  that session was created under, so that another tab on the same session, and the page load that
+  restores it, report and trace it the same way. It only WRITES that record when a draw lands
+  somewhere other than the values passed to `init` — which needs remote configuration,
+  `beforeSampling`, or `setForcedSession()`; a site using none of them never writes. Sessions
+  themselves are unaffected and stay in a cookie unless `sessionPersistence` says otherwise. Called
+  out for privacy reviews.
+- ✨ `beforeSampling` gives the application the last word on the rates at the moment a session is
+  drawn, with the console's custom values in hand.
+- ✨ `setForcedSession()` collects the current visitor regardless of the rates, and
+  `getRemoteConfig()` returns the console's custom values verbatim.
+
 ## v0.1.1
 
 Sessions on pages that stay open no longer run without end. A stored session whose state could not

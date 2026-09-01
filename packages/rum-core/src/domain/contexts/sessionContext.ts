@@ -1,10 +1,28 @@
-import { DISCARDED, HookNames } from '@flashcatcloud/browser-core'
+import { DISCARDED, HookNames, round } from '@flashcatcloud/browser-core'
 import { SessionReplayState, SessionType } from '../rumSessionManager'
-import type { RumSessionManager } from '../rumSessionManager'
+import type { DrawnConfiguration, RumSessionManager } from '../rumSessionManager'
 import { RumEventType } from '../../rawRumEvent.types'
 import type { RecorderApi } from '../../boot/rumPublicApi'
 import type { DefaultRumEventAttributes, Hooks } from '../hooks'
 import type { ViewHistory } from './viewHistory'
+
+/**
+ * FLASHCAT FORK - what the shared schema says `_dd.configuration` holds, plus `rc_version`, which is
+ * ours: our intake reads it and other consumers ignore it. Naming the addition here rather than
+ * casting the whole `_dd` away keeps every field that DOES belong to the shared schema checked
+ * against it, so a rename upstream still fails the build instead of silently emitting a dead field.
+ */
+type DrawnConfigurationAttributes = NonNullable<NonNullable<DefaultRumEventAttributes['_dd']>['configuration']> & {
+  rc_version?: number
+}
+
+function drawnAttributes(drawn: DrawnConfiguration): DrawnConfigurationAttributes {
+  return {
+    session_sample_rate: round(drawn.sessionSampleRate, 3),
+    session_replay_sample_rate: round(drawn.sessionReplaySampleRate, 3),
+    rc_version: drawn.version,
+  }
+}
 
 export function startSessionContext(
   hooks: Hooks,
@@ -40,6 +58,16 @@ export function startSessionContext(
         sampled_for_replay: sampledForReplay,
         is_active: isActive,
       },
+      // FLASHCAT FORK - overrides the init values reported by the default context with the rates
+      // (which works only because this hook registers after that one — see `startRum`)
+      // this session was actually drawn under (remote settings and `beforeSampling` included), plus
+      // the remote settings version they came from. Extrapolation and audits must line up with the
+      // draw that kept the session, and the version lets an auditor recover the exact settings from
+      // the console's version history. `rc_version` is a FlashCat addition on top of the shared
+      // schema; our intake reads it, others ignore it.
+      ...(session.drawnConfiguration
+        ? { _dd: { configuration: drawnAttributes(session.drawnConfiguration) } }
+        : undefined),
     }
   })
 }

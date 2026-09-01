@@ -46,9 +46,20 @@ export function startRecording(
     ;({ addRecord } = startRecordBridge(viewHistory))
   }
 
+  // FLASHCAT FORK - the privacy level a recording runs under is the one its session was drawn
+  // with, not whatever the console has delivered since. Resolved once, here, because a recording
+  // begins and ends with its session: the recorders below read the level on every node they
+  // serialise, so anything that could change underneath them would leave a single replay partly
+  // masked and partly not — and an upload cannot be masked after the fact.
+  const recordConfiguration = {
+    ...configuration,
+    defaultPrivacyLevel:
+      sessionManager.findTrackedSession()?.drawnConfiguration?.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
+  }
+
   const { stop: stopRecording } = record({
     emit: addRecord,
-    configuration,
+    configuration: recordConfiguration,
     lifeCycle,
     viewHistory,
   })

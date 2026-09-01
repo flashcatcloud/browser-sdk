@@ -24,6 +24,8 @@ const noopStartRum = (): ReturnType<StartRum> => ({
   viewHistory: {} as any,
   session: {} as any,
   stopSession: () => undefined,
+  setForcedSession: () => undefined,
+  getRemoteConfig: () => undefined,
   startDurationVital: () => ({}) as DurationVitalReference,
   stopDurationVital: () => undefined,
   addDurationVital: () => undefined,
