@@ -104,7 +104,11 @@ describe('startSessionManager', () => {
 
   describe('resume from a frozen tab ', () => {
     it('when session in store, do nothing', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&first=tracked', DURATION)
+      setCookie(
+        SESSION_STORE_KEY,
+        `id=abcdef&first=tracked&created=${Date.now()}&expire=${Date.now() + DURATION}`,
+        DURATION
+      )
       const sessionManager = startSessionManagerWithDefaults()
 
       window.dispatchEvent(createNewEvent(DOM_EVENT.RESUME))
@@ -142,8 +146,22 @@ describe('startSessionManager', () => {
       expectTrackingTypeToBe(sessionManager, FIRST_PRODUCT_KEY, FakeTrackingType.NOT_TRACKED)
     })
 
+    it('should stamp a creation date on a not-tracked session too', () => {
+      // The creation date is what caps a session at SESSION_TIME_OUT_DELAY. Without one, the
+      // visibility timer keeps pushing `expire` forward and a sampled-out session on a page that
+      // stays open never expires -- so those users never get to re-roll the sampling decision.
+      startSessionManagerWithDefaults({ computeSessionState: () => NOT_TRACKED_SESSION_STATE })
+
+      expect(getSessionState(SESSION_STORE_KEY).id).toBeUndefined()
+      expect(getSessionState(SESSION_STORE_KEY).created).toMatch(/^\d+$/)
+    })
+
     it('when tracked should keep existing tracking type and session id', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&first=tracked', DURATION)
+      setCookie(
+        SESSION_STORE_KEY,
+        `id=abcdef&first=tracked&created=${Date.now()}&expire=${Date.now() + DURATION}`,
+        DURATION
+      )
 
       const sessionManager = startSessionManagerWithDefaults()
 
@@ -152,7 +170,7 @@ describe('startSessionManager', () => {
     })
 
     it('when not tracked should keep existing tracking type', () => {
-      setCookie(SESSION_STORE_KEY, 'first=not-tracked', DURATION)
+      setCookie(SESSION_STORE_KEY, `first=not-tracked&expire=${Date.now() + DURATION}`, DURATION)
 
       const sessionManager = startSessionManagerWithDefaults({ computeSessionState: () => NOT_TRACKED_SESSION_STATE })
 
@@ -174,19 +192,19 @@ describe('startSessionManager', () => {
     })
 
     it('should be called with an invalid value if the cookie has an invalid value', () => {
-      setCookie(SESSION_STORE_KEY, 'first=invalid', DURATION)
+      setCookie(SESSION_STORE_KEY, `first=invalid&expire=${Date.now() + DURATION}`, DURATION)
       startSessionManagerWithDefaults({ computeSessionState: spy })
       expect(spy).toHaveBeenCalledWith('invalid')
     })
 
     it('should be called with TRACKED', () => {
-      setCookie(SESSION_STORE_KEY, 'first=tracked', DURATION)
+      setCookie(SESSION_STORE_KEY, `first=tracked&expire=${Date.now() + DURATION}`, DURATION)
       startSessionManagerWithDefaults({ computeSessionState: spy })
       expect(spy).toHaveBeenCalledWith(FakeTrackingType.TRACKED)
     })
 
     it('should be called with NOT_TRACKED', () => {
-      setCookie(SESSION_STORE_KEY, 'first=not-tracked', DURATION)
+      setCookie(SESSION_STORE_KEY, `first=not-tracked&expire=${Date.now() + DURATION}`, DURATION)
       startSessionManagerWithDefaults({ computeSessionState: spy })
       expect(spy).toHaveBeenCalledWith(FakeTrackingType.NOT_TRACKED)
     })
@@ -336,7 +354,13 @@ describe('startSessionManager', () => {
     })
 
     it('should renew an existing timed out session', () => {
-      setCookie(SESSION_STORE_KEY, `id=abcde&first=tracked&created=${Date.now() - SESSION_TIME_OUT_DELAY}`, DURATION)
+      // `expire` is still ahead, so the creation cap is what has to end this session -- without it
+      // the session would expire for the mundane reason of having no deadline at all.
+      setCookie(
+        SESSION_STORE_KEY,
+        `id=abcde&first=tracked&created=${Date.now() - SESSION_TIME_OUT_DELAY}&expire=${Date.now() + SESSION_EXPIRATION_DELAY}`,
+        DURATION
+      )
 
       const sessionManager = startSessionManagerWithDefaults()
       const expireSessionSpy = jasmine.createSpy()
@@ -347,13 +371,17 @@ describe('startSessionManager', () => {
       expect(expireSessionSpy).not.toHaveBeenCalled() // the session has not been active from the start
     })
 
-    it('should not add created date to an existing session from an older versions', () => {
+    it('should not adopt a stored session that carries no creation date', () => {
+      // Written by a version that did not stamp `created`. Such a session cannot be shown to sit
+      // inside SESSION_TIME_OUT_DELAY, so it is renewed rather than trusted -- adopting it is how
+      // a session stayed alive for days on a page that was never closed. Every release of this
+      // SDK stamps `created`, so nothing we ship produces this state.
       setCookie(SESSION_STORE_KEY, 'id=abcde&first=tracked', DURATION)
 
       const sessionManager = startSessionManagerWithDefaults()
 
-      expect(sessionManager.findSession()!.id).toBe('abcde')
-      expect(getSessionState(SESSION_STORE_KEY).created).toBeUndefined()
+      expect(sessionManager.findSession()!.id).not.toBe('abcde')
+      expect(getSessionState(SESSION_STORE_KEY).created).toBeDefined()
     })
   })
 

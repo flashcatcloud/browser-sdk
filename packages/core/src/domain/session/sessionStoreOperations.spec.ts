@@ -5,6 +5,7 @@ import type { Configuration } from '../configuration'
 import { initCookieStrategy } from './storeStrategies/sessionInCookie'
 import { initLocalStorageStrategy } from './storeStrategies/sessionInLocalStorage'
 import type { SessionState } from './sessionState'
+import { SESSION_EXPIRATION_DELAY } from './sessionConstants'
 import { expandSessionState, toSessionString } from './sessionState'
 import { processSessionStoreOperations, LOCK_MAX_TRIES, LOCK_RETRY_DELAY } from './sessionStoreOperations'
 import { SESSION_STORE_KEY } from './storeStrategies/sessionStoreStrategy'
@@ -39,8 +40,9 @@ const DEFAULT_INIT_CONFIGURATION = { trackAnonymousUser: true } as Configuration
 
     beforeEach(() => {
       sessionStoreStrategy.expireSession(initialSession)
-      initialSession = { id: '123', created: String(now) }
-      otherSession = { id: '456', created: String(now + 100) }
+      // Both stamps are required for a session to read as live, so the fixtures carry them.
+      initialSession = { id: '123', created: String(now), expire: String(now + SESSION_EXPIRATION_DELAY) }
+      otherSession = { id: '456', created: String(now + 100), expire: String(now + SESSION_EXPIRATION_DELAY) }
       processSpy = jasmine.createSpy('process')
       afterSpy = jasmine.createSpy('after')
       storage = mockStorage()

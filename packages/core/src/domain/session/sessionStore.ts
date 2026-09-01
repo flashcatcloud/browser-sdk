@@ -9,6 +9,7 @@ import { selectCookieStrategy, initCookieStrategy } from './storeStrategies/sess
 import type { SessionStoreStrategyType } from './storeStrategies/sessionStoreStrategy'
 import {
   getExpiredSessionState,
+  expandSessionState,
   isSessionInExpiredState,
   isSessionInNotStartedState,
   isSessionStarted,
@@ -181,8 +182,20 @@ export function startSessionStore<TrackingType extends string>(
     delete sessionState.isExpired
     if (isTracked && !sessionState.id) {
       sessionState.id = generateUUID()
+    }
+    // Stamp every started session, tracked or not. The creation date is what caps a session at
+    // SESSION_TIME_OUT_DELAY, and a not-tracked session that carried none would be held open
+    // indefinitely by the visibility timer refreshing `expire` -- the same escape this change
+    // closes for tracked sessions, left open for the sampled-out half. Without the cap those
+    // users never get to re-roll the sampling decision.
+    if (!sessionState.created) {
       sessionState.created = String(dateNow())
     }
+    // Stamp the deadline before returning. The caller decides whether the session is expired
+    // straight after this runs and only stamps it afterwards, so a session renewed here would be
+    // judged with no deadline at all -- which now reads as expired and would stop any session
+    // from ever establishing. Upstream does the same inside its own expandOrRenew.
+    expandSessionState(sessionState)
   }
 
   function hasSessionInCache() {
