@@ -511,11 +511,19 @@
       document.getElementById('exit').onclick = function () {
         // Remember how many requests the intake had, reload to fire beforeunload, and let the
         // reloaded page prove the exit added one more, sent synchronously or lost.
+        //
+        // Reload whatever url this page was actually opened at, rather than a literal index.html:
+        // this file is copied into offline packages for customers who serve it from their own host,
+        // where it is often renamed to avoid colliding with their site's own index. A hardcoded
+        // name sends that copy to a url that does not exist, and the only symptom is a page that
+        // stops loading - no error, on browsers that frequently have no usable devtools. Dropping
+        // the query rather than appending keeps a second press idempotent, and preserves a
+        // directory-style url instead of rewriting it to /index.html.
         readReceived(function (arrived) {
           try {
             window.sessionStorage.setItem(PRE_EXIT_KEY, String(arrived.length))
           } catch (error) {}
-          window.location.href = 'index.html?after-exit=1'
+          window.location.href = window.location.href.split('?')[0] + '?after-exit=1'
         })
       }
 
