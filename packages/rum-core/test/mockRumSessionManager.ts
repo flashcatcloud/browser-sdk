@@ -15,6 +15,7 @@ export interface RumSessionManagerMock extends RumSessionManager {
   setTrackedWithSessionReplay(): RumSessionManagerMock
   setTrackedWithErrorSessionReplay(): RumSessionManagerMock
   setTrackedOnError(): RumSessionManagerMock
+  setTrackedOnErrorWithSessionReplay(): RumSessionManagerMock
   setForcedReplay(): RumSessionManagerMock
   setSessionHasError(): RumSessionManagerMock
   setSessionDetailSampledFrom(timestamp: number, sessionId: string): RumSessionManagerMock
@@ -26,6 +27,7 @@ const enum SessionStatus {
   TRACKED_WITHOUT_SESSION_REPLAY,
   TRACKED_WITH_ERROR_SESSION_REPLAY,
   TRACKED_ON_ERROR,
+  TRACKED_ON_ERROR_WITH_SESSION_REPLAY,
   NOT_TRACKED,
   EXPIRED,
 }
@@ -34,7 +36,8 @@ const TRACKING_TYPES: { [key in SessionStatus]?: RumTrackingType } = {
   [SessionStatus.TRACKED_WITH_SESSION_REPLAY]: RumTrackingType.TRACKED_WITH_SESSION_REPLAY,
   [SessionStatus.TRACKED_WITHOUT_SESSION_REPLAY]: RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY,
   [SessionStatus.TRACKED_WITH_ERROR_SESSION_REPLAY]: RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY,
-  [SessionStatus.TRACKED_ON_ERROR]: RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY,
+  [SessionStatus.TRACKED_ON_ERROR]: RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY,
+  [SessionStatus.TRACKED_ON_ERROR_WITH_SESSION_REPLAY]: RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY,
 }
 
 export function createRumSessionManagerMock(): RumSessionManagerMock {
@@ -87,6 +90,10 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
     },
     setTrackedOnError() {
       sessionStatus = SessionStatus.TRACKED_ON_ERROR
+      return this
+    },
+    setTrackedOnErrorWithSessionReplay() {
+      sessionStatus = SessionStatus.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
       return this
     },
     setForcedReplay() {

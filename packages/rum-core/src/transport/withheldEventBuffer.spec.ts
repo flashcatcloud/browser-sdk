@@ -7,8 +7,10 @@ import { RumEventType } from '../rawRumEvent.types'
 import type { RumEvent } from '../rumEvent.types'
 import { LifeCycle, LifeCycleEventType } from '../domain/lifeCycle'
 import {
+  WITHHELD_BUFFER_BYTES_LIMIT,
   WITHHELD_BUFFER_DURATION,
   WITHHELD_BUFFER_EVENTS_LIMIT,
+  WITHHELD_BUFFER_VIEWS_LIMIT,
   WITHHELD_BUFFER_RELEASE_MAX_DELAY,
   computeReleaseDelay,
   startWithheldEventBuffer,
@@ -19,6 +21,7 @@ describe('startWithheldEventBuffer', () => {
   let lifeCycle: LifeCycle
   let sessionManager: ReturnType<typeof createRumSessionManagerMock>
   let forwarded: Array<RumEvent & Context>
+  let stopBuffer: () => void
 
   function collect(type: RumEventType, overrides: Context = {}) {
     const event = {
@@ -45,6 +48,7 @@ describe('startWithheldEventBuffer', () => {
     forwarded = []
     sessionManager = createRumSessionManagerMock().setTrackedOnError()
     const { stop } = startWithheldEventBuffer(lifeCycle, sessionManager, (event) => forwarded.push(event))
+    stopBuffer = stop
     registerCleanupTask(() => {
       stop()
       clock.cleanup()
@@ -397,6 +401,116 @@ describe('startWithheldEventBuffer', () => {
 
     const view = releasedAfterJitter().find((event) => event.type === RumEventType.VIEW)!
     expect((view.session as Context).detail_sampled_from).toBe(1000)
+  })
+
+  it('spreads the release over the window it computed for this session', () => {
+    const delay = computeReleaseDelay('session-id')
+    // the fixture itself has to have something to spread, or this proves nothing
+    expect(delay).toBeGreaterThan(0)
+
+    collect(RumEventType.VIEW)
+    collect(RumEventType.RESOURCE)
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR)
+
+    clock.tick(delay - 1)
+    expect(forwarded.length).toBe(0)
+
+    clock.tick(1)
+    expect(forwarded.length).toBeGreaterThan(0)
+  })
+
+  it('gives up detail once the bytes budget is spent, not only once the count is', () => {
+    const bulk = 'x'.repeat(8000)
+    collect(RumEventType.VIEW)
+    const heldCount = Math.ceil(WITHHELD_BUFFER_BYTES_LIMIT / 8000) + 2
+    for (let i = 0; i < heldCount; i++) {
+      collect(RumEventType.LONG_TASK, { date: i + 1, context: { bulk } })
+    }
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR)
+
+    const releasedLongTasks = releasedAfterJitter().filter((event) => event.type === RumEventType.LONG_TASK)
+    expect(releasedLongTasks.length).toBeLessThan(heldCount)
+  })
+
+  it('gives up requests that succeeded before those that failed', () => {
+    collect(RumEventType.VIEW)
+    collect(RumEventType.RESOURCE, { resource: { status_code: 500 }, date: 500 })
+    collect(RumEventType.RESOURCE, { resource: { status_code: 0 }, date: 1 })
+    for (let i = 0; i < WITHHELD_BUFFER_EVENTS_LIMIT; i++) {
+      collect(RumEventType.RESOURCE, { date: 200 })
+    }
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR)
+
+    const releasedDates = releasedAfterJitter().map((event) => event.date)
+    expect(releasedDates).toContain(500)
+    expect(releasedDates).toContain(1)
+    expect(releasedDates.filter((date) => date === 200).length).toBeLessThan(WITHHELD_BUFFER_EVENTS_LIMIT)
+  })
+
+  it('keeps no more views than its limit, however many the page goes through', () => {
+    const viewCount = WITHHELD_BUFFER_VIEWS_LIMIT + 10
+    for (let i = 0; i < viewCount; i++) {
+      collect(RumEventType.VIEW, { date: i + 1, view: { id: `view-${i}` } })
+      collect(RumEventType.RESOURCE, { view: { id: `view-${i}` } })
+    }
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR, { view: { id: `view-${viewCount - 1}` } })
+
+    const releasedViews = releasedAfterJitter().filter((event) => event.type === RumEventType.VIEW)
+    expect(releasedViews.length).toBe(WITHHELD_BUFFER_VIEWS_LIMIT)
+  })
+
+  it('drops what has aged out even when the release comes from the page going', () => {
+    collect(RumEventType.VIEW)
+    collect(RumEventType.RESOURCE, { date: 111 })
+    // another tab marked the session; this one collects nothing further before the page goes
+    clock.tick(WITHHELD_BUFFER_DURATION + ONE_SECOND)
+    sessionManager.setSessionHasError()
+
+    lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, { reason: PageExitReason.UNLOADING })
+
+    expect(forwarded.map((event) => event.date)).not.toContain(111)
+  })
+
+  it('forwards a straggler of a session that was never withholding', () => {
+    sessionManager.setId('session-2')
+    collect(RumEventType.VIEW, { session: { id: 'session-2' } })
+
+    // a request of an earlier, plainly sampled session completes now: it was never withheld from
+    // anyone, and dropping it would lose an event of a session that is already stored
+    collect(RumEventType.RESOURCE, { session: { id: 'session-1' } })
+
+    expect(forwarded.map((event) => (event.session as Context).id)).toEqual(['session-1'])
+  })
+
+  it('sends a release that is still waiting on jitter when the session ends', () => {
+    collect(RumEventType.VIEW)
+    collect(RumEventType.RESOURCE)
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR)
+    expect(forwarded.length).toBe(0)
+
+    lifeCycle.notify(LifeCycleEventType.SESSION_EXPIRED)
+
+    expect(forwarded.map((event) => event.type)).toEqual([RumEventType.VIEW, RumEventType.RESOURCE, RumEventType.ERROR])
+  })
+
+  it('forwards nothing into a batch that has been stopped', () => {
+    collect(RumEventType.VIEW)
+    collect(RumEventType.RESOURCE)
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR)
+
+    stopBuffer()
+    clock.tick(WITHHELD_BUFFER_RELEASE_MAX_DELAY)
+
+    expect(forwarded.length).toBe(0)
   })
 
   it('keeps the view an error hangs from when a view that already ended is updated late', () => {

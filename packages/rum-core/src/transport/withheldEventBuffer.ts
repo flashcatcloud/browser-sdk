@@ -22,7 +22,7 @@ import type { RumEvent } from '../rumEvent.types'
 export const WITHHELD_BUFFER_DURATION = 60 * ONE_SECOND
 
 /** Memory bound. Above it the least valuable events are dropped first, see {@link EvictionTier}. */
-const WITHHELD_BUFFER_BYTES_LIMIT = 64 * ONE_KIBI_BYTE
+export const WITHHELD_BUFFER_BYTES_LIMIT = 64 * ONE_KIBI_BYTE
 export const WITHHELD_BUFFER_EVENTS_LIMIT = 200
 
 /**
@@ -30,7 +30,7 @@ export const WITHHELD_BUFFER_EVENTS_LIMIT = 200
  * events, so a detail released without its view would be unreachable. Views are kept out of the
  * eviction budget for that reason, and this only bounds pathological single-page navigation counts.
  */
-const WITHHELD_BUFFER_VIEWS_LIMIT = 50
+export const WITHHELD_BUFFER_VIEWS_LIMIT = 50
 
 /**
  * Correlated errors make every client release at the same instant, right when whatever caused them

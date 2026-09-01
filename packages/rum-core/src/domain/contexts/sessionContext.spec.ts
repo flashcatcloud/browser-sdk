@@ -161,7 +161,7 @@ describe('session context', () => {
   it('should set sampled_for_replay on a session whose events are withheld alongside its replay', () => {
     // these events only ever leave together with that replay, so reporting the state as it stands
     // while they are held would mark the whole released burst as having none
-    sessionManager.setTrackedOnError()
+    sessionManager.setTrackedOnErrorWithSessionReplay()
 
     const event = hooks.triggerHook(HookNames.Assemble, {
       eventType: 'view',
@@ -169,6 +169,46 @@ describe('session context', () => {
     }) as DefaultRumEventAttributes
 
     expect(event.session!.sampled_for_replay).toBe(true)
+  })
+
+  it('should not claim a replay for a session that withholds its events and has none', () => {
+    sessionManager.setTrackedOnError()
+
+    const event = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(event.session!.sampled_for_replay).toBe(false)
+  })
+
+  it('should tell the backend a session was stored only because it errored', () => {
+    sessionManager.setTrackedOnError()
+    const onErrorEvent = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    sessionManager.setTrackedWithSessionReplay()
+    const plainEvent = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(onErrorEvent.session!.sampled_for_error).toBeTrue()
+    // absent rather than false, so it costs nothing on every ordinary session
+    expect(plainEvent.session!.sampled_for_error).toBeUndefined()
+  })
+
+  it('should say where the stored detail of a released session starts', () => {
+    sessionManager.setTrackedOnError().setSessionDetailSampledFrom(1234, 'session-id')
+
+    const event = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(event.session!.detail_sampled_from).toBe(1234)
   })
 
   it('should discard the event if no session', () => {

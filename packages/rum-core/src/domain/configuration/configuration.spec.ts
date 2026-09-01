@@ -142,6 +142,27 @@ describe('validateAndBuildRumConfiguration', () => {
   })
 
   describe('sessionOnErrorSampleRate', () => {
+    it('is carried into the built configuration', () => {
+      expect(
+        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, sessionOnErrorSampleRate: 40 })!
+          .sessionOnErrorSampleRate
+      ).toBe(40)
+    })
+
+    it('defaults to collecting no error-only session at all', () => {
+      expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.sessionOnErrorSampleRate).toBe(0)
+    })
+
+    it('is rejected when it is not a sample rate', () => {
+      expect(
+        validateAndBuildRumConfiguration({
+          ...DEFAULT_INIT_CONFIGURATION,
+          sessionOnErrorSampleRate: 'foo' as unknown as number,
+        })
+      ).toBeUndefined()
+      expect(displayErrorSpy).toHaveBeenCalledTimes(1)
+    })
+
     it('warns when the default session rate leaves it nothing to draw from', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
