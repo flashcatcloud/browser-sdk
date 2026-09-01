@@ -355,6 +355,18 @@ describe('startWithheldEventBuffer', () => {
     expect(releasedSessionIds).toEqual(['session-3', 'session-3'])
   })
 
+  it('drops the buffer when the session stops withholding without having errored', () => {
+    collect(RumEventType.VIEW)
+    collect(RumEventType.RESOURCE)
+
+    // an older SDK sharing the same session store does not know this tracking type and redraws it:
+    // the session stops withholding, but it never reported an error
+    sessionManager.setTrackedWithoutSessionReplay()
+    collect(RumEventType.RESOURCE)
+
+    expect(releasedAfterJitter().length).toBe(0)
+  })
+
   it('keeps the view an error hangs from when a view that already ended is updated late', () => {
     collect(RumEventType.VIEW, { date: 1000, view: { id: 'first-view' } })
     collect(RumEventType.VIEW, { date: 2000, view: { id: 'second-view' } })

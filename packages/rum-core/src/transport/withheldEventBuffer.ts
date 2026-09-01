@@ -101,10 +101,12 @@ export function startWithheldEventBuffer(
       return
     }
 
-    if (withheldForSessionId !== undefined && session?.id !== withheldForSessionId) {
-      // The session that was withholding is gone - expired, or renewed into another one - without
-      // ever reporting an error, so what it collected never earned its way out. A session that did
-      // report one keeps its id and is left alone here.
+    if (withheldForSessionId !== undefined && !(session?.id === withheldForSessionId && session.sampledOnError)) {
+      // The session that was withholding is gone without ever reporting an error, so what it
+      // collected never earned its way out. Gone covers more than expiry and renewal: the session
+      // store is shared with every other SDK bundle on the domain, and one that predates these
+      // tracking types does not recognise them, so it redraws the session and rewrites the type.
+      // A session that did report an error keeps both its id and its type, and is left alone here.
       const wasWithheldFor = withheldForSessionId
       discardBuffer()
       if (isFrom(wasWithheldFor)) {
@@ -119,7 +121,8 @@ export function startWithheldEventBuffer(
     }
 
     if (withheldForSessionId !== undefined && isFrom(withheldForSessionId)) {
-      // The session just reported its error. This event - typically the error itself - joins what is
+      // Whatever is still withheld here belongs to a session that has just reported its error: the
+      // guard above ended every other case. This event, typically the error itself, joins what is
       // held so that the whole history leaves in order, and behind the same jitter.
       hold(event)
       scheduleRelease()
