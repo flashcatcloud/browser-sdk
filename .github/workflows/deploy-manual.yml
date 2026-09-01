@@ -148,8 +148,24 @@ jobs:
       - name: Notify deployment success
         uses: zcong1993/actions-ding@master
         with:
+          ignoreError: 'true'
           dingToken: ${{ secrets.DING_TALK_TOKEN }}
           secret: ${{ secrets.DING_TALK_SECRET }}
+          body: |
+            {
+              "msgtype": "markdown",
+                "markdown": {
+                "title": "RUM sdk 部署通知",
+                "text": "### ✅ RUM sdk 部署成功\n\n---\n\n 🔖 分支: ${{ github.ref }}\n\n 📝 提交信息: [${{ github.event.head_commit.message }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})\n\n 👨‍💻 提交者: ${{ github.actor }}\n\n 🚀 [查看部署详情](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+              }
+            }
+
+      - name: Notify secondary DingTalk group on success
+        uses: zcong1993/actions-ding@master
+        with:
+          ignoreError: 'true'
+          dingToken: ${{ secrets.DING_TALK_TOKEN_2 }}
+          secret: ${{ secrets.DING_TALK_SECRET_2 }}
           body: |
             {
               "msgtype": "markdown",
@@ -178,6 +194,7 @@ jobs:
       - name: Notify deployment failure
         uses: zcong1993/actions-ding@master
         with:
+          ignoreError: 'true'
           dingToken: ${{ secrets.DING_TALK_TOKEN }}
           secret: ${{ secrets.DING_TALK_SECRET }}
           body: |
