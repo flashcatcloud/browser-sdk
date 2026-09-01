@@ -16,8 +16,10 @@ import { RumEventType } from '../rawRumEvent.types'
 import type { RumEvent } from '../rumEvent.types'
 
 /**
- * How much history a withheld buffer may span. Same number as the replay side, because it is the
- * same promise to the customer: an error session shows the minute leading up to the error.
+ * How much history a withheld buffer may span, on the event side and on the replay side alike: it is
+ * one promise to the customer, that an error session shows the minute leading up to the error. The
+ * replay side also drops and restarts its buffer on it, which bounds what a session that never
+ * errors holds on to.
  */
 export const WITHHELD_BUFFER_DURATION = 60 * ONE_SECOND
 
@@ -329,7 +331,6 @@ export function startWithheldEventBuffer(
     clearBuffer()
   }
 
-  /** Empties the buffer, whether it was just released or is being thrown away. */
   function clearBuffer() {
     clearTimeout(releaseTimeoutId)
     releaseTimeoutId = undefined
@@ -370,9 +371,6 @@ function getEvictionTier(event: RumEvent): EvictionTier {
   }
 }
 
-/** Keeps the running hash inside the range `Math.imul` is exact over. */
-const LARGEST_INT32_PRIME = 2147483647
-
 /**
  * Deterministic per session, so a client always spreads to the same offset.
  *
@@ -383,7 +381,7 @@ const LARGEST_INT32_PRIME = 2147483647
 export function computeReleaseDelay(sessionId: string) {
   let hash = 0
   for (let i = 0; i < sessionId.length; i += 1) {
-    hash = (Math.imul(hash, 31) + sessionId.charCodeAt(i)) % LARGEST_INT32_PRIME
+    hash = Math.imul(hash, 31) + sessionId.charCodeAt(i)
   }
   return Math.abs(hash) % WITHHELD_BUFFER_RELEASE_MAX_DELAY
 }
