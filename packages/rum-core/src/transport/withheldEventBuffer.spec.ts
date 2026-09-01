@@ -91,7 +91,7 @@ describe('startWithheldEventBuffer', () => {
     collect(RumEventType.RESOURCE, { date: 4321 })
 
     sessionManager.setSessionHasError()
-    collect(RumEventType.ERROR)
+    collect(RumEventType.ERROR, { date: 9999 })
 
     const view = releasedAfterJitter().find((event) => event.type === RumEventType.VIEW)!
     expect((view.session as Context).detail_sampled_from).toBe(4321)
@@ -177,7 +177,7 @@ describe('startWithheldEventBuffer', () => {
     collect(RumEventType.RESOURCE, { date: 4321 })
 
     sessionManager.setSessionHasError()
-    collect(RumEventType.ERROR)
+    collect(RumEventType.ERROR, { date: 9999 })
     releasedAfterJitter()
 
     // kept on the session, because the batch upserts views by id and the next ordinary view update
@@ -365,6 +365,49 @@ describe('startWithheldEventBuffer', () => {
     collect(RumEventType.RESOURCE)
 
     expect(releasedAfterJitter().length).toBe(0)
+  })
+
+  it('releases the views oldest first, since a session is built out of the first one to arrive', () => {
+    collect(RumEventType.VIEW, { date: 1000, view: { id: 'view-1' } })
+    collect(RumEventType.RESOURCE, { view: { id: 'view-1' } })
+    collect(RumEventType.VIEW, { date: 2000, view: { id: 'view-2' } })
+    collect(RumEventType.RESOURCE, { view: { id: 'view-2' } })
+    collect(RumEventType.VIEW, { date: 3000, view: { id: 'view-3' } })
+    collect(RumEventType.RESOURCE, { view: { id: 'view-3' } })
+    // a late update of the first view, which puts the oldest view last in the buffer
+    collect(RumEventType.VIEW, { date: 1000, view: { id: 'view-1' } })
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR, { view: { id: 'view-3' } })
+
+    const releasedViewDates = releasedAfterJitter()
+      .filter((event) => event.type === RumEventType.VIEW)
+      .map((event) => event.date)
+    expect(releasedViewDates).toEqual([1000, 2000, 3000])
+  })
+
+  it('marks the detail as starting at the earliest event, not at the first one held', () => {
+    collect(RumEventType.VIEW)
+    // a request that took minutes is only held once it finishes, but it started well before that
+    collect(RumEventType.RESOURCE, { date: 5000 })
+    collect(RumEventType.RESOURCE, { date: 1000 })
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR, { date: 9000 })
+
+    const view = releasedAfterJitter().find((event) => event.type === RumEventType.VIEW)!
+    expect((view.session as Context).detail_sampled_from).toBe(1000)
+  })
+
+  it('marks the released views as sampled for replay, since the replay leaves with them', () => {
+    collect(RumEventType.VIEW)
+    collect(RumEventType.RESOURCE)
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR)
+
+    const view = releasedAfterJitter().find((event) => event.type === RumEventType.VIEW)!
+    expect((view.session as Context).sampled_for_replay).toBeTrue()
   })
 
   it('keeps the view an error hangs from when a view that already ended is updated late', () => {

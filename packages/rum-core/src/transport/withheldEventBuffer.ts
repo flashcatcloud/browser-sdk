@@ -12,6 +12,7 @@ import {
 import type { LifeCycle } from '../domain/lifeCycle'
 import { LifeCycleEventType } from '../domain/lifeCycle'
 import type { RumSessionManager } from '../domain/rumSessionManager'
+import { SessionReplayState } from '../domain/rumSessionManager'
 import { RumEventType } from '../rawRumEvent.types'
 import type { RumEvent } from '../rumEvent.types'
 
@@ -274,7 +275,16 @@ export function startWithheldEventBuffer(
 
     // A detail whose view is gone has no container to hang from, so it would be unreachable.
     const releasable = details.filter((held) => views.has(held.viewId))
-    const detailSampledFrom = releasable.length > 0 ? releasable[0].event.date : undefined
+
+    // The earliest date among them, not the first one held: an event is dated when it started, and a
+    // request that took minutes is held only once it finishes - so the first held is not the first
+    // to have happened, and the marker has to be a point no released detail precedes.
+    let detailSampledFrom: number | undefined
+    releasable.forEach((held) => {
+      if (detailSampledFrom === undefined || held.event.date < detailSampledFrom) {
+        detailSampledFrom = held.event.date
+      }
+    })
 
     if (detailSampledFrom !== undefined) {
       // Recorded on the session so that every view update from here on carries it - the batch
@@ -284,9 +294,23 @@ export function startWithheldEventBuffer(
       sessionManager.setSessionDetailSampledFrom(detailSampledFrom, withheldForSessionId!)
     }
 
-    views.forEach((view) => {
+    // Oldest first. A Map holds its entries in the order they were last updated, which for a burst
+    // released all at once is not the order the views happened - and a session is built out of
+    // whichever of its views arrives first, so that one has to be the earliest.
+    const orderedViews: Array<RumEvent & Context> = []
+    views.forEach((view) => orderedViews.push(view))
+    orderedViews.sort((left, right) => left.date - right.date)
+
+    // Assembled while the replay was still withheld, so they carry the state of a session that had
+    // no replay yet. By the time they leave, the replay they belong to is on its way with them.
+    const isReplaySampled = sessionManager.findTrackedSession()?.sessionReplay === SessionReplayState.SAMPLED
+
+    orderedViews.forEach((view) => {
       if (detailSampledFrom !== undefined) {
         view.session.detail_sampled_from = detailSampledFrom
+      }
+      if (isReplaySampled) {
+        view.session.sampled_for_replay = true
       }
       forward(view)
     })
