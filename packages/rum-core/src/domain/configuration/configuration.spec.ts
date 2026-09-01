@@ -619,18 +619,19 @@ describe('serializeRumConfiguration', () => {
   })
 
   describe('beforeSampling', () => {
-    it('is refused when it is not a function', () => {
-      // It runs inside session creation, where there is no way to report a failure and nothing to
-      // fall back to. Better to refuse at init, where the site can still see the message.
+    it('is reported and ignored when it is not a function, and collection carries on', () => {
+      // One callback on the sampling draw is not worth the site's entire collection. Refusing init
+      // here would take every view, error and resource down with it.
       const displaySpy = spyOn(display, 'error')
 
-      expect(
-        validateAndBuildRumConfiguration({
-          ...DEFAULT_INIT_CONFIGURATION,
-          beforeSampling: 'not a function' as any,
-        })
-      ).toBeUndefined()
-      expect(displaySpy).toHaveBeenCalledOnceWith('beforeSampling should be a function')
+      const configuration = validateAndBuildRumConfiguration({
+        ...DEFAULT_INIT_CONFIGURATION,
+        beforeSampling: 'not a function' as any,
+      })
+
+      expect(configuration).toBeDefined()
+      expect(configuration!.beforeSampling).toBeUndefined()
+      expect(displaySpy).toHaveBeenCalledOnceWith('beforeSampling should be a function, and is ignored')
     })
 
     it('is accepted when it is absent', () => {

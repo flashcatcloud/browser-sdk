@@ -53,9 +53,18 @@ export interface RumInitConfiguration extends InitConfiguration {
    * The application's last word on session sampling, called synchronously each time a new session
    * is about to be drawn, with the rates that would apply (console-delivered, falling back to
    * init) and the console-delivered custom values. Return a rate to override — 100 always
-   * collects, 0 never does — or nothing to leave the incoming rates alone. Runs inside session
-   * creation, so it must be fast and synchronous; a thrown error or an out-of-range value is
-   * ignored. A session already under way is never re-decided.
+   * collects, 0 never does — or nothing to leave the incoming rates alone. A session already under
+   * way is never re-decided.
+   *
+   * Runs inside session creation, which holds a lock the browser's other tabs of this site wait
+   * on, and which starts over if another tab writes while it runs. So it must be fast and
+   * synchronous — a slow callback delays the other tabs — and it may be called MORE THAN ONCE for
+   * a single session. Keep it a pure decision: side effects will be repeated, and only the last
+   * call's return value is used.
+   *
+   * Its failure modes never reach session creation: a thrown error or an out-of-range value leaves
+   * the incoming rate in place, and a value that is not a function at all is reported once and
+   * then ignored rather than refusing `init`.
    */
   beforeSampling?: BeforeSamplingCallback | undefined
   /**
@@ -103,6 +112,12 @@ export interface RumInitConfiguration extends InitConfiguration {
    *
    * Not used inside a WebView. Under an event bridge the host application owns the sampling
    * decision, so no request is made and `getRemoteConfig()` answers `undefined`.
+   *
+   * Turning this on hands the console authority over `defaultPrivacyLevel`, which is what decides
+   * how much of a page Session Replay masks. The console may relax it below what is passed here —
+   * that is the point of being able to change it without a release — so whoever can publish
+   * settings for this application can unmask new sessions across the site. Left off, the value
+   * passed here is the only one that can ever apply.
    *
    * Deliberately not offered in the session cookie, for three reasons. The session store holds
    * flat strings matched against `[a-z0-9-]`, which fits neither a fractional rate nor the custom
@@ -289,14 +304,23 @@ export interface RumConfiguration extends Configuration {
   drawStoreKey: string
 }
 
+/**
+ * An unusable `beforeSampling` is reported and then ignored, not a reason to refuse `init`. It is
+ * one callback consulted at the sampling draw; refusing would take the site's entire collection
+ * down — every view, error and resource — over a mistake that costs nothing but the callback
+ * itself. That is also what every other value on this feature already does with a bad input.
+ */
+function validBeforeSampling(beforeSampling: BeforeSamplingCallback | undefined) {
+  if (beforeSampling !== undefined && typeof beforeSampling !== 'function') {
+    display.error('beforeSampling should be a function, and is ignored')
+    return undefined
+  }
+  return beforeSampling
+}
+
 export function validateAndBuildRumConfiguration(
   initConfiguration: RumInitConfiguration
 ): RumConfiguration | undefined {
-  if (initConfiguration.beforeSampling !== undefined && typeof initConfiguration.beforeSampling !== 'function') {
-    display.error('beforeSampling should be a function')
-    return
-  }
-
   if (
     initConfiguration.trackFeatureFlagsForEvents !== undefined &&
     !Array.isArray(initConfiguration.trackFeatureFlagsForEvents)
@@ -370,7 +394,7 @@ export function validateAndBuildRumConfiguration(
     profilingSampleRate: profilingEnabled ? (initConfiguration.profilingSampleRate ?? 0) : 0, // Enforce 0 if profiling is not enabled, and set 0 as default when not set.
     propagateTraceBaggage: !!initConfiguration.propagateTraceBaggage,
     remoteConfig: buildRemoteConfigSetup(initConfiguration),
-    beforeSampling: initConfiguration.beforeSampling,
+    beforeSampling: validBeforeSampling(initConfiguration.beforeSampling),
     drawStoreKey: buildDrawStoreKey(initConfiguration),
     ...baseConfiguration,
   }

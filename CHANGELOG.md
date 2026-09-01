@@ -24,6 +24,11 @@
   different endpoint under a different contract, and is replaced by `remoteConfigurationEnabled`.
   A site still passing it in JavaScript keeps working and gets the settings it passed to `init`;
   a TypeScript project passing it no longer compiles and should drop the option.
+- 💥 **Breaking for TypeScript code that implements our interfaces**: `RumPublicApi` gains
+  `setForcedSession` and `getRemoteConfig`, and `RumSessionManager` gains `setForcedSession`. Code
+  that only calls these interfaces is unaffected; code that implements or hand-mocks them needs the
+  new members. The two new methods are also absent from the legacy ES5 bundle, so feature-detect
+  them if the same code runs against both.
 - ✨ `remoteConfigurationEnabled` lets the sampling rates, the trace sample rate and the Session
   Replay privacy level be set from the console instead of only at `init`. Off by default: without
   it the SDK makes no extra request. A change applies to sessions created after it arrives, never

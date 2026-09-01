@@ -480,6 +480,15 @@ function readDrawRecord(configuration: RumConfiguration, sessionId: string): Dra
   if (!isRate(record.sessionSampleRate) || !isRate(record.sessionReplaySampleRate)) {
     return undefined
   }
+  // These two can only ever have been moved by remote configuration: `beforeSampling` and
+  // `setForcedSession()` shape the rates and reach neither of them. So on a site that did not opt
+  // in, a stored value differing from init is not one this SDK wrote — it is stale, hand-edited, or
+  // left by something else on the origin — and honouring it would let a single storage write take a
+  // site that asked for `mask`, and enabled nothing, into recording a replay unmasked.
+  //
+  // Opted in, the console is allowed to relax masking; that is the feature, and the site asked for
+  // it. Opted out, there is no authority for the value at all.
+  const mayHaveBeenDelivered = configuration.remoteConfig !== undefined
   return {
     version: typeof record.version === 'number' ? record.version : undefined,
     sessionSampleRate: record.sessionSampleRate,
@@ -487,10 +496,12 @@ function readDrawRecord(configuration: RumConfiguration, sessionId: string): Dra
     // A record written before these two existed has neither, and so does one holding something we
     // cannot use. Falling back to init is the same answer the session was already getting, so an
     // SDK upgrade mid-session changes nothing about how it is traced or masked.
-    traceSampleRate: isRate(record.traceSampleRate) ? record.traceSampleRate : initTraceRule(configuration),
-    defaultPrivacyLevel: isPrivacyLevel(record.defaultPrivacyLevel)
-      ? record.defaultPrivacyLevel
-      : configuration.defaultPrivacyLevel,
+    traceSampleRate:
+      mayHaveBeenDelivered && isRate(record.traceSampleRate) ? record.traceSampleRate : initTraceRule(configuration),
+    defaultPrivacyLevel:
+      mayHaveBeenDelivered && isPrivacyLevel(record.defaultPrivacyLevel)
+        ? record.defaultPrivacyLevel
+        : configuration.defaultPrivacyLevel,
   }
 }
 

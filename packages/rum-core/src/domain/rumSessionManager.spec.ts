@@ -654,6 +654,35 @@ describe('rum session manager', () => {
       expect(drawn.defaultPrivacyLevel).toBe('mask-user-input')
     })
 
+    it('refuses a stored privacy level on a site that never opted into remote configuration', () => {
+      // Only remote configuration can move the privacy level: `beforeSampling` and
+      // `setForcedSession()` shape the rates and reach neither it nor the trace rate. So on a site
+      // that did not opt in, a record carrying `allow` is not one this SDK wrote — and honouring it
+      // would let any same-origin script take a site that asked for `mask` into an unmasked replay
+      // with a single storage write.
+      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
+      localStorage.setItem(
+        DRAW_KEY,
+        JSON.stringify({
+          id: 'abcdef',
+          sessionSampleRate: 100,
+          sessionReplaySampleRate: 100,
+          traceSampleRate: 3,
+          defaultPrivacyLevel: 'allow',
+        })
+      )
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: { defaultPrivacyLevel: 'mask', drawStoreKey: DRAW_KEY },
+      })
+
+      const drawn = rumSessionManager.findTrackedSession()!.drawnConfiguration!
+      expect(drawn.defaultPrivacyLevel).toBe('mask')
+      expect(drawn.traceSampleRate).toBeUndefined()
+      // The rates are still read back: those two APIs really can move them with the feature off.
+      expect(drawn.sessionSampleRate).toBe(100)
+    })
+
     it('never matches a session the record was not written for', () => {
       setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=1', DURATION)
       localStorage.setItem(
