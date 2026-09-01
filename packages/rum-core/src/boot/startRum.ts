@@ -102,6 +102,11 @@ export function startRum(
   }
 
   const pageMayExitObservable = createPageMayExitObservable(configuration)
+  // Subscribed before the batch below, and it has to stay that way. The batch flushes on this same
+  // observable, and observers run in the order they subscribed - so the withheld event buffer, which
+  // releases on the lifecycle notification raised here, has to get its events into the batch before
+  // the flush that is the page's last chance to send them. The same holds for the session expiry
+  // relay in `startRumSessionManager`, which the session manager registers just below.
   const pageMayExitSubscription = pageMayExitObservable.subscribe((event) => {
     lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, event)
   })

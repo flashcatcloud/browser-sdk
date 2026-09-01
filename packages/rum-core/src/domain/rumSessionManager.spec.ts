@@ -395,6 +395,28 @@ describe('rum session manager', () => {
 
       expect(sessionManager.findTrackedSession()!.sampledOnError).toBeTrue()
     })
+
+    it('keeps the earliest point any tab reached as where the stored detail starts', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({ configuration: ON_ERROR_ONLY })
+      const sessionId = sessionManager.findTrackedSession()!.id
+
+      // two tabs of the same session release their own buffers, each reaching back a different way
+      sessionManager.setSessionDetailSampledFrom(2000, sessionId)
+      sessionManager.setSessionDetailSampledFrom(1000, sessionId)
+      sessionManager.setSessionDetailSampledFrom(3000, sessionId)
+
+      expect(getSessionState(SESSION_STORE_KEY).detailFrom).toBe('1000')
+      expect(sessionManager.findTrackedSession()!.detailSampledFrom).toBe(1000)
+    })
+
+    it('does not record where the detail starts on a session that has since been replaced', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({ configuration: ON_ERROR_ONLY })
+
+      setCookie(SESSION_STORE_KEY, 'id=other-session&rum=4', DURATION)
+      sessionManager.setSessionDetailSampledFrom(1000, 'a-session-that-is-gone')
+
+      expect(getSessionState(SESSION_STORE_KEY).detailFrom).toBeUndefined()
+    })
   })
 
   function startRumSessionManagerWithDefaults({ configuration }: { configuration?: Partial<RumConfiguration> } = {}) {

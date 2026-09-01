@@ -30,8 +30,11 @@ export interface RumSessionManager {
    * because the store write can be deferred by the lock, and it must not land on a later session.
    */
   setSessionHasError: (sessionId: string) => void
-  /** Records how far back the detail released for this session actually reaches. */
-  setSessionDetailSampledFrom: (timestamp: number) => void
+  /**
+   * Records how far back the detail released for this session actually reaches. The earliest point
+   * any tab reached wins, since that is where the session's stored detail really starts.
+   */
+  setSessionDetailSampledFrom: (timestamp: number, sessionId: string) => void
 }
 
 export type RumSession = {
@@ -115,7 +118,9 @@ export function startRumSessionManager(
         sessionEntity.hasError = true
       }
     }
-    if (!previousState.detailFrom && newState.detailFrom) {
+    // Followed rather than latched on the first value seen: the store keeps the earliest point any
+    // tab reached, so a later, earlier write is a correction and not a second opinion.
+    if (previousState.detailFrom !== newState.detailFrom) {
       const sessionEntity = sessionManager.findSession()
       if (sessionEntity) {
         sessionEntity.detailSampledFrom = Number(newState.detailFrom) || undefined
@@ -155,8 +160,16 @@ export function startRumSessionManager(
     // Kept on the session rather than stamped on the released view events: the batch upserts views
     // by id, so the next ordinary view update - which arrives within seconds - would replace the
     // stamped one before the batch is ever sent.
-    setSessionDetailSampledFrom: (timestamp) =>
-      sessionManager.updateSessionState(() => ({ detailFrom: String(timestamp) })),
+    setSessionDetailSampledFrom: (timestamp, sessionId) =>
+      sessionManager.updateSessionState((state) => {
+        if (state.id !== sessionId) {
+          return undefined
+        }
+        // Both tabs of a session release their own buffer on the same error, and the session's
+        // detail starts wherever the earliest of them reached.
+        const stored = Number(state.detailFrom)
+        return stored && stored <= timestamp ? undefined : { detailFrom: String(timestamp) }
+      }),
   }
 }
 

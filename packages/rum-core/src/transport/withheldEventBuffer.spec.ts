@@ -182,7 +182,7 @@ describe('startWithheldEventBuffer', () => {
 
     // kept on the session, because the batch upserts views by id and the next ordinary view update
     // would otherwise replace the stamped one before anything is sent
-    expect(spy).toHaveBeenCalledWith(4321)
+    expect(spy).toHaveBeenCalledWith(4321, 'session-id')
   })
 
   it('drops the buffer when the session ends without ever having errored', () => {
@@ -316,6 +316,43 @@ describe('startWithheldEventBuffer', () => {
 
     const releasedSessionIds = releasedAfterJitter().map((event) => (event.session as Context).id)
     expect(releasedSessionIds).toEqual(['session-2', 'session-2'])
+  })
+
+  it('keeps the minute before the error when the release timer is held back', () => {
+    collect(RumEventType.VIEW)
+    collect(RumEventType.RESOURCE, { date: 111 })
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR)
+
+    // a backgrounded tab clamps timers to about once a minute, so the release runs long after it
+    // was scheduled - the window it releases has to be the one around the error, not around now
+    clock.setDate(new Date(Date.now() + WITHHELD_BUFFER_DURATION + ONE_SECOND))
+    clock.tick(WITHHELD_BUFFER_RELEASE_MAX_DELAY)
+
+    expect(forwarded.map((event) => event.date)).toContain(111)
+  })
+
+  it('still drops a straggler of a session discarded several renewals ago', () => {
+    sessionManager.setId('session-1')
+    collect(RumEventType.VIEW, { session: { id: 'session-1' } })
+    lifeCycle.notify(LifeCycleEventType.SESSION_EXPIRED)
+
+    sessionManager.setId('session-2')
+    collect(RumEventType.VIEW, { session: { id: 'session-2' } })
+    lifeCycle.notify(LifeCycleEventType.SESSION_EXPIRED)
+
+    sessionManager.setId('session-3')
+    collect(RumEventType.VIEW, { session: { id: 'session-3' } })
+
+    // a request that outlived two withheld sessions finally completes
+    collect(RumEventType.RESOURCE, { session: { id: 'session-1' } })
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR, { session: { id: 'session-3' } })
+
+    const releasedSessionIds = releasedAfterJitter().map((event) => (event.session as Context).id)
+    expect(releasedSessionIds).toEqual(['session-3', 'session-3'])
   })
 
   it('keeps the view an error hangs from when a view that already ended is updated late', () => {

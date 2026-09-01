@@ -38,6 +38,13 @@ const WITHHELD_BUFFER_VIEWS_LIMIT = 50
  */
 export const WITHHELD_BUFFER_RELEASE_MAX_DELAY = 3 * ONE_SECOND
 
+/**
+ * How many thrown-away sessions to remember, so their stragglers are thrown away too. A late event
+ * can only still be assembled for a session while the session context history holds it, which is far
+ * shorter than the life of one session - a handful covers every straggler that can still arrive.
+ */
+const DISCARDED_SESSIONS_REMEMBERED = 4
+
 /** What gets dropped first when the buffer is over budget. Lower goes first. */
 const enum EvictionTier {
   /** Long tasks, and requests that succeeded without complaint. */
@@ -72,9 +79,11 @@ export function startWithheldEventBuffer(
   let currentViewId: string | undefined
   let currentViewDate = -Infinity
   let withheldForSessionId: string | undefined
-  /** The last session whose buffer was thrown away, so its stragglers are thrown away too. */
-  let discardedSessionId: string | undefined
+  /** The sessions whose buffers were thrown away, so their stragglers are thrown away too. */
+  const discardedSessionIds: string[] = []
   let releaseTimeoutId: TimeoutId | undefined
+  /** When the release was scheduled, which is what freezes the window - see {@link prune}. */
+  let releaseScheduledAt: RelativeTime | undefined
   let droppedCount = 0
 
   const eventSubscription = lifeCycle.subscribe(LifeCycleEventType.RUM_EVENT_COLLECTED, (event) => {
@@ -86,7 +95,7 @@ export function startWithheldEventBuffer(
     const eventSessionId = event.session?.id
     const isFrom = (sessionId: string | undefined) => eventSessionId === undefined || eventSessionId === sessionId
 
-    if (eventSessionId !== undefined && eventSessionId === discardedSessionId) {
+    if (eventSessionId !== undefined && discardedSessionIds.indexOf(eventSessionId) !== -1) {
       // Its session ended without ever reporting an error and everything held for it was thrown
       // away. Letting a straggler through would store the very session the withholding avoided.
       return
@@ -194,7 +203,11 @@ export function startWithheldEventBuffer(
 
   /** Drops what has aged out of the window, so the span kept is the one we promise. */
   function prune() {
-    const oldestAllowed = (relativeNow() - WITHHELD_BUFFER_DURATION) as RelativeTime
+    // Once a release is scheduled the window stops moving. The timer carrying that release is
+    // clamped to about once a minute in a background tab, and pruning against a later `now` would
+    // throw away exactly the minute before the error that the release exists to deliver.
+    const now = releaseScheduledAt ?? relativeNow()
+    const oldestAllowed = (now - WITHHELD_BUFFER_DURATION) as RelativeTime
     let cutoff = 0
     while (cutoff < details.length && details[cutoff].time < oldestAllowed) {
       bytes -= details[cutoff].bytes
@@ -249,6 +262,7 @@ export function startWithheldEventBuffer(
     if (releaseTimeoutId !== undefined) {
       return
     }
+    releaseScheduledAt = relativeNow()
     releaseTimeoutId = setTimeout(release, computeReleaseDelay(withheldForSessionId!))
   }
 
@@ -264,7 +278,7 @@ export function startWithheldEventBuffer(
       // upserts views by id, so the next ordinary update would otherwise replace these ones before
       // the batch is ever sent. These were assembled too early to pick it up, so they are given the
       // same value directly, which is what the backend sees if the page goes before the next update.
-      sessionManager.setSessionDetailSampledFrom(detailSampledFrom)
+      sessionManager.setSessionDetailSampledFrom(detailSampledFrom, withheldForSessionId!)
     }
 
     views.forEach((view) => {
@@ -287,7 +301,12 @@ export function startWithheldEventBuffer(
 
   /** Throws the buffer away, and remembers whose it was so its stragglers go the same way. */
   function discardBuffer() {
-    discardedSessionId = withheldForSessionId
+    if (withheldForSessionId !== undefined) {
+      discardedSessionIds.push(withheldForSessionId)
+      if (discardedSessionIds.length > DISCARDED_SESSIONS_REMEMBERED) {
+        discardedSessionIds.shift()
+      }
+    }
     clearBuffer()
   }
 
@@ -295,6 +314,7 @@ export function startWithheldEventBuffer(
   function clearBuffer() {
     clearTimeout(releaseTimeoutId)
     releaseTimeoutId = undefined
+    releaseScheduledAt = undefined
     views = new Map()
     details = []
     bytes = 0
