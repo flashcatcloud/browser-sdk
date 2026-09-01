@@ -892,6 +892,47 @@ describe('rum session manager', () => {
         expect(isSessionEnded()).toBeTrue()
       })
 
+      it('ends a session drawn before any settings arrived when the first ones tighten the level', () => {
+        // Nothing in storage yet, so this session was drawn on the init values — and a draw that
+        // lands exactly on them records nothing, which is why the level it runs under can only be
+        // read back off init. The recorder falls back the same way, so this is the level the page
+        // is really being masked with.
+        startWith({ sessionSampleRate: 100, defaultPrivacyLevel: 'allow' })
+
+        deliver({ version: 1, sessionSampleRate: 100, defaultPrivacyLevel: 'mask' })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('ends a collected session when the callback turns the delivered values into a zero', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100 })
+        startWith({
+          sessionSampleRate: 100,
+          beforeSampling: ({ custom }) => (custom?.optOut === true ? { sessionSampleRate: 0 } : undefined),
+        })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).not.toBe(RumTrackingType.NOT_TRACKED)
+
+        // The response carries no rate at all: the console ships the data and the application's own
+        // code turns it into the decision. Asking the callback away from a draw is the whole reason
+        // that decision can reach the session already running.
+        deliver({ version: 2, custom: { optOut: true } })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('ends a collected session when the settings are switched off and init never collected', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100 })
+        startWith({ sessionSampleRate: 0 })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).not.toBe(RumTrackingType.NOT_TRACKED)
+
+        // Turning remote configuration off in the console stores the version and nothing else, so
+        // the rates go back to the ones the site passed to init. That is a change like any other,
+        // and here it is the decisive one.
+        deliver({ version: 2 })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
       it('draws the session that follows on the settings that have just landed', () => {
         storeRemote({ version: 1, sessionSampleRate: 0 })
         startWith({ sessionSampleRate: 0 })
@@ -1000,13 +1041,14 @@ describe('rum session manager', () => {
         expect(isSessionEnded()).toBeFalse()
       })
 
-      it('reads nothing out of the settings store when the site did not opt in', () => {
+      it('does not fall over when the site never opted in and has no settings store', () => {
         storeRemote({ version: 1, sessionSampleRate: 100 })
         startRumSessionManagerWithDefaults({ configuration: { sessionSampleRate: 0, drawStoreKey: DRAW_KEY } })
 
-        // Such a site never fetches, so this can only ever be reached by hand. What matters is that
-        // the settings store is out of reach without the opt-in: the rate that would apply is the
-        // one init passed, which is the one this session was already drawn on.
+        // Such a site never fetches, so the announcement can only ever be reached by hand and the
+        // store key below is one nothing would look under. All this pins down is that the decision
+        // survives `remoteConfig` being undefined; that the opt-out is respected is settled where
+        // the fetcher is never started, not here.
         deliver({ version: 2, sessionSampleRate: 100 })
 
         expect(expireSessionSpy).not.toHaveBeenCalled()
