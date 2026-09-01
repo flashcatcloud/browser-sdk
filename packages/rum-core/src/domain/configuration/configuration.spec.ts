@@ -65,6 +65,48 @@ describe('validateAndBuildRumConfiguration', () => {
     })
   })
 
+  describe('sessionReplayOnErrorSampleRate', () => {
+    it('warns when the plain replay rate leaves it nothing to draw from', () => {
+      validateAndBuildRumConfiguration({
+        ...DEFAULT_INIT_CONFIGURATION,
+        sessionReplaySampleRate: 100,
+        sessionReplayOnErrorSampleRate: 50,
+      })
+
+      expect(displayWarnSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('warns when no session is tracked at all', () => {
+      validateAndBuildRumConfiguration({
+        ...DEFAULT_INIT_CONFIGURATION,
+        sessionSampleRate: 0,
+        sessionReplayOnErrorSampleRate: 50,
+      })
+
+      expect(displayWarnSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('warns when the recording is left for the customer to start, since nothing would be held', () => {
+      validateAndBuildRumConfiguration({
+        ...DEFAULT_INIT_CONFIGURATION,
+        sessionReplayOnErrorSampleRate: 50,
+        startSessionReplayRecordingManually: true,
+      })
+
+      expect(displayWarnSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('says nothing about a rate that can draw', () => {
+      validateAndBuildRumConfiguration({
+        ...DEFAULT_INIT_CONFIGURATION,
+        sessionReplaySampleRate: 20,
+        sessionReplayOnErrorSampleRate: 50,
+      })
+
+      expect(displayWarnSpy).not.toHaveBeenCalled()
+    })
+  })
+
   describe('traceSampleRate', () => {
     it('defaults to 100 if the option is not provided', () => {
       expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.traceSampleRate).toBe(100)
