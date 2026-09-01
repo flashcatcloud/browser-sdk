@@ -327,6 +327,7 @@ describe('startSegmentCollection withholding (error session replay)', () => {
   let withholdingSessionId: string | undefined
   let releasedSessionId: string | undefined
   let restartFromFullSnapshotSpy: jasmine.Spy<() => void>
+  let stopCollection: () => void
 
   function reportError() {
     releasedSessionId = withholdingSessionId
@@ -355,6 +356,7 @@ describe('startSegmentCollection withholding (error session replay)', () => {
       }
     )
     addRecord = add
+    stopCollection = stop
 
     registerCleanupTask(() => {
       stop()
@@ -474,6 +476,16 @@ describe('startSegmentCollection withholding (error session replay)', () => {
 
     // the dropped buffer never reached the intake, so the first segment that does is index 0
     expect((await readMetadataFromReplayPayload(httpRequestSpy.send.calls.mostRecent().args[0])).index_in_view).toBe(0)
+  })
+
+  it('does not restart the buffer when collection was stopped while the flush was in flight', () => {
+    addRecord(RECORD)
+    // the checkout flush is posted to the worker, and recording is stopped before it answers
+    clock.tick(BUFFER_CHECKOUT_TIME)
+    stopCollection()
+    worker.processAllMessages()
+
+    expect(restartFromFullSnapshotSpy).not.toHaveBeenCalled()
   })
 
   it('does not hand the next segment an index the dropped one still holds when a record lands mid-flush', async () => {
