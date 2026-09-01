@@ -25,3 +25,6 @@ package.tgz
 .VSCodeCounter
 .env
 .vscode
+
+# Editor swap files
+*.swp

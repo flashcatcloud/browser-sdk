@@ -49,8 +49,9 @@ https://static.flashcat.cloud/browser-sdk/<version>/fc-rum-legacy.js
 https://static.flashcat.cloud/browser-sdk/<version>/flashcat-rum.js
 ```
 
-`<version>` is the release tag, `v` prefix included. This build ships from `v0.1.0` onwards; the
-directories of earlier releases exist but hold no `fc-rum-legacy.js`.
+`<version>` is the release tag, `v` prefix included. The [SDK versions page](https://docs.flashcat.cloud/en/rum/sdk/versions) is where to
+look the current one up. This build ships from `v0.1.0` onwards; the directories of earlier
+releases exist but hold no `fc-rum-legacy.js`.
 
 Each release gets its own directory and earlier ones are left as they were, so a url pins the
 version it names. Updating a self-hosted copy means pointing at the next release, not
