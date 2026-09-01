@@ -20,7 +20,7 @@ export interface SessionManager<TrackingType extends string> {
   expireObservable: Observable<void>
   sessionStateUpdateObservable: Observable<{ previousState: SessionState; newState: SessionState }>
   expire: () => void
-  updateSessionState: (state: Partial<SessionState>) => void
+  updateSessionState: (update: (state: SessionState) => Partial<SessionState> | undefined) => void
 }
 
 export interface SessionContext<TrackingType extends string> extends Context {
