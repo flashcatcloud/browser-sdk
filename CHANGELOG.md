@@ -18,7 +18,7 @@
 
 ---
 
-## Unreleased
+## v0.2.1
 
 - ✨ Two changes published from the console now end the running session, so they reach the visitor
   at their next interaction instead of waiting for that session to end on its own: a stricter
