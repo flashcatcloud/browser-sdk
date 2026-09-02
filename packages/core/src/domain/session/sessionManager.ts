@@ -33,8 +33,6 @@ export interface SessionContext<TrackingType extends string> extends Context {
    * just because the user moved to another page.
    */
   hasError: boolean
-  /** Where the detail stored for this session starts, when its events were withheld for a while. */
-  detailSampledFrom: number | undefined
   anonymousId: string | undefined
 }
 
@@ -101,7 +99,6 @@ export function startSessionManager<TrackingType extends string>(
       trackingType: sessionStore.getSession()[productKey] as TrackingType,
       isReplayForced: !!sessionStore.getSession().forcedReplay,
       hasError: !!sessionStore.getSession().hasError,
-      detailSampledFrom: Number(sessionStore.getSession().detailFrom) || undefined,
       anonymousId: sessionStore.getSession().anonymousId,
     }
   }

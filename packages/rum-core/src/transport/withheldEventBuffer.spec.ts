@@ -90,17 +90,6 @@ describe('startWithheldEventBuffer', () => {
     ])
   })
 
-  it('marks how far back the released detail reaches', () => {
-    collect(RumEventType.VIEW)
-    collect(RumEventType.RESOURCE, { date: 4321 })
-
-    sessionManager.setSessionHasError()
-    collect(RumEventType.ERROR, { date: 9999 })
-
-    const view = releasedAfterJitter().find((event) => event.type === RumEventType.VIEW)!
-    expect((view.session as Context).detail_sampled_from).toBe(4321)
-  })
-
   it('keeps only the latest event of a view, since a view event supersedes the ones before it', () => {
     collect(RumEventType.VIEW, { documentVersion: 1 })
     collect(RumEventType.VIEW, { documentVersion: 2 })
@@ -173,20 +162,6 @@ describe('startWithheldEventBuffer', () => {
 
     const dates = releasedAfterJitter().map((event) => event.date)
     expect(dates).toContain(111)
-  })
-
-  it('records on the session how far back the released detail reaches', () => {
-    const spy = spyOn(sessionManager, 'setSessionDetailSampledFrom').and.callThrough()
-    collect(RumEventType.VIEW)
-    collect(RumEventType.RESOURCE, { date: 4321 })
-
-    sessionManager.setSessionHasError()
-    collect(RumEventType.ERROR, { date: 9999 })
-    releasedAfterJitter()
-
-    // kept on the session, because the batch upserts views by id and the next ordinary view update
-    // would otherwise replace the stamped one before anything is sent
-    expect(spy).toHaveBeenCalledWith(4321, 'session-id')
   })
 
   it('drops the buffer when the session ends without ever having errored', () => {
@@ -388,19 +363,6 @@ describe('startWithheldEventBuffer', () => {
       .filter((event) => event.type === RumEventType.VIEW)
       .map((event) => event.date)
     expect(releasedViewDates).toEqual([1000, 2000, 3000])
-  })
-
-  it('marks the detail as starting at the earliest event, not at the first one held', () => {
-    collect(RumEventType.VIEW)
-    // a request that took minutes is only held once it finishes, but it started well before that
-    collect(RumEventType.RESOURCE, { date: 5000 })
-    collect(RumEventType.RESOURCE, { date: 1000 })
-
-    sessionManager.setSessionHasError()
-    collect(RumEventType.ERROR, { date: 9000 })
-
-    const view = releasedAfterJitter().find((event) => event.type === RumEventType.VIEW)!
-    expect((view.session as Context).detail_sampled_from).toBe(1000)
   })
 
   it('spreads the release over the window it computed for this session', () => {

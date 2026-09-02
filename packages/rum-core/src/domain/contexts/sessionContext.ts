@@ -31,7 +31,6 @@ export function startSessionContext(
     let hasReplay
     let sampledForReplay
     let sampledForError
-    let detailSampledFrom
     let sampledForErrorReplay
     let isActive
     if (eventType === RumEventType.VIEW) {
@@ -49,7 +48,6 @@ export function startSessionContext(
       // Tells the backend that this session's detail only starts where the buffer reached, so the
       // gap before it reads as "not collected" rather than as missing data.
       sampledForError = session.sampledOnError || undefined
-      detailSampledFrom = session.detailSampledFrom
       // Tells a replay collected only because the session errored apart from one collected
       // unconditionally - the two cost differently and are answered by different questions.
       sampledForErrorReplay = session.sampledOnErrorReplay || undefined
@@ -66,7 +64,6 @@ export function startSessionContext(
         has_replay: hasReplay,
         sampled_for_replay: sampledForReplay,
         sampled_for_error: sampledForError,
-        detail_sampled_from: detailSampledFrom,
         sampled_for_error_replay: sampledForErrorReplay,
         is_active: isActive,
       },

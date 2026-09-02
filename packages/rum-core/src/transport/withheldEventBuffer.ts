@@ -288,24 +288,6 @@ export function startWithheldEventBuffer(
     // A detail whose view is gone has no container to hang from, so it would be unreachable.
     const releasable = details.filter((held) => views.has(held.viewId))
 
-    // The earliest date among them, not the first one held: an event is dated when it started, and a
-    // request that took minutes is held only once it finishes - so the first held is not the first
-    // to have happened, and the marker has to be a point no released detail precedes.
-    let detailSampledFrom: number | undefined
-    releasable.forEach((held) => {
-      if (detailSampledFrom === undefined || held.event.date < detailSampledFrom) {
-        detailSampledFrom = held.event.date
-      }
-    })
-
-    if (detailSampledFrom !== undefined) {
-      // Recorded on the session so that every view update from here on carries it - the batch
-      // upserts views by id, so the next ordinary update would otherwise replace these ones before
-      // the batch is ever sent. These were assembled too early to pick it up, so they are given the
-      // same value directly, which is what the backend sees if the page goes before the next update.
-      sessionManager.setSessionDetailSampledFrom(detailSampledFrom, withheldForSessionId!)
-    }
-
     // Oldest first. A Map holds its entries in the order they were last updated, which for a burst
     // released all at once is not the order the views happened - and a session is built out of
     // whichever of its views arrives first, so that one has to be the earliest.
@@ -313,12 +295,7 @@ export function startWithheldEventBuffer(
     views.forEach((view) => orderedViews.push(view))
     orderedViews.sort((left, right) => left.date - right.date)
 
-    orderedViews.forEach((view) => {
-      if (detailSampledFrom !== undefined) {
-        view.session.detail_sampled_from = detailSampledFrom
-      }
-      forward(view)
-    })
+    orderedViews.forEach(forward)
     releasable.forEach((held) => forward(held.event))
 
     addTelemetryDebug('Error session event buffer released', {

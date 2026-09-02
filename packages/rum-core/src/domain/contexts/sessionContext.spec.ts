@@ -234,17 +234,6 @@ describe('session context', () => {
     expect(plainEvent.session!.sampled_for_error).toBeUndefined()
   })
 
-  it('should say where the stored detail of a released session starts', () => {
-    sessionManager.setTrackedOnError().setSessionDetailSampledFrom(1234, 'session-id')
-
-    const event = hooks.triggerHook(HookNames.Assemble, {
-      eventType: 'view',
-      startTime: 0 as RelativeTime,
-    }) as DefaultRumEventAttributes
-
-    expect(event.session!.detail_sampled_from).toBe(1234)
-  })
-
   it('should discard the event if no session', () => {
     sessionManager.setNotTracked()
     const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {
