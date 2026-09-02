@@ -853,23 +853,13 @@ describe('rum session manager', () => {
       return getSessionState(SESSION_STORE_KEY).isExpired === '1'
     }
 
-    describe('the three changes it can decide on its own', () => {
+    describe('the two changes it can decide on its own', () => {
       it('ends a session being collected when the rate goes to zero', () => {
         storeRemote({ version: 1, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
         startWith({ sessionSampleRate: 100 })
         expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
 
         deliver({ version: 2, sessionSampleRate: 0, sessionReplaySampleRate: 0 })
-
-        expect(isSessionEnded()).toBeTrue()
-      })
-
-      it('ends a session that is not being collected when the rate goes to a hundred', () => {
-        storeRemote({ version: 1, sessionSampleRate: 0 })
-        startWith({ sessionSampleRate: 0 })
-        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
-
-        deliver({ version: 2, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
 
         expect(isSessionEnded()).toBeTrue()
       })
@@ -934,14 +924,14 @@ describe('rum session manager', () => {
       })
 
       it('draws the session that follows on the settings that have just landed', () => {
-        storeRemote({ version: 1, sessionSampleRate: 0 })
-        startWith({ sessionSampleRate: 0 })
+        storeRemote({ version: 1, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+        startWith({ sessionSampleRate: 100 })
 
-        deliver({ version: 2, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+        deliver({ version: 2, sessionSampleRate: 0 })
         clock.tick(STORAGE_POLL_DELAY)
         document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 
-        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
       })
     })
 
@@ -951,6 +941,20 @@ describe('rum session manager', () => {
         startWith({ sessionSampleRate: 100 })
 
         deliver({ version: 2, sessionSampleRate: 30 })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('leaves a session that is not being collected alone when the rate goes to a hundred', () => {
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        startWith({ sessionSampleRate: 0 })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+
+        // The one rate whose outcome could be asserted and deliberately is not: `setForcedSession`
+        // already covers "collect this visitor now", raising volume unannounced is the one
+        // direction that surprises, and nothing about it is urgent.
+        deliver({ version: 2, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
 
         expect(expireSessionSpy).not.toHaveBeenCalled()
         expect(isSessionEnded()).toBeFalse()
@@ -1165,28 +1169,6 @@ describe('rum session manager', () => {
         expireSessionSpy.calls.reset()
         return rumSessionManager
       }
-
-      it('is still ended by a rate of a hundred when the session it adopted collects nothing', () => {
-        storeRemote({ version: 1, sessionSampleRate: 0 })
-        setCookie(SESSION_STORE_KEY, `rum=0&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
-        const rumSessionManager = startWith({ sessionSampleRate: 0 })
-
-        // Forcing ends a session that collects nothing, so that the next draw can be the forced
-        // one. Before that draw happens, a tab that never forced anything starts a session of its
-        // own, and this page adopts it: the page is forced while the session it holds is not.
-        rumSessionManager.setForcedSession()
-        setCookie(SESSION_STORE_KEY, `rum=0&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
-        clock.tick(STORAGE_POLL_DELAY)
-        document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
-        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
-        expireSessionSpy.calls.reset()
-
-        // Here the rate has something to change, so the exemption does not apply: ending the
-        // session is what lets the next draw be the forced one this page asked for.
-        deliver({ version: 2, sessionSampleRate: 100 })
-
-        expect(isSessionEnded()).toBeTrue()
-      })
 
       it('is not ended by a rate, since every draw it makes is collected anyway', () => {
         storeRemote({ version: 1, sessionSampleRate: 0 })

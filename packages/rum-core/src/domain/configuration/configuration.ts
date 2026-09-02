@@ -93,15 +93,19 @@ export interface RumInitConfiguration extends InitConfiguration {
    * values passed here, so they can be changed without releasing a new version of this site.
    *
    * A change applies to sessions started after it arrives, and a session already under way is never
-   * re-decided in place. Three changes do not wait for that session to end on its own, because
-   * their effect on it can be told without drawing again: a session sample rate of 0 while the
-   * visitor is being collected, a rate of 100 while they are not, and a stricter
-   * `defaultPrivacyLevel` while they are being collected — a visitor who is not being collected
-   * records nothing, so a stricter level has no plaintext to catch there. Each of those ends the
-   * current session, and the visitor's next action starts a new one under the new settings — the
-   * old session is collected to its end as it was begun, so no recording is left masked in one
-   * half and plain in the other. Every other change, a loosening privacy level included, waits for
-   * the next session.
+   * re-decided in place. Two changes do not wait for that session to end on its own, because their
+   * effect on it can be told without drawing again: a stricter `defaultPrivacyLevel`, and a session
+   * sample rate of 0. Both apply only while the visitor is being collected — one who is not records
+   * nothing and sends nothing, so neither has anything to act on there. Either ends the current
+   * session, and the visitor's next action starts a new one under the new settings; the old session
+   * is collected to its end as it was begun, so no recording is left masked in one half and plain
+   * in the other. Every other change waits for the next session, a loosening privacy level and a
+   * rate rising to 100 included — for "collect this visitor now" there is `setForcedSession()`.
+   *
+   * How soon "does not wait" is depends on when this client next hears of the change, and it hears
+   * only at page load and at each new session. A visitor who keeps loading pages hears within
+   * seconds; a single tab that is never reloaded hears nothing until its session reaches the
+   * four-hour cap.
    *
    * The values below stay in use until the first settings arrive, and whenever the settings cannot
    * be reached.

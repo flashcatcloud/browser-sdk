@@ -207,79 +207,84 @@ export function startRumSessionManager(
     lifeCycle.notify(LifeCycleEventType.SESSION_RENEWED)
   })
 
-  // FLASHCAT FORK - a change published mid-session normally waits for that session to end on its
-  // own, which for a visitor who never goes idle is hours away. Three changes cannot afford the
-  // wait, and what makes exactly those three special is that their outcome for the running session
-  // can be asserted without drawing again:
+  // FLASHCAT FORK - by the time this runs the client has already downloaded the new settings and
+  // filed them away, and without this it would then do nothing with them until the running session
+  // ends on its own — up to four hours. That wait is the whole problem: a visitor who keeps loading
+  // pages fetches the change within seconds and then carries on under the old decision for the rest
+  // of their visit.
   //
-  //   - a session sample rate of 0 while this session is being collected: nothing is meant to be
-  //     collected any more, and this is the emergency stop the console offers;
-  //   - a session sample rate of 100 while this session is not: everything is meant to be
-  //     collected, and this visitor is the exception;
-  //   - a stricter default privacy level while this session is being collected: every further
-  //     second recorded is a second of plaintext uploaded, and masking cannot reach back for it.
+  // Two changes are not made to wait, and what makes exactly those two special is that their
+  // outcome for the running session can be asserted without drawing again:
   //
-  // No other rate says anything about whether THIS session should have been kept — only a second
-  // draw could, and drawing twice silently turns a rate p into p². So everything else waits for
-  // the next session, a loosening privacy level included. Loosening waits on purpose: the delay
-  // is what leaves an operator room to undo a mistake, and what it costs meanwhile is more of the
-  // data already being collected.
+  //   - a stricter default privacy level: every further second recorded is a second of plaintext
+  //     uploaded, and masking cannot reach back for it. This is the one whose cost is not
+  //     recoverable, and the reason the rest of this exists;
+  //   - a session sample rate of 0: nothing is meant to be collected any more, and this is the
+  //     emergency stop the console offers — one that took four hours would not be one.
   //
-  // The action is always to end the session and let the next activity start a new one — never to
-  // flip the running one, which would leave a replay masked in its first half and plain in its
-  // second, or invent a session that begins in the middle of a visit.
+  // Both are about a session that is being collected, which is why that is the first thing checked.
+  // A visitor who is not being collected records nothing and uploads nothing, so neither rule has
+  // anything to act on for them.
+  //
+  // No rate other than 0 says anything about whether THIS session should have been kept — only a
+  // second draw could, and drawing twice silently turns a rate p into p². A rate of 100 could be
+  // asserted about a session that is not collected, and deliberately is not acted on: `setForcedSession`
+  // already exists for "collect this visitor now", it is the one direction that raises volume
+  // unannounced, and nothing about it is urgent. So everything else waits for the next session, a
+  // loosening privacy level included. Loosening waits on purpose: the delay is what leaves an
+  // operator room to undo a mistake, and what it costs meanwhile is more of the data already being
+  // collected.
+  //
+  // The action is to end the session and let the next activity start a new one — never to flip the
+  // running one, which would leave a replay masked in its first half and plain in its second, or
+  // invent a session that begins in the middle of a visit.
   //
   // It stays idempotent with no bookkeeping at all: it compares what this session was drawn under
   // against what a draw would use now, and ending the session is exactly what makes that
   // difference disappear. The same response arriving again — another tab, a retry, a reload —
   // finds nothing left to act on.
+  //
+  // What it cannot reach: settings are fetched at start-up and on session renewal only, so a page
+  // that is never reloaded never hears of the change. A single always-visible tab is exactly that
+  // page — the visibility timer keeps renewing it, so it fetches nothing until the four-hour cap.
+  // Any other tab of the same visitor that does load a page ends the session they share.
   function endSessionIfSettingsAreDecisive() {
     const session = sessionManager.findSession()
-    if (!session) {
-      // Nothing to end. Whatever starts the next session draws on the settings just stored, which
-      // is the ordinary path and already gives them their effect.
+    if (!session || !isTypeTracked(session.trackingType)) {
+      // Nothing here that ending would change. Whatever starts this visitor's next session draws
+      // on the settings just stored, which is the ordinary path and already gives them effect.
+      //
+      // It also could not be decided if we wanted to: a session that is not collected is given no
+      // id, so no record is kept of what it was drawn under. The comparison below would fall
+      // through to the init value on every announcement and keep answering "tighter", ending one
+      // empty session after another for as long as the visitor stayed.
       return
     }
 
     const remote = readRemoteConfig(configuration.remoteConfig)
 
-    // Whether this session is collected is read off the session itself rather than reconstructed
-    // by comparing rates: the session IS the outcome its draw produced, and an outcome is the only
-    // thing 0 and 100 let us assert anything about.
-    const isCollected = isTypeTracked(session.trackingType)
-
-    // Only a session that is being collected can be recording, and only a recording can be too
-    // plain. A sampled-out visitor uploads nothing, so a stricter level has nothing to protect
-    // there — and nothing to compare against either: a session that is not collected is given no
-    // id, so no draw is recorded for it and what it was drawn under cannot be read back here. The
-    // comparison would fall through to the init value on every announcement and keep answering
-    // "tighter", ending one empty session after another for as long as the visitor stays.
-    if (isCollected) {
-      // What this session is masking pages with right now, which is not the previously stored
-      // settings: settings are stored while a session runs, and the session was drawn under
-      // whatever was stored before that. No record means the draw used the init value, and so does
-      // the recorder — see `startRecording`, which falls back the same way.
-      const drawnPrivacyLevel = drawnHistory.find()?.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
-      const nextPrivacyLevel = remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
-      if (PRIVACY_LEVEL_STRICTNESS[nextPrivacyLevel] > PRIVACY_LEVEL_STRICTNESS[drawnPrivacyLevel]) {
-        sessionManager.expire()
-        return
-      }
+    // What this session is masking pages with right now, which is not the previously stored
+    // settings: settings are stored while a session runs, and the session was drawn under whatever
+    // was stored before that. No record means the draw used the init value, and so does the
+    // recorder — see `startRecording`, which falls back the same way.
+    const drawnPrivacyLevel = drawnHistory.find()?.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
+    const nextPrivacyLevel = remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
+    if (PRIVACY_LEVEL_STRICTNESS[nextPrivacyLevel] > PRIVACY_LEVEL_STRICTNESS[drawnPrivacyLevel]) {
+      sessionManager.expire()
+      return
     }
 
-    if (forcedSession && isCollected) {
+    if (forcedSession) {
       // The host application has taken this page off the rates deliberately, and every draw it
-      // makes from now on is collected whatever the console says. Ending a collected session on a
-      // rate would only replace it with another collected one — the same difference, forever. That
-      // reasoning runs out when the session is not collected: this page can adopt one an unforced
-      // tab drew, and there a rate of 100 has something to change, so it is left to the rule
-      // below. The flag is this page's either way — another tab that never called
-      // `setForcedSession` reads the shared session as an ordinary one.
+      // makes from now on is collected whatever the console says. Ending it on a rate would only
+      // replace it with an identical forced session — the same difference, forever. The flag is
+      // this page's: another tab of the same visitor that never called `setForcedSession` reads
+      // the shared session as an ordinary one and may end it on a rate.
       return
     }
 
     const { sessionSampleRate } = resolveSampleRates(configuration, remote)
-    if ((sessionSampleRate === 0 && isCollected) || (sessionSampleRate === 100 && !isCollected)) {
+    if (sessionSampleRate === 0) {
       sessionManager.expire()
     }
   }
