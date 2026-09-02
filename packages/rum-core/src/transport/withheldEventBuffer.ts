@@ -143,6 +143,12 @@ export function startWithheldEventBuffer(
    * `discardIfUnreleased` says whether the buffer has anything left to wait for. A session that
    * ended is over, so what it never released goes no further. A page being hidden is not: it comes
    * back, and dropping the minute it had collected would leave the error that follows with nothing.
+   *
+   * A session that had already reported its error is released here rather than dropped, and that
+   * holds when the session ended because consent was withdrawn: everything held was collected while
+   * consent stood, and the batch has always flushed what it was holding when a session ends. The
+   * difference this feature makes is the size of that last flush, up to a minute rather than up to
+   * a batch. Deliberate, and settled - do not turn it into a discard without saying so out loud.
    */
   function settleBuffer(discardIfUnreleased: boolean) {
     if (withheldForSessionId === undefined) {
