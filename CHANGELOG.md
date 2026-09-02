@@ -18,6 +18,15 @@
 
 ---
 
+## Unreleased
+
+- 🐛 The settings cache no longer grows by one entry per release of your site. Entries are keyed by
+  application version, because two releases served at the same time are entitled to different rates
+  — but the entry a previous release used was never read or removed again, so on a site that
+  deploys often they accumulated in the storage quota the page shares. An entry that nothing has
+  refreshed for two days is now removed when the SDK starts. A page still reading its entry
+  rewrites it at every session renewal, so only the entries of releases nobody runs are swept.
+
 ## v0.2.1
 
 - ✨ Two changes published from the console now end the running session, so they reach the visitor

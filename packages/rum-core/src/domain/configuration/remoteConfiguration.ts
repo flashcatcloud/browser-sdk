@@ -2,9 +2,11 @@ import {
   addEventListener,
   clearTimeout,
   createEndpointUrlBuilder,
+  dateNow,
   display,
   noop,
   setTimeout,
+  ONE_DAY,
   ONE_SECOND,
 } from '@flashcatcloud/browser-core'
 import type { DefaultPrivacyLevel, TimeoutId } from '@flashcatcloud/browser-core'
@@ -56,6 +58,22 @@ const STORE_KEY_PREFIX = '_fc_rc_1_'
  */
 const DRAW_STORE_KEY_PREFIX = '_fc_draw_1_'
 const DEFAULT_FETCH_TIMEOUT = 3 * ONE_SECOND
+
+/**
+ * How long an entry may go unrefreshed before `sweepAbandonedEntries` treats it as belonging to a
+ * release nobody is running any more.
+ *
+ * An entry that is still being read is also being rewritten: the page reading it refetches at every
+ * session renewal and stores the answer. So the threshold only has to clear the longest a live
+ * entry can legitimately stay silent, which is the longest session (four hours, after which a
+ * renewal refetches) plus the longest endpoint outage we are willing to survive without dropping
+ * anyone — a failed fetch stores nothing. Two days leaves better than a day and a half of outage,
+ * and still bounds the leak at the entries of two days of releases.
+ *
+ * Erring long is deliberate. Deleting an entry too early costs the page reading it one session on
+ * its init values; keeping a dead one costs a few hundred bytes.
+ */
+const STORE_ENTRY_MAX_AGE = 2 * ONE_DAY
 
 /**
  * A failed fetch is retried quickly, then patiently, then not at all until the next natural
@@ -311,6 +329,10 @@ function keepConfigFresh(configuration: RumConfiguration, setup: RemoteConfigSet
 
   const renewSubscription = lifeCycle.subscribe(LifeCycleEventType.SESSION_RENEWED, onTrigger)
 
+  // Before the first request, so the room the entries of dead releases are holding is free by the
+  // time there is an answer to store. See `sweepAbandonedEntries`.
+  sweepAbandonedEntries(setup.storeKey)
+
   onTrigger()
 
   return () => {
@@ -422,8 +444,16 @@ function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) 
   //
   // What it is compared against is storage, not a version held in memory here, because the two
   // requests that can cross are two pages, and storage is the only thing they share.
-  const storedVersion = readRemoteConfig(setup).version
+  const stored = readRemoteConfig(setup)
+  const storedVersion = stored.version
   if (storedVersion !== undefined && response.version < storedVersion) {
+    // Refused, but the entry is plainly still in use — a request was just made for it and answered.
+    // Rewriting it unchanged is what says so: its age is the only thing the sweep reads, and this
+    // is the one path that reaches an entry without storing anything. A client left here by a
+    // server that broke the only-goes-up contract would otherwise have the settings it is still
+    // asking for swept out from under it. Reading a version out of the entry proves it is there,
+    // so nothing needs to be checked before writing it back.
+    writeEntry(setup, stored)
     return false
   }
 
@@ -461,18 +491,107 @@ function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) 
     values.custom = response.custom
   }
 
+  // Written even with nothing in it — that is what "remote configuration is off, use your own
+  // settings" looks like — so that the version is kept either way and the console can still see
+  // that this client is up to date with the change that turned it off.
+  return writeEntry(setup, values) && isNew
+}
+
+/**
+ * What actually sits in storage: the values, plus when they were last written.
+ *
+ * `t` is not one of the values and is never handed on — `readStoredValues` drops it with everything
+ * else it does not recognise. It exists for `sweepAbandonedEntries` alone, which is why it is not
+ * spelled out on `RemoteConfigValues` where a reader would take it for something the server sends.
+ */
+interface StoredEntry extends RemoteConfigValues {
+  t: number
+}
+
+/**
+ * The one place an entry is written, so that every entry carries the write time the sweep reads.
+ *
+ * Answers whether the values are now where the next draw will look for them. A failure — storage
+ * unavailable, or the origin out of room — leaves the previous entry exactly as it was, which is
+ * the same "keep what is already working" answer a failed request gets: the client goes on applying
+ * the settings it last stored, and goes on reporting their version. It is still reported as a
+ * failure, because nothing downstream may act on settings the next draw will not find.
+ */
+function writeEntry(setup: RemoteConfigSetup, values: RemoteConfigValues) {
   try {
-    // Written even with nothing in it — that is what "remote configuration is off, use your own
-    // settings" looks like — so that the version is kept either way and the console can still see
-    // that this client is up to date with the change that turned it off.
-    localStorage.setItem(setup.storeKey, JSON.stringify(values))
-    return isNew
+    const entry: StoredEntry = { ...values, t: dateNow() }
+    localStorage.setItem(setup.storeKey, JSON.stringify(entry))
+    return true
   } catch {
-    // Storage unavailable, or the origin is out of room. The previous entry stays as it is, which
-    // is the same "keep what is already working" answer a failed request gets — the client goes on
-    // applying the settings it last stored, and goes on reporting their version. Reported as a
-    // failure all the same: nothing downstream may act on settings the next draw will not find.
     return false
+  }
+}
+
+/**
+ * Delete the entries of releases nobody is running any more.
+ *
+ * The store key carries the application version, because two releases live at the same time are
+ * entitled to different rates and one entry between them would have each overwrite the other's at
+ * every fetch. The cost of that is an entry per release, and nothing ever read or removed them
+ * again — on a site that deploys daily they accumulate for good, in a quota the host application
+ * shares.
+ *
+ * Run once per initialisation rather than at every write. Sweeping on write was the shape tried
+ * first and it is the wrong one: `localStorage` is synchronous, a session renewal is a hot path,
+ * and the walk would repeat for no new information. Once per page also puts it *before* the first
+ * write, which is what lets it free room on an origin that is already out of it — the very state
+ * the leak produces.
+ *
+ * This page's own entry is never a candidate: it holds the version floor that lets a late answer
+ * be refused, and it is about to be read by the request this initialisation is starting.
+ *
+ * An entry with no write time at all was left by a build older than this one. It is taken for
+ * abandoned rather than stamped and kept, which is the trade this makes deliberately: stamping
+ * would mean a write per orphan on the first load after the upgrade, and the accumulated orphans
+ * are exactly what this exists to clear. What it costs is bounded — while two builds are live on
+ * one origin, a page still on the old one may have its entry swept and spend a single session on
+ * its init values before writing it back.
+ */
+function sweepAbandonedEntries(keepKey: string) {
+  try {
+    const now = dateNow()
+    const abandoned: string[] = []
+
+    // Collected in full before anything is removed: removing during the walk shifts the indices
+    // `key()` reads, and whatever slid into the freed slot would be stepped over.
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i)
+      if (key === null || key === keepKey || key.indexOf(STORE_KEY_PREFIX) !== 0) {
+        continue
+      }
+      if (now - readWriteTime(key) > STORE_ENTRY_MAX_AGE) {
+        abandoned.push(key)
+      }
+    }
+
+    abandoned.forEach((key) => localStorage.removeItem(key))
+  } catch {
+    // Storage unavailable, or an entry that is not ours to parse. Housekeeping is never worth
+    // failing an initialisation over, and the next page load tries again.
+  }
+}
+
+/**
+ * When the entry under `key` was last written, or 0 — older than any threshold — when it does not
+ * say. Anything in a browser profile can be edited by hand, so a time that is not a plain number is
+ * read as no time at all rather than trusted into the arithmetic above.
+ */
+function readWriteTime(key: string) {
+  try {
+    const stored = localStorage.getItem(key)
+    const parsed: unknown = stored ? JSON.parse(stored) : undefined
+    if (!parsed || typeof parsed !== 'object') {
+      return 0
+    }
+    const { t } = parsed as Partial<StoredEntry>
+    return typeof t === 'number' && isFinite(t) ? t : 0
+  } catch {
+    return 0
   }
 }
 
@@ -529,19 +648,11 @@ function validFetchTimeout(timeout: number | undefined) {
  * as long as both are being served — so the version has to stay, and cannot be dropped to make the
  * limitation below go away.
  *
- * KNOWN LIMITATION - that costs an entry per deploy. The first session after a release reads the
- * local settings, and the entry the release before it used is never read again and never removed,
- * so they accumulate in a quota the host application shares.
- *
- * Sweeping them on write is not the answer, and was tried: nothing here can tell an abandoned entry
- * from the entry of a tab still open on yesterday's release, and deleting the latter drops that tab
- * to its local settings for a whole session — after which the two tabs delete each other's entry at
- * every renewal, which is a worse failure than the leak. A correct fix needs a way to know that no
- * page is still reading an entry: an age written beside the values would do it, and is the shape to
- * reach for if the accumulation ever bites. Two things to get right if it is ever built — the
- * threshold has to clear the longest session AND the longest plausible endpoint outage, since only
- * a stored response refreshes the age, and the stale-version early return above skips that write,
- * so it must refresh the age even when it declines the values.
+ * That costs an entry per release — the first session after one reads the local settings, and the
+ * entry the release before it used is never read again — so the entries are swept by age rather
+ * than left to accumulate in a quota the host application shares. See `sweepAbandonedEntries` for
+ * why age is the only thing that can tell an abandoned entry from the entry of a tab still open on
+ * yesterday's release.
  */
 function buildStoreKey(initConfiguration: RumInitConfiguration) {
   return buildKey(STORE_KEY_PREFIX, identityParts(initConfiguration).concat(initConfiguration.version ?? ''))
