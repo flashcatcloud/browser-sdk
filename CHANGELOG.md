@@ -18,6 +18,52 @@
 
 ---
 
+## v0.2.2
+
+- 🐛 The settings cache no longer grows by one entry per release of your site. Entries are keyed by
+  application version, because two releases served at the same time are entitled to different rates
+  — but the entry a previous release used was never read or removed again, so on a site that
+  deploys often they accumulated in the storage quota the page shares. New entries now record when
+  they were refreshed, and one left untouched for two days is removed when the SDK starts. Entries
+  written by older SDK builds are kept because they carry no refresh time, leaving a finite legacy
+  residue while preventing the cache from growing without bound.
+
+## v0.2.1
+
+- ✨ Two changes published from the console now end the running session, so they reach the visitor
+  at their next interaction instead of waiting for that session to end on its own: a stricter
+  Session Replay privacy level, and a session sample rate of 0 — the emergency stop, which took up
+  to four hours to stop anything before this. Both apply only while the visitor is being collected;
+  one who is not records nothing and sends nothing, so neither change has anything to act on there.
+  The session that ends is collected to its end as it began, so no recording is left masked in one
+  half and plain in the other. Every other change still waits for the next session, including a
+  loosening privacy level and a rate rising to 100 — for "collect this visitor now" there is
+  `setForcedSession()`. Custom values wait on their own too, but not once `beforeSampling` turns
+  them into a rate of 0. Nothing here happens without `remoteConfigurationEnabled: true`.
+- 📝 How soon "does not wait" is depends on when this client next hears of the change, and it hears
+  only at page load and at each new session — there is no timer. A visitor who keeps loading pages
+  hears within seconds of the publish and their session ends there. A single tab that is never
+  reloaded hears nothing until its session reaches the four-hour cap, so an always-on screen is the
+  case this does least for; any other tab the same visitor loads ends the session they share.
+- 📝 What you will see on the day you publish one of the two: session counts rise and average
+  session length drops, because each affected visitor's running session is split at that moment,
+  and a replay in progress ends at the split — the session that follows draws again, so it carries
+  a new recording only if that draw keeps one. That is the change taking effect, not a defect.
+- 📝 The two act on what actually changed, not on the activation mode recorded with the publish: a
+  change the console files as "next session" still ends the running session if it is one of them.
+- 📝 `beforeSampling` is now also consulted when settings arrive, away from any draw, to work out
+  which rate would apply. It must stay free of side effects and answer the same way for the same
+  input: a callback that draws its own lottery — answering 0 at random — can end a session that a
+  steady answer would have left running.
+- 📝 A session forced with `setForcedSession()` is not ended by a rate: forcing decides whether this
+  visitor is collected, and every draw the page makes is collected whatever the console says, so
+  ending it would only produce the same session again. A stricter privacy level still ends it,
+  because forcing says nothing about how much of the page may be uploaded in the clear. The page
+  forces the next session on its own, so the visit continues as two sessions.
+- 📝 Turning remote configuration off is itself a change: the rates go back to the ones passed to
+  `init`. On a site whose init rate is 0, switching it off stops collection at once rather than at
+  the next session.
+
 ## v0.2.0
 
 - 💥 **Breaking**: `remoteConfigurationId` is gone from `RumInitConfiguration`. It fetched a

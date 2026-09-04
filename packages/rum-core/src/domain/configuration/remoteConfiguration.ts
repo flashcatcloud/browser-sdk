@@ -2,9 +2,11 @@ import {
   addEventListener,
   clearTimeout,
   createEndpointUrlBuilder,
+  dateNow,
   display,
   noop,
   setTimeout,
+  ONE_DAY,
   ONE_SECOND,
 } from '@flashcatcloud/browser-core'
 import type { DefaultPrivacyLevel, TimeoutId } from '@flashcatcloud/browser-core'
@@ -20,17 +22,23 @@ declare const __BUILD_ENV__SDK_VERSION__: string
  * masks a page by default.
  *
  * A change only affects sessions created after it arrives, so a visitor is never dropped halfway
- * through and never starts being recorded halfway through. Fetching follows the same rhythm: once
- * at start-up and once whenever a new session begins — a change can only matter at the next draw,
- * so asking more often than sessions are drawn would be requests for nothing. There is no timer
- * between sessions.
+ * through and never starts being recorded halfway through. What "immediately" means for the
+ * handful of changes that cannot wait is therefore not a flip of the running session but its end:
+ * see `endSessionIfSettingsAreDecisive` in the session manager, which subscribes to the event this
+ * module emits once new settings are in storage.
+ *
+ * Fetching follows the session's rhythm: once at start-up and once whenever a new session begins —
+ * a change can only matter at a draw, and every draw is a new session — so asking more often than
+ * sessions are drawn would be requests for nothing. There is no timer between sessions. The cost
+ * of that rhythm is that a visitor who never goes idle stays on one session, and so on one set of
+ * settings, for as long as they keep using the site.
  *
  * Three fields the server sends are accepted and ignored, deliberately: `ttl` and
  * `refresh_on_foreground`, which describe when to ask again and are moot without a timer, and
- * `activation`, which offers to end a running session so a change applies at once. Everything here
- * is next-session, so a console that ever offers "apply immediately" would not be obeyed by this
- * build — named here so the mismatch is found by reading rather than by an operator wondering why
- * nothing happened.
+ * `activation`, which offers to end a running session so a change applies at once. This build ends
+ * a running session on its own reading of what changed rather than on the server's say-so, so a
+ * console that offers "apply immediately" as a switch would not be obeyed — named here so the
+ * mismatch is found by reading rather than by an operator wondering why nothing happened.
  *
  * Nothing here runs unless `remoteConfigurationEnabled: true`. Left off — the default — the SDK makes no
  * extra request and behaves exactly as it did before this existed.
@@ -50,6 +58,22 @@ const STORE_KEY_PREFIX = '_fc_rc_1_'
  */
 const DRAW_STORE_KEY_PREFIX = '_fc_draw_1_'
 const DEFAULT_FETCH_TIMEOUT = 3 * ONE_SECOND
+
+/**
+ * How long an entry may go unrefreshed before `sweepAbandonedEntries` treats it as belonging to a
+ * release nobody is running any more.
+ *
+ * An entry written by this SDK that is still being read is also being rewritten: the page reading
+ * it refetches at every session renewal and stores the answer. So the threshold only has to clear
+ * the longest a live entry can legitimately stay silent, which is the longest session (four hours,
+ * after which a renewal refetches) plus the longest endpoint outage we are willing to survive
+ * without dropping anyone — a failed fetch stores nothing. Two days leaves better than a day and a
+ * half of outage, and still bounds the leak at the entries of two days of releases.
+ *
+ * Erring long is deliberate. Deleting an entry too early costs the page reading it one session on
+ * its init values; keeping a dead one costs a few hundred bytes.
+ */
+const STORE_ENTRY_MAX_AGE = 2 * ONE_DAY
 
 /**
  * A failed fetch is retried quickly, then patiently, then not at all until the next natural
@@ -112,6 +136,9 @@ export interface BeforeSamplingContext {
  * The application's last word on the sampling of the session about to be drawn — see the
  * `beforeSampling` init option. Returning nothing, or an out-of-range rate, leaves the incoming
  * value in place.
+ *
+ * Must be free of side effects and answer the same way for the same input: it is also called away
+ * from a draw, to work out which rate newly delivered settings would actually apply.
  */
 export type BeforeSamplingCallback = (
   context: BeforeSamplingContext
@@ -277,7 +304,13 @@ function keepConfigFresh(configuration: RumConfiguration, setup: RemoteConfigSet
       }
       if (response) {
         failedAttempts = 0
-        store(setup, response)
+        if (store(setup, response)) {
+          // Announced only once new settings are in storage, because that is where the next draw
+          // reads them: a subscriber that ends the running session so the new values can take
+          // effect immediately has to be sure the draw that follows will find them, and must not
+          // be woken by an answer that changed nothing.
+          lifeCycle.notify(LifeCycleEventType.REMOTE_CONFIGURATION_STORED)
+        }
         return
       }
       if (failedAttempts < RETRY_DELAYS.length) {
@@ -295,6 +328,10 @@ function keepConfigFresh(configuration: RumConfiguration, setup: RemoteConfigSet
   }
 
   const renewSubscription = lifeCycle.subscribe(LifeCycleEventType.SESSION_RENEWED, onTrigger)
+
+  // Before the first request, so the room the entries of dead releases are holding is free by the
+  // time there is an answer to store. See `sweepAbandonedEntries`.
+  sweepAbandonedEntries(setup.storeKey)
 
   onTrigger()
 
@@ -387,6 +424,12 @@ function fetchRemoteConfiguration(
   }
 }
 
+/**
+ * Writes the response to storage, and answers whether it brought settings this client did not
+ * already hold. A refused or unwritable response answers `false`, and so does one that repeats the
+ * version already stored: settings only ever change under a higher number, so by that contract a
+ * repeat leaves the next draw reading what it would have read anyway.
+ */
 function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) {
   // Settings are published under a number that only ever goes up — rolling back republishes the
   // old settings under a new, higher one — so a response numbered below what is already stored is
@@ -401,10 +444,26 @@ function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) 
   //
   // What it is compared against is storage, not a version held in memory here, because the two
   // requests that can cross are two pages, and storage is the only thing they share.
-  const storedVersion = readRemoteConfig(setup).version
+  const stored = readRemoteConfig(setup)
+  const storedVersion = stored.version
   if (storedVersion !== undefined && response.version < storedVersion) {
-    return
+    // Refused, but the entry is plainly still in use — a request was just made for it and answered.
+    // Rewriting it unchanged is what says so: its age is the only thing the sweep reads, and this
+    // is the one path that reaches an entry without storing anything. A client left here by a
+    // server that broke the only-goes-up contract would otherwise have the settings it is still
+    // asking for swept out from under it. Reading a version out of the entry proves it is there,
+    // so nothing needs to be checked before writing it back.
+    writeEntry(setup, stored)
+    return false
   }
+
+  // Settings only ever change under a higher number, so a response repeating the number already
+  // stored carries nothing new — and that is the ordinary answer, since every new session refetches
+  // and most of them find the settings unchanged. It is written anyway, which costs one small
+  // `setItem` and keeps the entry in the shape this build writes, but it is not announced: a
+  // subscriber that ends the running session must hear about changes only, or an unchanged answer
+  // arriving at every renewal would end a session per renewal, forever.
+  const isNew = storedVersion === undefined || response.version > storedVersion
 
   const values: RemoteConfigValues = { version: response.version }
   if (response.enabled && response.rum) {
@@ -432,15 +491,107 @@ function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) 
     values.custom = response.custom
   }
 
+  // Written even with nothing in it — that is what "remote configuration is off, use your own
+  // settings" looks like — so that the version is kept either way and the console can still see
+  // that this client is up to date with the change that turned it off.
+  return writeEntry(setup, values) && isNew
+}
+
+/**
+ * What actually sits in storage: the values, plus when they were last written.
+ *
+ * `t` is not one of the values and is never handed on — `readStoredValues` drops it with everything
+ * else it does not recognise. It exists for `sweepAbandonedEntries` alone, which is why it is not
+ * spelled out on `RemoteConfigValues` where a reader would take it for something the server sends.
+ */
+interface StoredEntry extends RemoteConfigValues {
+  t: number
+}
+
+/**
+ * The one place an entry is written, so that every entry carries the write time the sweep reads.
+ *
+ * Answers whether the values are now where the next draw will look for them. A failure — storage
+ * unavailable, or the origin out of room — leaves the previous entry exactly as it was, which is
+ * the same "keep what is already working" answer a failed request gets: the client goes on applying
+ * the settings it last stored, and goes on reporting their version. It is still reported as a
+ * failure, because nothing downstream may act on settings the next draw will not find.
+ */
+function writeEntry(setup: RemoteConfigSetup, values: RemoteConfigValues) {
   try {
-    // Written even with nothing in it — that is what "remote configuration is off, use your own
-    // settings" looks like — so that the version is kept either way and the console can still see
-    // that this client is up to date with the change that turned it off.
-    localStorage.setItem(setup.storeKey, JSON.stringify(values))
+    const entry: StoredEntry = { ...values, t: dateNow() }
+    localStorage.setItem(setup.storeKey, JSON.stringify(entry))
+    return true
   } catch {
-    // Storage unavailable, or the origin is out of room. The previous entry stays as it is, which
-    // is the same "keep what is already working" answer a failed request gets — the client goes on
-    // applying the settings it last stored, and goes on reporting their version.
+    return false
+  }
+}
+
+/**
+ * Delete the entries of releases nobody is running any more.
+ *
+ * The store key carries the application version, because two releases live at the same time are
+ * entitled to different rates and one entry between them would have each overwrite the other's at
+ * every fetch. The cost of that is an entry per release, and nothing ever read or removed them
+ * again — on a site that deploys daily they accumulate for good, in a quota the host application
+ * shares.
+ *
+ * Run once per initialisation rather than at every write. Sweeping on write was the shape tried
+ * first and it is the wrong one: `localStorage` is synchronous, a session renewal is a hot path,
+ * and the walk would repeat for no new information. Once per page also puts it *before* the first
+ * write, which is what lets it free room on an origin that is already out of it — the very state
+ * the leak produces.
+ *
+ * This page's own entry is never a candidate: it holds the version floor that lets a late answer
+ * be refused, and it is about to be read by the request this initialisation is starting.
+ *
+ * An entry with no write time at all was left by a build older than this one. It is kept because an
+ * old build still running on the origin cannot add the write time when it refreshes the entry, so
+ * absence alone cannot distinguish a live release from an abandoned one. That leaves a finite set
+ * of entries from before the write time existed; every entry written from this build onward is
+ * timestamped, so the cache no longer grows without bound.
+ */
+function sweepAbandonedEntries(keepKey: string) {
+  try {
+    const now = dateNow()
+    const abandoned: string[] = []
+
+    // Collected in full before anything is removed: removing during the walk shifts the indices
+    // `key()` reads, and whatever slid into the freed slot would be stepped over.
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i)
+      if (key === null || key === keepKey || key.indexOf(STORE_KEY_PREFIX) !== 0) {
+        continue
+      }
+      const writeTime = readWriteTime(key)
+      if (writeTime !== undefined && now - writeTime > STORE_ENTRY_MAX_AGE) {
+        abandoned.push(key)
+      }
+    }
+
+    abandoned.forEach((key) => localStorage.removeItem(key))
+  } catch {
+    // Storage unavailable, or an entry that is not ours to parse. Housekeeping is never worth
+    // failing an initialisation over, and the next page load tries again.
+  }
+}
+
+/**
+ * When the entry under `key` was last written, or undefined when it does not say. Anything in a
+ * browser profile can be edited by hand, so a time that is not a finite number is read as no time
+ * at all rather than trusted into the arithmetic above.
+ */
+function readWriteTime(key: string) {
+  try {
+    const stored = localStorage.getItem(key)
+    const parsed: unknown = stored ? JSON.parse(stored) : undefined
+    if (!parsed || typeof parsed !== 'object') {
+      return undefined
+    }
+    const { t } = parsed as Partial<StoredEntry>
+    return typeof t === 'number' && isFinite(t) ? t : undefined
+  } catch {
+    return undefined
   }
 }
 
@@ -497,19 +648,11 @@ function validFetchTimeout(timeout: number | undefined) {
  * as long as both are being served — so the version has to stay, and cannot be dropped to make the
  * limitation below go away.
  *
- * KNOWN LIMITATION - that costs an entry per deploy. The first session after a release reads the
- * local settings, and the entry the release before it used is never read again and never removed,
- * so they accumulate in a quota the host application shares.
- *
- * Sweeping them on write is not the answer, and was tried: nothing here can tell an abandoned entry
- * from the entry of a tab still open on yesterday's release, and deleting the latter drops that tab
- * to its local settings for a whole session — after which the two tabs delete each other's entry at
- * every renewal, which is a worse failure than the leak. A correct fix needs a way to know that no
- * page is still reading an entry: an age written beside the values would do it, and is the shape to
- * reach for if the accumulation ever bites. Two things to get right if it is ever built — the
- * threshold has to clear the longest session AND the longest plausible endpoint outage, since only
- * a stored response refreshes the age, and the stale-version early return above skips that write,
- * so it must refresh the age even when it declines the values.
+ * That costs an entry per release — the first session after one reads the local settings, and the
+ * entry the release before it used is never read again — so the entries are swept by age rather
+ * than left to accumulate in a quota the host application shares. See `sweepAbandonedEntries` for
+ * why age is the only thing that can tell an abandoned entry from the entry of a tab still open on
+ * yesterday's release.
  */
 function buildStoreKey(initConfiguration: RumInitConfiguration) {
   return buildKey(STORE_KEY_PREFIX, identityParts(initConfiguration).concat(initConfiguration.version ?? ''))
