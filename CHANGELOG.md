@@ -18,7 +18,7 @@
 
 ---
 
-## Unreleased
+## v0.2.2
 
 - 🐛 The settings cache no longer grows by one entry per release of your site. Entries are keyed by
   application version, because two releases served at the same time are entitled to different rates

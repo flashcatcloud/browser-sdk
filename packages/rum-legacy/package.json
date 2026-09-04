@@ -1,6 +1,6 @@
 {
   "name": "@flashcatcloud/browser-rum-legacy",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "license": "Apache-2.0",
   "private": true,
   "description": "RUM Browser SDK build for browsers without ES2015 support. Distributed through the CDN only.",
