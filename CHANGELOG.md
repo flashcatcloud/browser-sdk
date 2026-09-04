@@ -23,9 +23,10 @@
 - 🐛 The settings cache no longer grows by one entry per release of your site. Entries are keyed by
   application version, because two releases served at the same time are entitled to different rates
   — but the entry a previous release used was never read or removed again, so on a site that
-  deploys often they accumulated in the storage quota the page shares. An entry that nothing has
-  refreshed for two days is now removed when the SDK starts. A page still reading its entry
-  rewrites it at every session renewal, so only the entries of releases nobody runs are swept.
+  deploys often they accumulated in the storage quota the page shares. New entries now record when
+  they were refreshed, and one left untouched for two days is removed when the SDK starts. Entries
+  written by older SDK builds are kept because they carry no refresh time, leaving a finite legacy
+  residue while preventing the cache from growing without bound.
 
 ## v0.2.1
 

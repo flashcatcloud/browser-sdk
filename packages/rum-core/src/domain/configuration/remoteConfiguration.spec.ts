@@ -788,15 +788,14 @@ describe('remoteConfiguration', () => {
       expect(localStorage.getItem(otherReleaseKey)).not.toBeNull()
     })
 
-    it('removes an entry left by a build that did not record when it was written', () => {
-      // Everything stored before the write time existed. Taken for abandoned rather than kept: the
-      // accumulated orphans are the whole reason this exists, and a page still on the old build
-      // writes its entry back at its next renewal.
+    it('keeps an entry left by a build that did not record when it was written', () => {
+      // An old build still using this origin cannot add a write time when it refreshes the entry,
+      // so absence alone cannot distinguish a live release from an abandoned one.
       localStorage.setItem(otherReleaseKey, JSON.stringify({ version: 4, sessionSampleRate: 42 }))
 
       start(configurationWith())
 
-      expect(localStorage.getItem(otherReleaseKey)).toBeNull()
+      expect(localStorage.getItem(otherReleaseKey)).not.toBeNull()
     })
 
     it("never removes this page's own entry, however old it looks", () => {

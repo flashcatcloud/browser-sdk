@@ -63,12 +63,12 @@ const DEFAULT_FETCH_TIMEOUT = 3 * ONE_SECOND
  * How long an entry may go unrefreshed before `sweepAbandonedEntries` treats it as belonging to a
  * release nobody is running any more.
  *
- * An entry that is still being read is also being rewritten: the page reading it refetches at every
- * session renewal and stores the answer. So the threshold only has to clear the longest a live
- * entry can legitimately stay silent, which is the longest session (four hours, after which a
- * renewal refetches) plus the longest endpoint outage we are willing to survive without dropping
- * anyone — a failed fetch stores nothing. Two days leaves better than a day and a half of outage,
- * and still bounds the leak at the entries of two days of releases.
+ * An entry written by this SDK that is still being read is also being rewritten: the page reading
+ * it refetches at every session renewal and stores the answer. So the threshold only has to clear
+ * the longest a live entry can legitimately stay silent, which is the longest session (four hours,
+ * after which a renewal refetches) plus the longest endpoint outage we are willing to survive
+ * without dropping anyone — a failed fetch stores nothing. Two days leaves better than a day and a
+ * half of outage, and still bounds the leak at the entries of two days of releases.
  *
  * Erring long is deliberate. Deleting an entry too early costs the page reading it one session on
  * its init values; keeping a dead one costs a few hundred bytes.
@@ -545,12 +545,11 @@ function writeEntry(setup: RemoteConfigSetup, values: RemoteConfigValues) {
  * This page's own entry is never a candidate: it holds the version floor that lets a late answer
  * be refused, and it is about to be read by the request this initialisation is starting.
  *
- * An entry with no write time at all was left by a build older than this one. It is taken for
- * abandoned rather than stamped and kept, which is the trade this makes deliberately: stamping
- * would mean a write per orphan on the first load after the upgrade, and the accumulated orphans
- * are exactly what this exists to clear. What it costs is bounded — while two builds are live on
- * one origin, a page still on the old one may have its entry swept and spend a single session on
- * its init values before writing it back.
+ * An entry with no write time at all was left by a build older than this one. It is kept because an
+ * old build still running on the origin cannot add the write time when it refreshes the entry, so
+ * absence alone cannot distinguish a live release from an abandoned one. That leaves a finite set
+ * of entries from before the write time existed; every entry written from this build onward is
+ * timestamped, so the cache no longer grows without bound.
  */
 function sweepAbandonedEntries(keepKey: string) {
   try {
@@ -564,7 +563,8 @@ function sweepAbandonedEntries(keepKey: string) {
       if (key === null || key === keepKey || key.indexOf(STORE_KEY_PREFIX) !== 0) {
         continue
       }
-      if (now - readWriteTime(key) > STORE_ENTRY_MAX_AGE) {
+      const writeTime = readWriteTime(key)
+      if (writeTime !== undefined && now - writeTime > STORE_ENTRY_MAX_AGE) {
         abandoned.push(key)
       }
     }
@@ -577,21 +577,21 @@ function sweepAbandonedEntries(keepKey: string) {
 }
 
 /**
- * When the entry under `key` was last written, or 0 — older than any threshold — when it does not
- * say. Anything in a browser profile can be edited by hand, so a time that is not a plain number is
- * read as no time at all rather than trusted into the arithmetic above.
+ * When the entry under `key` was last written, or undefined when it does not say. Anything in a
+ * browser profile can be edited by hand, so a time that is not a finite number is read as no time
+ * at all rather than trusted into the arithmetic above.
  */
 function readWriteTime(key: string) {
   try {
     const stored = localStorage.getItem(key)
     const parsed: unknown = stored ? JSON.parse(stored) : undefined
     if (!parsed || typeof parsed !== 'object') {
-      return 0
+      return undefined
     }
     const { t } = parsed as Partial<StoredEntry>
-    return typeof t === 'number' && isFinite(t) ? t : 0
+    return typeof t === 'number' && isFinite(t) ? t : undefined
   } catch {
-    return 0
+    return undefined
   }
 }
 
