@@ -853,7 +853,51 @@ describe('rum session manager', () => {
       return getSessionState(SESSION_STORE_KEY).isExpired === '1'
     }
 
-    describe('the two changes it can decide on its own', () => {
+    describe('the three changes it can decide on its own', () => {
+      it('ends a session drawn at zero when the rate rises above it', () => {
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        startWith({ sessionSampleRate: 0 })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+
+        // Nothing was collected and no coin was flipped, so re-drawing this visitor lands exactly
+        // on the new rate — and until it happens an operator who has just switched collection on
+        // sees nothing at all, which is indistinguishable from broken.
+        deliver({ version: 2, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('ends a session drawn at zero even when the new rate is a partial one', () => {
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        startWith({ sessionSampleRate: 0 })
+
+        deliver({ version: 2, sessionSampleRate: 30 })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('ends a session drawn on an init rate of zero when the first settings deliver a rate', () => {
+        // Nothing in storage yet, so this session was drawn on the init values — and a draw landing
+        // exactly on them records nothing, which is why zero can only be read back off init here.
+        // This is the application that never collects until the console says so.
+        startWith({ sessionSampleRate: 0 })
+
+        deliver({ version: 1, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('collects the session that follows a rate lifted off zero', () => {
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        startWith({ sessionSampleRate: 0 })
+
+        deliver({ version: 2, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+        clock.tick(STORAGE_POLL_DELAY)
+        document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+      })
+
       it('ends a session being collected when the rate goes to zero', () => {
         storeRemote({ version: 1, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
         startWith({ sessionSampleRate: 100 })
@@ -946,25 +990,17 @@ describe('rum session manager', () => {
         expect(isSessionEnded()).toBeFalse()
       })
 
-      it('leaves a session that is not being collected alone when the rate goes to a hundred', () => {
-        storeRemote({ version: 1, sessionSampleRate: 0 })
+      it('leaves a session that lost a draw at a real rate alone when the rate rises', () => {
+        // The regression this exists to catch: re-drawing every session that is not collected,
+        // while leaving the collected ones alone, spares the winners and re-rolls the losers — a
+        // fleet drawn at 30 and moved to 80 would come out well above 80. Only a session drawn at
+        // zero has no winner beside it to spare.
+        spyOn(Math, 'random').and.returnValue(0.99)
+        storeRemote({ version: 1, sessionSampleRate: 30 })
         startWith({ sessionSampleRate: 0 })
         expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
 
-        // The one rate whose outcome could be asserted and deliberately is not: `setForcedSession`
-        // already covers "collect this visitor now", raising volume unannounced is the one
-        // direction that surprises, and nothing about it is urgent.
-        deliver({ version: 2, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
-
-        expect(expireSessionSpy).not.toHaveBeenCalled()
-        expect(isSessionEnded()).toBeFalse()
-      })
-
-      it('leaves a session that is not collected alone when the rate merely rises', () => {
-        storeRemote({ version: 1, sessionSampleRate: 0 })
-        startWith({ sessionSampleRate: 0 })
-
-        deliver({ version: 2, sessionSampleRate: 30 })
+        deliver({ version: 2, sessionSampleRate: 80 })
 
         expect(expireSessionSpy).not.toHaveBeenCalled()
         expect(isSessionEnded()).toBeFalse()
@@ -984,9 +1020,9 @@ describe('rum session manager', () => {
       })
 
       it('does not end one sampled-out session after another as settings keep arriving', () => {
-        // A session that is not collected is given no id, so no record of its draw is kept and the
-        // level it was drawn under cannot be read back. Ending it would not change that, so acting
-        // on the comparison would end every session this visitor is ever given.
+        // Nothing is recorded for this visitor, so a stricter level has nothing to catch however
+        // many times it is announced. The rate stays at zero throughout, so the one rule that does
+        // act on a sampled-out session finds nothing to act on either.
         storeRemote({ version: 1, sessionSampleRate: 0, defaultPrivacyLevel: 'allow' })
         startWith({ sessionSampleRate: 0, defaultPrivacyLevel: 'allow' })
 
@@ -1074,6 +1110,79 @@ describe('rum session manager', () => {
     })
 
     describe('what it compares', () => {
+      it('does not answer for a sampled-out session with the record of the one it replaced', () => {
+        // A page that draws owns the record slot. Having drawn on the init values it has nothing to
+        // record, and leaving the previous session's record there would let it answer for this one:
+        // every sampled-out session is recorded under the same id, so unlike a collected session it
+        // cannot tell that the record describes somebody else.
+        spyOn(Math, 'random').and.returnValue(0.99)
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        const firstPage = startWith({ sessionSampleRate: 50 })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+        firstPage.stop()
+        stopSessionManager()
+
+        // The settings entry is gone — swept as belonging to a release nobody runs any more — so
+        // the draw that follows uses the init rate and has nothing to record. It loses too, so it
+        // is a sampled-out session that did not write the record it would be read under.
+        localStorage.removeItem(STORE_KEY)
+        expireCookie()
+        const secondPage = startWith({ sessionSampleRate: 50 })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+        secondPage.stop()
+        stopSessionManager()
+
+        // A third page restores that session instead of drawing one, so the record is the only
+        // thing it can read the draw off — and the only record left would be the first session's.
+        startWith({ sessionSampleRate: 50 })
+        expireSessionSpy.calls.reset()
+
+        // Read off the first session's record this one looks drawn at zero and is re-drawn; read
+        // off init, which is what it was actually drawn at, it lost a draw at fifty and stays.
+        deliver({ version: 2, sessionSampleRate: 80 })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('reads the rate a sampled-out session was drawn at back through storage', () => {
+        // The case that decides whether any of this reaches a real visitor: they were drawn at zero
+        // on the page before, and the page acting on the change never performed that draw. A
+        // sampled-out session is given no id, so its draw is recorded under one no session can
+        // hold — without that record this page falls back to the init rate and answers wrongly.
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        const firstPage = startWith({ sessionSampleRate: 50 })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+        firstPage.stop()
+        stopSessionManager()
+
+        // A second page load restores the same session without drawing anything of its own. Init
+        // says 50 here on purpose: falling back to it would read this session as one that lost a
+        // draw and leave it alone, which is the answer the record exists to correct.
+        startWith({ sessionSampleRate: 50 })
+        deliver({ version: 2, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('does not consult beforeSampling when no rate could decide anything', () => {
+        // Resolving the rate runs the site's own code, and an announcement is not a draw. It is
+        // asked only where the answer is what settles whether the session ends — never once per
+        // announcement for every visitor.
+        const beforeSampling = jasmine.createSpy('beforeSampling').and.returnValue(undefined)
+        spyOn(Math, 'random').and.returnValue(0.99)
+        storeRemote({ version: 1, sessionSampleRate: 30 })
+        startWith({ sessionSampleRate: 0, beforeSampling })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+        beforeSampling.calls.reset()
+
+        // This visitor lost a draw at thirty, so no rate the console publishes says anything about
+        // the session they are on, and there is nothing to ask.
+        deliver({ version: 2, sessionSampleRate: 80 })
+
+        expect(beforeSampling).not.toHaveBeenCalled()
+      })
+
       it('never draws again to reach its decision', () => {
         storeRemote({ version: 1, sessionSampleRate: 100 })
         startWith({ sessionSampleRate: 100 })
@@ -1135,6 +1244,28 @@ describe('rum session manager', () => {
         // Another tab, a retry, a reload: the same answer arrives again and finds the difference
         // that justified ending a session already gone.
         lifeCycle.notify(LifeCycleEventType.REMOTE_CONFIGURATION_STORED)
+        lifeCycle.notify(LifeCycleEventType.REMOTE_CONFIGURATION_STORED)
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('stops re-drawing once the session that follows has lost a draw at the new rate', () => {
+        // The loop this could have become: the replacement is sampled out too, and if it were read
+        // as another session drawn at zero every further announcement would end it again. It was
+        // drawn at the new rate, and that is what its record says.
+        spyOn(Math, 'random').and.returnValue(0.99)
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        startWith({ sessionSampleRate: 0 })
+
+        deliver({ version: 2, sessionSampleRate: 30 })
+        expect(isSessionEnded()).toBeTrue()
+
+        clock.tick(STORAGE_POLL_DELAY)
+        document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+        expireSessionSpy.calls.reset()
+
         lifeCycle.notify(LifeCycleEventType.REMOTE_CONFIGURATION_STORED)
 
         expect(expireSessionSpy).not.toHaveBeenCalled()

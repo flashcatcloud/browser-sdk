@@ -18,6 +18,31 @@
 
 ---
 
+## Unreleased
+
+- ✨ A session sample rate published from the console that rises above 0 now ends the running
+  session of a visitor whose session was drawn at 0, so collection starts at their next interaction
+  instead of waiting for that session to end on its own — up to four hours. This is the case where
+  waiting shows an operator who has just switched collection on nothing at all, which is
+  indistinguishable from a broken integration. It joins the two changes that already did not wait:
+  a stricter Session Replay privacy level, and a rate of 0. Nothing here happens without
+  `remoteConfigurationEnabled: true`.
+- 📝 Only a session drawn AT 0 is re-drawn, not every session that is not being collected. Those
+  are different populations: a visitor who lost a draw at 30 had a coin flipped for them, and
+  re-rolling the losers while the winners keep their sessions would put the real rate above the
+  published one. While a rate of 0 is in force nothing is collected and no coin is flipped, so
+  re-drawing everyone lands exactly on the new rate. A rate rising from one real value to another
+  therefore still waits for the next session, as before.
+- 📝 The rate a sampled-out session was drawn at is now recorded alongside the one a collected
+  session was drawn at, in the same single `localStorage` entry this SDK already keeps for the
+  draw. No new entry, no extra request. Without it a page that did not perform the draw — the
+  second page of a visit, or another tab — could not tell the two populations above apart.
+- 📝 What you will see on the day you lift a rate off 0: visitors who were invisible start
+  appearing within seconds of loading a page rather than at their next session, so collected volume
+  climbs the same day rather than the next. That is the change taking effect, not a defect.
+
+---
+
 ## v0.2.2
 
 - 🐛 The settings cache no longer grows by one entry per release of your site. Entries are keyed by
