@@ -26,7 +26,7 @@ export interface RumSessionManager {
   setForcedReplay: () => void
   /**
    * Marks the given session as having reported an error. For a session sampled by
-   * `sessionReplayOnErrorSampleRate`, this is what releases the withheld replay. The id is required
+   * `sessionReplayOnError`, this is what releases the withheld replay. The id is required
    * because the store write can be deferred by the lock, and it must not land on a later session.
    */
   setSessionHasError: (sessionId: string) => void
@@ -41,7 +41,7 @@ export type RumSession = {
    */
   eventsWithheld: boolean
   /**
-   * Whether the session was drawn by `sessionOnErrorSampleRate`. Unlike {@link eventsWithheld} this
+   * Whether the session is only kept because of `sessionOnError`. Unlike {@link eventsWithheld} this
    * stays true once the error has been reported, so what is stored can be told apart from a plainly
    * sampled session - its detail only starts where the buffer reached.
    */
@@ -217,19 +217,19 @@ function computeSessionState(configuration: RumConfiguration, rawTrackingType?: 
   } else if (performDraw(configuration.sessionSampleRate)) {
     if (performDraw(configuration.sessionReplaySampleRate)) {
       trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
-    } else if (performDraw(configuration.sessionReplayOnErrorSampleRate)) {
-      // Drawn only when the plain replay draw missed, so a session is never counted by both rates.
+    } else if (configuration.sessionReplayOnError) {
+      // Only for sessions the plain replay draw missed, so a session is never counted by both.
       trackingType = RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
     } else {
       trackingType = RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY
     }
-  } else if (performDraw(configuration.sessionOnErrorSampleRate)) {
-    // Drawn only when the plain session draw missed, so a session is never counted by both rates.
+  } else if (configuration.sessionOnError) {
+    // Only for sessions the plain session draw missed, so a session is never counted by both.
     // Such a session never uploads its replay ahead of its events: whichever replay rate it draws,
     // the replay is withheld alongside them, because until they are released the session does not
     // exist yet and a replay sent then would have nothing to attach to.
     trackingType =
-      performDraw(configuration.sessionReplaySampleRate) || performDraw(configuration.sessionReplayOnErrorSampleRate)
+      performDraw(configuration.sessionReplaySampleRate) || configuration.sessionReplayOnError
         ? RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
         : RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY
   } else {

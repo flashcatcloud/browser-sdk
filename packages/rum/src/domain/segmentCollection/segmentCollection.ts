@@ -50,7 +50,7 @@ export let SEGMENT_BYTES_LIMIT = 60_000
 
 /**
  * Lets a session record without uploading anything until it reports an error. Sessions drawn by
- * `sessionReplayOnErrorSampleRate` record from the start, but every segment is withheld: dropped on
+ * `sessionReplayOnError` record from the start, but every segment is withheld: dropped on
  * checkout while no error has happened, sent normally from the moment one has.
  */
 export interface SegmentBuffering {

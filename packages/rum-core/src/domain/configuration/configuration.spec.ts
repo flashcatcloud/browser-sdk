@@ -65,26 +65,25 @@ describe('validateAndBuildRumConfiguration', () => {
     })
   })
 
-  describe('sessionReplayOnErrorSampleRate', () => {
+  describe('sessionReplayOnError', () => {
     it('is carried into the built configuration', () => {
       expect(
-        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, sessionReplayOnErrorSampleRate: 50 })!
-          .sessionReplayOnErrorSampleRate
-      ).toBe(50)
+        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, sessionReplayOnError: true })!
+          .sessionReplayOnError
+      ).toBeTrue()
     })
 
     it('defaults to collecting no error replay at all', () => {
-      expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.sessionReplayOnErrorSampleRate).toBe(0)
+      expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.sessionReplayOnError).toBeFalse()
     })
 
-    it('is rejected when it is not a sample rate', () => {
+    it('is read as a switch, whatever it was given', () => {
       expect(
         validateAndBuildRumConfiguration({
           ...DEFAULT_INIT_CONFIGURATION,
-          sessionReplayOnErrorSampleRate: 'foo' as unknown as number,
-        })
-      ).toBeUndefined()
-      expect(displayErrorSpy).toHaveBeenCalledTimes(1)
+          sessionReplayOnError: 1 as unknown as boolean,
+        })!.sessionReplayOnError
+      ).toBeTrue()
     })
 
     it('starts the recording on its own, since there is nothing to withhold otherwise', () => {
@@ -92,16 +91,16 @@ describe('validateAndBuildRumConfiguration', () => {
         validateAndBuildRumConfiguration({
           ...DEFAULT_INIT_CONFIGURATION,
           sessionReplaySampleRate: 0,
-          sessionReplayOnErrorSampleRate: 30,
+          sessionReplayOnError: true,
         })!.startSessionReplayRecordingManually
       ).toBeFalse()
     })
 
-    it('warns when the plain replay rate leaves it nothing to draw from', () => {
+    it('warns when the plain replay rate leaves it nothing to apply to', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
         sessionReplaySampleRate: 100,
-        sessionReplayOnErrorSampleRate: 50,
+        sessionReplayOnError: true,
       })
 
       expect(displayWarnSpy).toHaveBeenCalledTimes(1)
@@ -112,7 +111,7 @@ describe('validateAndBuildRumConfiguration', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
         sessionSampleRate: 0,
-        sessionReplayOnErrorSampleRate: 50,
+        sessionReplayOnError: true,
       })
 
       expect(displayWarnSpy).toHaveBeenCalledTimes(1)
@@ -122,7 +121,7 @@ describe('validateAndBuildRumConfiguration', () => {
     it('warns when the recording is left for the customer to start, since nothing would be held', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
-        sessionReplayOnErrorSampleRate: 50,
+        sessionReplayOnError: true,
         startSessionReplayRecordingManually: true,
       })
 
@@ -130,44 +129,42 @@ describe('validateAndBuildRumConfiguration', () => {
       expect(displayWarnSpy.calls.argsFor(0)[0]).toContain('startSessionReplayRecordingManually')
     })
 
-    it('says nothing about a rate that can draw', () => {
+    it('says nothing about a switch that can apply', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
         sessionReplaySampleRate: 20,
-        sessionReplayOnErrorSampleRate: 50,
+        sessionReplayOnError: true,
       })
 
       expect(displayWarnSpy).not.toHaveBeenCalled()
     })
   })
 
-  describe('sessionOnErrorSampleRate', () => {
+  describe('sessionOnError', () => {
     it('is carried into the built configuration', () => {
       expect(
-        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, sessionOnErrorSampleRate: 40 })!
-          .sessionOnErrorSampleRate
-      ).toBe(40)
+        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, sessionOnError: true })!.sessionOnError
+      ).toBeTrue()
     })
 
     it('defaults to collecting no error-only session at all', () => {
-      expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.sessionOnErrorSampleRate).toBe(0)
+      expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.sessionOnError).toBeFalse()
     })
 
-    it('is rejected when it is not a sample rate', () => {
+    it('is read as a switch, whatever it was given', () => {
       expect(
         validateAndBuildRumConfiguration({
           ...DEFAULT_INIT_CONFIGURATION,
-          sessionOnErrorSampleRate: 'foo' as unknown as number,
-        })
-      ).toBeUndefined()
-      expect(displayErrorSpy).toHaveBeenCalledTimes(1)
+          sessionOnError: 'yes' as unknown as boolean,
+        })!.sessionOnError
+      ).toBeTrue()
     })
 
     it('warns when the replay it would withhold is never recorded', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
         sessionSampleRate: 20,
-        sessionOnErrorSampleRate: 50,
+        sessionOnError: true,
         sessionReplaySampleRate: 50,
         startSessionReplayRecordingManually: true,
       })
@@ -179,20 +176,20 @@ describe('validateAndBuildRumConfiguration', () => {
     it('says nothing about a replay it could never withhold anyway', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
-        sessionOnErrorSampleRate: 50,
+        sessionOnError: true,
         sessionReplaySampleRate: 30,
         startSessionReplayRecordingManually: true,
       })
 
-      // the on-error rate cannot draw at all here, which is the one thing worth saying
+      // the switch cannot apply at all here, which is the one thing worth saying
       expect(displayWarnSpy).toHaveBeenCalledTimes(1)
       expect(displayWarnSpy.calls.argsFor(0)[0]).toContain('sessionSampleRate did not draw')
     })
 
-    it('warns when the default session rate leaves it nothing to draw from', () => {
+    it('warns when the default session rate leaves it nothing to apply to', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
-        sessionOnErrorSampleRate: 50,
+        sessionOnError: true,
       })
 
       expect(displayWarnSpy).toHaveBeenCalledTimes(1)
@@ -202,18 +199,18 @@ describe('validateAndBuildRumConfiguration', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
         sessionSampleRate: 20,
-        sessionOnErrorSampleRate: 50,
+        sessionOnError: true,
       })
 
       expect(displayWarnSpy).not.toHaveBeenCalled()
     })
 
-    it('makes a replay-on-error rate meaningful even with no plainly sampled session', () => {
+    it('makes the replay-on-error switch meaningful even with no plainly sampled session', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
         sessionSampleRate: 0,
-        sessionOnErrorSampleRate: 100,
-        sessionReplayOnErrorSampleRate: 50,
+        sessionOnError: true,
+        sessionReplayOnError: true,
       })
 
       expect(displayWarnSpy).not.toHaveBeenCalled()
@@ -687,8 +684,8 @@ describe('serializeRumConfiguration', () => {
       enablePrivacyForActionName: false,
       subdomain: 'foo',
       sessionReplaySampleRate: 60,
-      sessionReplayOnErrorSampleRate: 40,
-      sessionOnErrorSampleRate: 30,
+      sessionReplayOnError: true,
+      sessionOnError: true,
       startSessionReplayRecordingManually: true,
       trackUserInteractions: true,
       actionNameAttribute: 'test-id',
@@ -715,8 +712,8 @@ describe('serializeRumConfiguration', () => {
                 | 'profilingSampleRate'
                 | 'propagateTraceBaggage'
                 // not reported yet: needs a rum-events-format schema change first
-                | 'sessionReplayOnErrorSampleRate'
-                | 'sessionOnErrorSampleRate'
+                | 'sessionReplayOnError'
+                | 'sessionOnError'
             ? never
             : CamelToSnakeCase<Key>
     // By specifying the type here, we can ensure that serializeConfiguration is returning an

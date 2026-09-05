@@ -213,15 +213,15 @@ describe('rum session manager', () => {
   describe('error session replay sampling', () => {
     it('draws the error-replay type only when the plain replay draw missed', () => {
       startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 100, sessionReplayOnErrorSampleRate: 100 },
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 100, sessionReplayOnError: true },
       })
 
       expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
     })
 
-    it('stores the error-replay type when only that rate is hit', () => {
+    it('stores the error-replay type when only the switch applies', () => {
       startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnErrorSampleRate: 100 },
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnError: true },
       })
 
       expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(
@@ -231,7 +231,7 @@ describe('rum session manager', () => {
 
     it('withholds the replay until the session reports an error', () => {
       const sessionManager = startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnErrorSampleRate: 100 },
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnError: true },
       })
 
       expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.BUFFERED_ON_ERROR)
@@ -243,7 +243,7 @@ describe('rum session manager', () => {
 
     it('does not mark a session that has since been replaced by another one', () => {
       const sessionManager = startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnErrorSampleRate: 100 },
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnError: true },
       })
 
       // another tab renewed the session while the mark was on its way to the store
@@ -259,7 +259,7 @@ describe('rum session manager', () => {
         pending('the store lock, and so a deferred write, only exists on Chromium')
       }
       const sessionManager = startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnErrorSampleRate: 100 },
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnError: true },
       })
       const sessionId = sessionManager.findTrackedSession()!.id
 
@@ -284,7 +284,7 @@ describe('rum session manager', () => {
 
     it('marks the session so a replay kept only because it errored can be told apart', () => {
       const sessionManager = startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnErrorSampleRate: 100 },
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnError: true },
       })
 
       expect(sessionManager.findTrackedSession()!.sampledOnErrorReplay).toBeTrue()
@@ -305,7 +305,7 @@ describe('rum session manager', () => {
 
     it('releases the replay when it is forced, rather than waiting for an error that may never come', () => {
       const sessionManager = startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnErrorSampleRate: 100 },
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnError: true },
       })
       expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.BUFFERED_ON_ERROR)
 
@@ -314,9 +314,9 @@ describe('rum session manager', () => {
       expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.FORCED)
     })
 
-    it('tracks the session even when no replay rate is hit at all', () => {
+    it('tracks the session even when neither the replay rate nor the switch applies', () => {
       const sessionManager = startRumSessionManagerWithDefaults({
-        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnErrorSampleRate: 0 },
+        configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnError: false },
       })
 
       expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY)
@@ -327,9 +327,9 @@ describe('rum session manager', () => {
   describe('on-error session sampling', () => {
     const ON_ERROR_ONLY = {
       sessionSampleRate: 0,
-      sessionOnErrorSampleRate: 100,
+      sessionOnError: true,
       sessionReplaySampleRate: 0,
-      sessionReplayOnErrorSampleRate: 0,
+      sessionReplayOnError: false,
     }
 
     it('draws the on-error type only when the plain session draw missed', () => {
@@ -389,9 +389,9 @@ describe('rum session manager', () => {
       expect(session.sessionReplay).toBe(SessionReplayState.FORCED)
     })
 
-    it('draws the type that withholds the replay too when only the on-error replay rate is set', () => {
+    it('draws the type that withholds the replay too when only the on-error replay switch is on', () => {
       const sessionManager = startRumSessionManagerWithDefaults({
-        configuration: { ...ON_ERROR_ONLY, sessionReplayOnErrorSampleRate: 100 },
+        configuration: { ...ON_ERROR_ONLY, sessionReplayOnError: true },
       })
 
       expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(
