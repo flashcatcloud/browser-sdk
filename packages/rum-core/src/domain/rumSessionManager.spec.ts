@@ -324,7 +324,7 @@ describe('rum session manager', () => {
     })
   })
 
-  describe('on-error session sampling', () => {
+  describe('session on error', () => {
     const ON_ERROR_ONLY = {
       sessionSampleRate: 0,
       sessionOnError: true,
@@ -332,7 +332,7 @@ describe('rum session manager', () => {
       sessionReplayOnError: false,
     }
 
-    it('draws the on-error type only when the plain session draw missed', () => {
+    it('applies the on-error type only when the plain session draw missed', () => {
       startRumSessionManagerWithDefaults({
         configuration: { ...ON_ERROR_ONLY, sessionSampleRate: 100 },
       })
