@@ -36,9 +36,19 @@ export type RumSession = {
   id: string
   sessionReplay: SessionReplayState
   /**
-   * Whether the replay of this session is only kept if it reports an error. Unlike
-   * {@link sessionReplay} this stays true once the error has been reported, so a replay collected
-   * that way can be told apart from one collected unconditionally.
+   * Whether the session collects events but withholds them until it reports an error. Nothing is
+   * uploaded while this is true, and if the session never errors nothing ever is.
+   */
+  eventsWithheld: boolean
+  /**
+   * Whether the session is only kept because of `sessionOnError`. Unlike {@link eventsWithheld} this
+   * stays true once the error has been reported, so what is stored can be told apart from a plainly
+   * sampled session - its detail only starts where the buffer reached.
+   */
+  sampledOnError: boolean
+  /**
+   * Whether the replay of this session is only kept if it reports an error. Same idea as
+   * {@link sampledOnError}, for the replay rather than the events.
    */
   sampledOnErrorReplay: boolean
   anonymousId?: string
@@ -49,6 +59,8 @@ export const enum RumTrackingType {
   TRACKED_WITH_SESSION_REPLAY = '1',
   TRACKED_WITHOUT_SESSION_REPLAY = '2',
   TRACKED_WITH_ERROR_SESSION_REPLAY = '3',
+  TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY = '4',
+  TRACKED_ON_ERROR_WITH_SESSION_REPLAY = '5',
 }
 
 export const enum SessionReplayState {
@@ -106,6 +118,8 @@ export function startRumSessionManager(
       return {
         id: session.id,
         sessionReplay: computeSessionReplayState(session.trackingType, session.hasError, session.isReplayForced),
+        eventsWithheld: computeEventsWithheld(session.trackingType, session.hasError, session.isReplayForced),
+        sampledOnError: withholdsEvents(session.trackingType),
         sampledOnErrorReplay: withholdsReplay(session.trackingType),
         anonymousId: session.anonymousId,
       }
@@ -128,7 +142,17 @@ export function startRumSessionManager(
 }
 
 export function withholdsReplay(trackingType: RumTrackingType) {
-  return trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+  return (
+    trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY ||
+    trackingType === RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
+  )
+}
+
+export function withholdsEvents(trackingType: RumTrackingType) {
+  return (
+    trackingType === RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY ||
+    trackingType === RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
+  )
 }
 
 export function computeSessionReplayState(
@@ -153,6 +177,19 @@ export function computeSessionReplayState(
   return SessionReplayState.OFF
 }
 
+export function computeEventsWithheld(
+  trackingType: RumTrackingType,
+  hasError: boolean,
+  isReplayForced: boolean
+): boolean {
+  // Forcing capture asks for this user's whole session, so it releases the events too - otherwise
+  // the forced replay would be uploaded for a session that does not exist yet.
+  if (hasError || isReplayForced) {
+    return false
+  }
+  return withholdsEvents(trackingType)
+}
+
 /**
  * Start a tracked replay session stub
  */
@@ -160,6 +197,8 @@ export function startRumSessionManagerStub(): RumSessionManager {
   const session: RumSession = {
     id: '00000000-aaaa-0000-aaaa-000000000000',
     sessionReplay: bridgeSupports(BridgeCapability.RECORDS) ? SessionReplayState.SAMPLED : SessionReplayState.OFF,
+    eventsWithheld: false,
+    sampledOnError: false,
     sampledOnErrorReplay: false,
   }
   return {
@@ -175,15 +214,26 @@ function computeSessionState(configuration: RumConfiguration, rawTrackingType?: 
   let trackingType: RumTrackingType
   if (hasValidRumSession(rawTrackingType)) {
     trackingType = rawTrackingType
-  } else if (!performDraw(configuration.sessionSampleRate)) {
-    trackingType = RumTrackingType.NOT_TRACKED
-  } else if (performDraw(configuration.sessionReplaySampleRate)) {
-    trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
-  } else if (configuration.sessionReplayOnError) {
-    // Only for sessions the plain replay draw missed, so a session is never counted by both.
-    trackingType = RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+  } else if (performDraw(configuration.sessionSampleRate)) {
+    if (performDraw(configuration.sessionReplaySampleRate)) {
+      trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
+    } else if (configuration.sessionReplayOnError) {
+      // Only for sessions the plain replay draw missed, so a session is never counted by both.
+      trackingType = RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+    } else {
+      trackingType = RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY
+    }
+  } else if (configuration.sessionOnError) {
+    // Only for sessions the plain session draw missed, so a session is never counted by both.
+    // Such a session never uploads its replay ahead of its events: whichever replay rate it draws,
+    // the replay is withheld alongside them, because until they are released the session does not
+    // exist yet and a replay sent then would have nothing to attach to.
+    trackingType =
+      performDraw(configuration.sessionReplaySampleRate) || configuration.sessionReplayOnError
+        ? RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
+        : RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY
   } else {
-    trackingType = RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY
+    trackingType = RumTrackingType.NOT_TRACKED
   }
   return {
     trackingType,
@@ -196,7 +246,9 @@ function hasValidRumSession(trackingType?: string): trackingType is RumTrackingT
     trackingType === RumTrackingType.NOT_TRACKED ||
     trackingType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY ||
     trackingType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY ||
-    trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+    trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY ||
+    trackingType === RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY ||
+    trackingType === RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
   )
 }
 
@@ -204,6 +256,8 @@ function isTypeTracked(rumSessionType: RumTrackingType | undefined) {
   return (
     rumSessionType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY ||
     rumSessionType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY ||
-    rumSessionType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+    rumSessionType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY ||
+    rumSessionType === RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY ||
+    rumSessionType === RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
   )
 }

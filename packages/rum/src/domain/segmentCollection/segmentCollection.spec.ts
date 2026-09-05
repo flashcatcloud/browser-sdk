@@ -1,7 +1,7 @@
 import type { ClocksState, HttpRequest, TimeStamp } from '@flashcatcloud/browser-core'
 import { DeflateEncoderStreamId, noop, PageExitReason } from '@flashcatcloud/browser-core'
 import type { ViewHistory, ViewHistoryEntry, RumConfiguration } from '@flashcatcloud/browser-rum-core'
-import { LifeCycle, LifeCycleEventType } from '@flashcatcloud/browser-rum-core'
+import { LifeCycle, LifeCycleEventType, WITHHELD_BUFFER_DURATION } from '@flashcatcloud/browser-rum-core'
 import type { Clock } from '@flashcatcloud/browser-core/test'
 import { mockClock, registerCleanupTask, restorePageVisibility } from '@flashcatcloud/browser-core/test'
 import { createRumSessionManagerMock } from '../../../../rum-core/test'
@@ -11,7 +11,6 @@ import { MockWorker, readMetadataFromReplayPayload } from '../../../test'
 import { createDeflateEncoder } from '../deflate'
 import * as replayStats from '../replayStats'
 import {
-  BUFFER_CHECKOUT_TIME,
   computeSegmentContext,
   doStartSegmentCollection,
   SEGMENT_BYTES_LIMIT,
@@ -404,7 +403,7 @@ describe('startSegmentCollection withholding (error session replay)', () => {
 
   it('drops the buffer and restarts from a full snapshot once it spans the checkout time', () => {
     addRecord(RECORD)
-    clock.tick(BUFFER_CHECKOUT_TIME)
+    clock.tick(WITHHELD_BUFFER_DURATION)
     worker.processAllMessages()
 
     expect(httpRequestSpy.send).not.toHaveBeenCalled()
@@ -467,7 +466,7 @@ describe('startSegmentCollection withholding (error session replay)', () => {
     restartFromFullSnapshotSpy.and.callFake(() => addRecord(RECORD))
 
     addRecord(RECORD)
-    clock.tick(BUFFER_CHECKOUT_TIME)
+    clock.tick(WITHHELD_BUFFER_DURATION)
     worker.processAllMessages()
     expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
 
@@ -485,7 +484,7 @@ describe('startSegmentCollection withholding (error session replay)', () => {
   it('does not restart the buffer when collection was stopped while the flush was in flight', () => {
     addRecord(RECORD)
     // the checkout flush is posted to the worker, and recording is stopped before it answers
-    clock.tick(BUFFER_CHECKOUT_TIME)
+    clock.tick(WITHHELD_BUFFER_DURATION)
     stopCollection()
     worker.processAllMessages()
 
@@ -499,7 +498,7 @@ describe('startSegmentCollection withholding (error session replay)', () => {
     // The flush is posted to the worker but not answered yet - in production that round trip always
     // happens, because flushing writes the trailer before finishing. A record arriving now creates
     // the next segment, which reads its index while the dropped one is still counted.
-    clock.tick(BUFFER_CHECKOUT_TIME)
+    clock.tick(WITHHELD_BUFFER_DURATION)
     addRecord(RECORD)
     worker.processAllMessages()
 
@@ -512,7 +511,7 @@ describe('startSegmentCollection withholding (error session replay)', () => {
 
   it('leaves no trace of a dropped buffer in the replay stats', () => {
     addRecord(RECORD)
-    clock.tick(BUFFER_CHECKOUT_TIME)
+    clock.tick(WITHHELD_BUFFER_DURATION)
     worker.processAllMessages()
 
     const stats = replayStats.getReplayStats(CONTEXT.view.id)

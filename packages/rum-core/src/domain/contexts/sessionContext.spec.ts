@@ -170,6 +170,70 @@ describe('session context', () => {
     expect(eventSampledOutForReplay.session!.sampled_for_replay).toBe(false)
   })
 
+  it('should set sampled_for_replay on a session whose events are withheld alongside its replay', () => {
+    // these events only ever leave together with that replay, so reporting the state as it stands
+    // while they are held would mark the whole released burst as having none
+    sessionManager.setTrackedOnErrorWithSessionReplay()
+
+    const event = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(event.session!.sampled_for_replay).toBe(true)
+  })
+
+  it('should not claim a replay while one is withheld, whichever way it turns out', () => {
+    // the segment covering this event is dropped on the next view change and sent only if the error
+    // comes first; the event is assembled before either, so it claims nothing
+    sessionManager.setTrackedOnErrorWithSessionReplay()
+    isRecordingSpy.and.returnValue(true)
+    getReplayStatsSpy.and.returnValue(fakeStats)
+
+    const errorEvent = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'error',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+    const viewEvent = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(errorEvent.session!.has_replay).toBeUndefined()
+    expect(viewEvent.session!.has_replay).toBeUndefined()
+    // but the session was sampled for one, and that is answerable without knowing any segment's fate
+    expect(viewEvent.session!.sampled_for_replay).toBe(true)
+  })
+
+  it('should not claim a replay for a session that withholds its events and has none', () => {
+    sessionManager.setTrackedOnError()
+
+    const event = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(event.session!.sampled_for_replay).toBe(false)
+  })
+
+  it('should tell the backend a session was stored only because it errored', () => {
+    sessionManager.setTrackedOnError()
+    const onErrorEvent = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    sessionManager.setTrackedWithSessionReplay()
+    const plainEvent = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(onErrorEvent.session!.sampled_for_error).toBeTrue()
+    // absent rather than false, so it costs nothing on every ordinary session
+    expect(plainEvent.session!.sampled_for_error).toBeUndefined()
+  })
+
   it('should discard the event if no session', () => {
     sessionManager.setNotTracked()
     const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {
