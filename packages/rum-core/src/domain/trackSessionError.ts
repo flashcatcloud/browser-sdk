@@ -6,7 +6,7 @@ import type { RumSessionManager } from './rumSessionManager'
 
 /**
  * Marks the session as having reported an error, which is what releases a replay withheld by
- * `sessionReplayOnErrorSampleRate`.
+ * `sessionReplayOnError`.
  *
  * It listens after assembly rather than on the raw error, so an error discarded by `beforeSend` or
  * by a rate limiter does not release anything: a session billed for an error that cannot be found

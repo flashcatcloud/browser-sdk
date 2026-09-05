@@ -101,16 +101,14 @@ export interface RumInitConfiguration extends InitConfiguration {
    */
   sessionReplaySampleRate?: number | undefined
   /**
-   * Of the tracked sessions that `sessionReplaySampleRate` did not draw, the percentage that record
-   * a replay but only upload it if the session reports an error: 100 for all of them, 0 for none.
-   * The base is what the plain rate missed, so a session is never counted by both, and the share of
-   * all tracked sessions this covers is `(100 - sessionReplaySampleRate) * this / 100`.
+   * Whether the tracked sessions that `sessionReplaySampleRate` did not draw still record a replay,
+   * uploaded only if the session reports an error. Default: false.
    *
    * Such a session records from the start and keeps at most the last minute of it in memory. If it
    * never reports an error, nothing is uploaded and the session is not billed. On the first error,
    * the withheld minute is uploaded and recording continues normally for the rest of the session.
    */
-  sessionReplayOnErrorSampleRate?: number | undefined
+  sessionReplayOnError?: boolean | undefined
   /**
    * If the session is sampled for Session Replay, only start the recording when `startSessionReplayRecording()` is called, instead of at the beginning of the session. Default: if startSessionReplayRecording is 0, true; otherwise, false.
    * See [Session Replay Usage](https://docs.datadoghq.com/real_user_monitoring/session_replay/browser/#usage) for further information.
@@ -186,7 +184,7 @@ export interface RumConfiguration extends Configuration {
   defaultPrivacyLevel: DefaultPrivacyLevel
   enablePrivacyForActionName: boolean
   sessionReplaySampleRate: number
-  sessionReplayOnErrorSampleRate: number
+  sessionReplayOnError: boolean
   startSessionReplayRecordingManually: boolean
   trackUserInteractions: boolean
   trackViewsManually: boolean
@@ -219,7 +217,6 @@ export function validateAndBuildRumConfiguration(
 
   if (
     !isSampleRate(initConfiguration.sessionReplaySampleRate, 'Session Replay') ||
-    !isSampleRate(initConfiguration.sessionReplayOnErrorSampleRate, 'Session Replay on Error') ||
     !isSampleRate(initConfiguration.traceSampleRate, 'Trace')
   ) {
     return
@@ -243,23 +240,23 @@ export function validateAndBuildRumConfiguration(
   const profilingEnabled = isExperimentalFeatureEnabled(ExperimentalFeature.PROFILING)
 
   const sessionReplaySampleRate = initConfiguration.sessionReplaySampleRate ?? 0
-  const sessionReplayOnErrorSampleRate = initConfiguration.sessionReplayOnErrorSampleRate ?? 0
+  const sessionReplayOnError = !!initConfiguration.sessionReplayOnError
 
-  // Each of these is a rate the customer set that cannot draw a single session. They are valid
-  // numbers, so validation lets them through - but silence would leave them waiting for data that
-  // is never coming.
-  if (sessionReplayOnErrorSampleRate > 0) {
+  // Each of these is a combination the customer can set that cannot apply to a single session. It
+  // is valid, so validation lets it through - but silence would leave them waiting for data that is
+  // never coming.
+  if (sessionReplayOnError) {
     if (sessionReplaySampleRate === 100) {
       display.warn(
-        'sessionReplayOnErrorSampleRate is drawn only for sessions sessionReplaySampleRate did not draw, and that rate is 100: it will never apply.'
+        'sessionReplayOnError only applies to sessions sessionReplaySampleRate did not draw, and that rate is 100: it will never apply.'
       )
     }
     if ((initConfiguration.sessionSampleRate ?? 100) === 0) {
-      display.warn('sessionReplayOnErrorSampleRate has no effect while sessionSampleRate is 0: no session is tracked.')
+      display.warn('sessionReplayOnError has no effect while sessionSampleRate is 0: no session is tracked.')
     }
     if (initConfiguration.startSessionReplayRecordingManually) {
       display.warn(
-        'sessionReplayOnErrorSampleRate needs the recording to already be running when the error happens, and startSessionReplayRecordingManually keeps it stopped until you start it: there would be nothing to release.'
+        'sessionReplayOnError needs the recording to already be running when the error happens, and startSessionReplayRecordingManually keeps it stopped until you start it: there would be nothing to release.'
       )
     }
   }
@@ -269,13 +266,13 @@ export function validateAndBuildRumConfiguration(
     version: initConfiguration.version || undefined,
     actionNameAttribute: initConfiguration.actionNameAttribute,
     sessionReplaySampleRate,
-    sessionReplayOnErrorSampleRate,
+    sessionReplayOnError,
     startSessionReplayRecordingManually:
       initConfiguration.startSessionReplayRecordingManually !== undefined
         ? !!initConfiguration.startSessionReplayRecordingManually
         : // An error-sampled session has to be recording before the error happens, otherwise there is
           // nothing to withhold and release. So it must auto-start just like a plain sampled one.
-          sessionReplaySampleRate === 0 && sessionReplayOnErrorSampleRate === 0,
+          sessionReplaySampleRate === 0 && !sessionReplayOnError,
     traceSampleRate: initConfiguration.traceSampleRate ?? 100,
     rulePsr: isNumber(initConfiguration.traceSampleRate) ? initConfiguration.traceSampleRate / 100 : undefined,
     allowedTracingUrls,
@@ -361,7 +358,7 @@ export function serializeRumConfiguration(configuration: RumInitConfiguration) {
 
   return {
     session_replay_sample_rate: configuration.sessionReplaySampleRate,
-    // `session_replay_on_error_sample_rate` is deliberately not reported yet: the telemetry
+    // `session_replay_on_error` is deliberately not reported yet: the telemetry
     // configuration type is generated from the rum-events-format schema, so adding it needs a schema
     // change first, and that is a separate repository.
     start_session_replay_recording_manually: configuration.startSessionReplayRecordingManually,

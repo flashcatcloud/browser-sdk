@@ -26,7 +26,7 @@ export interface RumSessionManager {
   setForcedReplay: () => void
   /**
    * Marks the given session as having reported an error. For a session sampled by
-   * `sessionReplayOnErrorSampleRate`, this is what releases the withheld replay. The id is required
+   * `sessionReplayOnError`, this is what releases the withheld replay. The id is required
    * because the store write can be deferred by the lock, and it must not land on a later session.
    */
   setSessionHasError: (sessionId: string) => void
@@ -179,8 +179,8 @@ function computeSessionState(configuration: RumConfiguration, rawTrackingType?: 
     trackingType = RumTrackingType.NOT_TRACKED
   } else if (performDraw(configuration.sessionReplaySampleRate)) {
     trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
-  } else if (performDraw(configuration.sessionReplayOnErrorSampleRate)) {
-    // Drawn only when the plain replay draw missed, so a session is never counted by both rates.
+  } else if (configuration.sessionReplayOnError) {
+    // Only for sessions the plain replay draw missed, so a session is never counted by both.
     trackingType = RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
   } else {
     trackingType = RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY

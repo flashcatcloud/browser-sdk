@@ -65,26 +65,25 @@ describe('validateAndBuildRumConfiguration', () => {
     })
   })
 
-  describe('sessionReplayOnErrorSampleRate', () => {
+  describe('sessionReplayOnError', () => {
     it('is carried into the built configuration', () => {
       expect(
-        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, sessionReplayOnErrorSampleRate: 50 })!
-          .sessionReplayOnErrorSampleRate
-      ).toBe(50)
+        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, sessionReplayOnError: true })!
+          .sessionReplayOnError
+      ).toBeTrue()
     })
 
     it('defaults to collecting no error replay at all', () => {
-      expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.sessionReplayOnErrorSampleRate).toBe(0)
+      expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.sessionReplayOnError).toBeFalse()
     })
 
-    it('is rejected when it is not a sample rate', () => {
+    it('is read as a switch, whatever it was given', () => {
       expect(
         validateAndBuildRumConfiguration({
           ...DEFAULT_INIT_CONFIGURATION,
-          sessionReplayOnErrorSampleRate: 'foo' as unknown as number,
-        })
-      ).toBeUndefined()
-      expect(displayErrorSpy).toHaveBeenCalledTimes(1)
+          sessionReplayOnError: 1 as unknown as boolean,
+        })!.sessionReplayOnError
+      ).toBeTrue()
     })
 
     it('starts the recording on its own, since there is nothing to withhold otherwise', () => {
@@ -92,16 +91,16 @@ describe('validateAndBuildRumConfiguration', () => {
         validateAndBuildRumConfiguration({
           ...DEFAULT_INIT_CONFIGURATION,
           sessionReplaySampleRate: 0,
-          sessionReplayOnErrorSampleRate: 30,
+          sessionReplayOnError: true,
         })!.startSessionReplayRecordingManually
       ).toBeFalse()
     })
 
-    it('warns when the plain replay rate leaves it nothing to draw from', () => {
+    it('warns when the plain replay rate leaves it nothing to apply to', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
         sessionReplaySampleRate: 100,
-        sessionReplayOnErrorSampleRate: 50,
+        sessionReplayOnError: true,
       })
 
       expect(displayWarnSpy).toHaveBeenCalledTimes(1)
@@ -112,7 +111,7 @@ describe('validateAndBuildRumConfiguration', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
         sessionSampleRate: 0,
-        sessionReplayOnErrorSampleRate: 50,
+        sessionReplayOnError: true,
       })
 
       expect(displayWarnSpy).toHaveBeenCalledTimes(1)
@@ -122,7 +121,7 @@ describe('validateAndBuildRumConfiguration', () => {
     it('warns when the recording is left for the customer to start, since nothing would be held', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
-        sessionReplayOnErrorSampleRate: 50,
+        sessionReplayOnError: true,
         startSessionReplayRecordingManually: true,
       })
 
@@ -130,11 +129,11 @@ describe('validateAndBuildRumConfiguration', () => {
       expect(displayWarnSpy.calls.argsFor(0)[0]).toContain('startSessionReplayRecordingManually')
     })
 
-    it('says nothing about a rate that can draw', () => {
+    it('says nothing about a switch that can apply', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
         sessionReplaySampleRate: 20,
-        sessionReplayOnErrorSampleRate: 50,
+        sessionReplayOnError: true,
       })
 
       expect(displayWarnSpy).not.toHaveBeenCalled()
@@ -608,7 +607,7 @@ describe('serializeRumConfiguration', () => {
       enablePrivacyForActionName: false,
       subdomain: 'foo',
       sessionReplaySampleRate: 60,
-      sessionReplayOnErrorSampleRate: 40,
+      sessionReplayOnError: true,
       startSessionReplayRecordingManually: true,
       trackUserInteractions: true,
       actionNameAttribute: 'test-id',
@@ -635,7 +634,7 @@ describe('serializeRumConfiguration', () => {
                 | 'profilingSampleRate'
                 | 'propagateTraceBaggage'
                 // not reported yet: needs a rum-events-format schema change first
-                | 'sessionReplayOnErrorSampleRate'
+                | 'sessionReplayOnError'
             ? never
             : CamelToSnakeCase<Key>
     // By specifying the type here, we can ensure that serializeConfiguration is returning an
