@@ -210,8 +210,8 @@ describe('rum session manager', () => {
     )
   })
 
-  describe('error session replay sampling', () => {
-    it('draws the error-replay type only when the plain replay draw missed', () => {
+  describe('session replay on error', () => {
+    it('applies the error-replay type only when the plain replay draw missed', () => {
       startRumSessionManagerWithDefaults({
         configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 100, sessionReplayOnError: true },
       })
