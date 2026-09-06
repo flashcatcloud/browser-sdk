@@ -1261,7 +1261,11 @@ describe('rum session manager', () => {
     })
 
     it('keeps the released state across a page load, since it is persisted in the session store', () => {
-      setCookie(SESSION_STORE_KEY, 'id=abcdef&rum=3&hasError=1', DURATION)
+      setCookie(
+        SESSION_STORE_KEY,
+        `id=abcdef&rum=3&hasError=1&created=${Date.now()}&expire=${Date.now() + DURATION}`,
+        DURATION
+      )
 
       const sessionManager = startRumSessionManagerWithDefaults()
 
