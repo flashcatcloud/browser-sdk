@@ -3,6 +3,7 @@ import {
   RumTrackingType,
   computeSessionReplayState,
   withholdsReplay,
+  type DrawnConfiguration,
   type RumSessionManager,
 } from '../src/domain/rumSessionManager'
 
@@ -14,6 +15,7 @@ export interface RumSessionManagerMock extends RumSessionManager {
   setTrackedWithErrorSessionReplay(): RumSessionManagerMock
   setForcedReplay(): RumSessionManagerMock
   setSessionHasError(): RumSessionManagerMock
+  setDrawnConfiguration(drawn: DrawnConfiguration): RumSessionManagerMock
 }
 
 const DEFAULT_ID = 'session-id'
@@ -36,6 +38,7 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
   let sessionStatus: SessionStatus = SessionStatus.TRACKED_WITH_SESSION_REPLAY
   let forcedReplay: boolean = false
   let hasError: boolean = false
+  let drawnConfiguration: DrawnConfiguration | undefined
   return {
     findTrackedSession() {
       const trackingType = TRACKING_TYPES[sessionStatus]
@@ -48,6 +51,7 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
         sessionReplay: computeSessionReplayState(trackingType, hasError, forcedReplay),
         sampledOnErrorReplay: withholdsReplay(trackingType),
         anonymousId: 'device-123',
+        drawnConfiguration,
       }
     },
     expire() {
@@ -82,6 +86,21 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
     setSessionHasError() {
       hasError = true
       return this
+    },
+    setDrawnConfiguration(drawn) {
+      drawnConfiguration = drawn
+      return this
+    },
+    // A deliberate simplification, and one to keep in mind when asserting against it. The real
+    // manager cannot collect a visitor on the spot: a session that was not being collected has to
+    // end and be drawn again at the next user interaction, and it comes back with a NEW id. And a
+    // session collected WITHOUT replay keeps its tracking type and only gains forced replay, so it
+    // reports `FORCED` where this reports `SAMPLED` — which is what `sampled_for_replay` on the
+    // events is derived from. Only a session already collected WITH replay behaves as it does
+    // here; a consumer test must not conclude from this mock that collection starts immediately,
+    // that the id survives, or that replay reads as sampled.
+    setForcedSession() {
+      sessionStatus = SessionStatus.TRACKED_WITH_SESSION_REPLAY
     },
   }
 }

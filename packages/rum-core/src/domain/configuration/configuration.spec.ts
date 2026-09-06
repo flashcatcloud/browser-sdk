@@ -250,7 +250,7 @@ describe('validateAndBuildRumConfiguration', () => {
           allowedTracingUrls: [
             42 as any,
             undefined,
-            { match: 42 as any, propagatorTypes: ['datadog'] },
+            { match: 42 as any, propagatorTypes: ['tracecontext'] },
             { match: 'toto' },
           ],
         })!.allowedTracingUrls
@@ -444,6 +444,28 @@ describe('validateAndBuildRumConfiguration', () => {
     })
   })
 
+  describe('trackWebVitals', () => {
+    it('defaults to true', () => {
+      expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.trackWebVitals).toBeTrue()
+    })
+
+    it('is set to provided value', () => {
+      expect(
+        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, trackWebVitals: true })!.trackWebVitals
+      ).toBeTrue()
+      expect(
+        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, trackWebVitals: false })!.trackWebVitals
+      ).toBeFalse()
+    })
+
+    it('the provided value is cast to boolean', () => {
+      expect(
+        validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, trackWebVitals: 'foo' as any })!
+          .trackWebVitals
+      ).toBeTrue()
+    })
+  })
+
   describe('trackResources', () => {
     it('defaults to true', () => {
       expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.trackResources).toBeTrue()
@@ -509,14 +531,13 @@ describe('validateAndBuildRumConfiguration', () => {
           ...DEFAULT_INIT_CONFIGURATION,
           allowedTracingUrls: [
             'foo',
-            { match: 'first', propagatorTypes: ['datadog'] },
-            { match: 'test', propagatorTypes: ['tracecontext'] },
+            { match: 'first', propagatorTypes: ['tracecontext'] },
             { match: 'other', propagatorTypes: ['b3'] },
             { match: 'final', propagatorTypes: ['b3multi'] },
           ],
         }
         expect(serializeRumConfiguration(complexTracingConfig).selected_tracing_propagators).toEqual(
-          jasmine.arrayWithExactContents(['datadog', 'b3', 'b3multi', 'tracecontext'])
+          jasmine.arrayWithExactContents(['b3', 'b3multi', 'tracecontext'])
         )
       })
 
@@ -597,6 +618,7 @@ describe('serializeRumConfiguration', () => {
       ...EXHAUSTIVE_INIT_CONFIGURATION,
       applicationId: 'applicationId',
       beforeSend: () => true,
+      beforeSampling: () => undefined,
       excludedActivityUrls: ['toto.com'],
       workerUrl: './worker.js',
       compressIntakeRequests: true,
@@ -609,12 +631,15 @@ describe('serializeRumConfiguration', () => {
       sessionReplaySampleRate: 60,
       sessionReplayOnError: true,
       startSessionReplayRecordingManually: true,
+      sessionReplayDirectUpload: true,
       trackUserInteractions: true,
       actionNameAttribute: 'test-id',
       trackViewsManually: true,
+      trackWebVitals: true,
       trackResources: true,
       trackLongTasks: true,
-      remoteConfigurationId: '123',
+      remoteConfigurationEnabled: true,
+      remoteConfigurationFetchTimeout: 3000,
       plugins: [{ name: 'foo', getConfigurationTelemetry: () => ({ bar: true }) }],
       trackFeatureFlagsForEvents: ['vital'],
       profilingSampleRate: 0,
@@ -630,9 +655,14 @@ describe('serializeRumConfiguration', () => {
           : Key extends
                 | 'applicationId'
                 | 'subdomain'
-                | 'remoteConfigurationId'
+                | 'remoteConfigurationEnabled'
+                | 'remoteConfigurationFetchTimeout'
                 | 'profilingSampleRate'
                 | 'propagateTraceBaggage'
+                | 'trackWebVitals'
+                // FLASHCAT FORK: not reported to telemetry
+                | 'sessionReplayDirectUpload'
+                | 'beforeSampling'
                 // not reported yet: needs a rum-events-format schema change first
                 | 'sessionReplayOnError'
             ? never
@@ -649,7 +679,7 @@ describe('serializeRumConfiguration', () => {
       trace_sample_rate: 50,
       trace_context_injection: TraceContextInjection.ALL,
       use_allowed_tracing_urls: true,
-      selected_tracing_propagators: ['tracecontext', 'datadog'],
+      selected_tracing_propagators: ['tracecontext'],
       use_excluded_activity_urls: true,
       track_user_interactions: true,
       track_views_manually: true,
@@ -663,6 +693,27 @@ describe('serializeRumConfiguration', () => {
       compress_intake_requests: true,
       plugins: [{ name: 'foo', bar: true }],
       track_feature_flags_for_events: ['vital'],
+    })
+  })
+
+  describe('beforeSampling', () => {
+    it('is reported and ignored when it is not a function, and collection carries on', () => {
+      // One callback on the sampling draw is not worth the site's entire collection. Refusing init
+      // here would take every view, error and resource down with it.
+      const displaySpy = spyOn(display, 'error')
+
+      const configuration = validateAndBuildRumConfiguration({
+        ...DEFAULT_INIT_CONFIGURATION,
+        beforeSampling: 'not a function' as any,
+      })
+
+      expect(configuration).toBeDefined()
+      expect(configuration!.beforeSampling).toBeUndefined()
+      expect(displaySpy).toHaveBeenCalledOnceWith('beforeSampling should be a function, and is ignored')
+    })
+
+    it('is accepted when it is absent', () => {
+      expect(validateAndBuildRumConfiguration(DEFAULT_INIT_CONFIGURATION)!.beforeSampling).toBeUndefined()
     })
   })
 })

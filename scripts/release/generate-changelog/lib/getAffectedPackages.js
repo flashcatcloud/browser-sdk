@@ -61,9 +61,11 @@ function getDepenciesRecursively(packageDirectoryName) {
   if (packageDirectoryNameJson.dependencies) {
     for (const dependencyPackageName of Object.keys(packageDirectoryNameJson.dependencies)) {
       const packageDirectoryName = getPackageDirectoryNameFromPackageName(dependencyPackageName)
-      dependencies.add(packageDirectoryName)
-      for (let transitiveDependency of getDepenciesRecursively(packageDirectoryName)) {
-        dependencies.add(transitiveDependency)
+      if (packageDirectoryName) {
+        dependencies.add(packageDirectoryName)
+        for (let transitiveDependency of getDepenciesRecursively(packageDirectoryName)) {
+          dependencies.add(transitiveDependency)
+        }
       }
     }
   }

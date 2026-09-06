@@ -1,4 +1,5 @@
 import type { InitConfiguration } from '../src/domain/configuration'
+import { INTAKE_SITE_US1 } from '../src/domain/configuration'
 import type { RawTelemetryConfiguration } from '../src/domain/telemetry'
 import type { CamelToSnakeCase, RemoveIndex } from './typeUtils'
 
@@ -21,7 +22,7 @@ export const EXHAUSTIVE_INIT_CONFIGURATION: Required<InitConfiguration> = {
   storeContextsAcrossPages: true,
   trackingConsent: 'not-granted',
   proxy: 'proxy',
-  site: 'datadoghq.com',
+  site: INTAKE_SITE_US1,
   service: 'service',
   env: 'env',
   version: 'version',

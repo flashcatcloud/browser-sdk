@@ -223,7 +223,7 @@ test.describe('microfrontend', () => {
   createTest('view: allowed to modify service and version')
     .withRum(RUM_CONFIG)
     .withRumInit((configuration) => {
-      window.DD_RUM!.init({
+      window.FC_RUM!.init({
         ...configuration,
         beforeSend: (event: RumEvent) => {
           if (event.type === 'view') {

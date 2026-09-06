@@ -63,7 +63,7 @@ function rebuildStringTemplate(template, ...values) {
 function replaceChunkHashes(commandDetail) {
   return {
     ...commandDetail,
-    command: commandDetail.command.replace(/-[a-f0-9]+-datadog-rum/g, `-${FAKE_CHUNK_HASH}-datadog-rum`),
+    command: commandDetail.command.replace(/-[a-f0-9]+-flashcat-rum/g, `-${FAKE_CHUNK_HASH}-flashcat-rum`),
   }
 }
 

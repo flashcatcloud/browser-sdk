@@ -33,9 +33,22 @@ export const enum LifeCycleEventType {
   SESSION_EXPIRED,
   SESSION_RENEWED,
   PAGE_MAY_EXIT,
+  PAGE_REACTIVATED,
   RAW_RUM_EVENT_COLLECTED,
   RUM_EVENT_COLLECTED,
   RAW_ERROR_COLLECTED,
+
+  // FLASHCAT FORK - a remote configuration response has just changed what is in storage. Emitted
+  // only when the write actually happened and actually changed something, so a response refused as
+  // stale, one that merely repeats the settings already held, and a storage failure all stay
+  // silent: a subscriber acting on settings the next draw would have read anyway would be acting
+  // on no news at all.
+  //
+  // Added last on purpose. The values of a const enum are inlined at build time and shift when an
+  // entry is inserted, and everything above this line is upstream's — keeping the fork's own entry
+  // at the end leaves upstream's numbering alone and keeps this file out of the way of the next
+  // upstream merge.
+  REMOTE_CONFIGURATION_STORED,
 }
 
 // This is a workaround for an issue occurring when the Browser SDK is included in a TypeScript
@@ -64,9 +77,11 @@ declare const LifeCycleEventTypeAsConst: {
   SESSION_EXPIRED: LifeCycleEventType.SESSION_EXPIRED
   SESSION_RENEWED: LifeCycleEventType.SESSION_RENEWED
   PAGE_MAY_EXIT: LifeCycleEventType.PAGE_MAY_EXIT
+  PAGE_REACTIVATED: LifeCycleEventType.PAGE_REACTIVATED
   RAW_RUM_EVENT_COLLECTED: LifeCycleEventType.RAW_RUM_EVENT_COLLECTED
   RUM_EVENT_COLLECTED: LifeCycleEventType.RUM_EVENT_COLLECTED
   RAW_ERROR_COLLECTED: LifeCycleEventType.RAW_ERROR_COLLECTED
+  REMOTE_CONFIGURATION_STORED: LifeCycleEventType.REMOTE_CONFIGURATION_STORED
 }
 
 // Note: this interface needs to be exported even if it is not used outside of this module, else TS
@@ -84,12 +99,14 @@ export interface LifeCycleEventMap {
   [LifeCycleEventTypeAsConst.SESSION_EXPIRED]: void
   [LifeCycleEventTypeAsConst.SESSION_RENEWED]: void
   [LifeCycleEventTypeAsConst.PAGE_MAY_EXIT]: PageMayExitEvent
+  [LifeCycleEventTypeAsConst.PAGE_REACTIVATED]: void
   [LifeCycleEventTypeAsConst.RAW_RUM_EVENT_COLLECTED]: RawRumEventCollectedData
   [LifeCycleEventTypeAsConst.RUM_EVENT_COLLECTED]: RumEvent & Context
   [LifeCycleEventTypeAsConst.RAW_ERROR_COLLECTED]: {
     error: RawError
     customerContext?: Context
   }
+  [LifeCycleEventTypeAsConst.REMOTE_CONFIGURATION_STORED]: void
 }
 
 export interface RawRumEventCollectedData<E extends RawRumEvent = RawRumEvent> {

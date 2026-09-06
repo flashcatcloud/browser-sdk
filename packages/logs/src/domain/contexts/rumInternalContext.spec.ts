@@ -101,7 +101,7 @@ describe('startRUMInternalContext', () => {
 
   describe('getRUMInternalContext', () => {
     it('should get the RUM internal context', () => {
-      window.DD_RUM = {
+      window.FC_RUM = {
         getInternalContext: () => ({ foo: 'bar' }),
       }
       const rumInternalContext = getRUMInternalContext()

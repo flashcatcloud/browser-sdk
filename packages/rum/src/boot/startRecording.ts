@@ -32,7 +32,10 @@ export function startRecording(
   // emits into it, so the buffer reaches for the snapshot through this holder rather than directly.
   let takeSubsequentFullSnapshot: () => void = noop
 
-  if (!canUseEventBridge()) {
+  // FLASHCAT FORK (2/4) - see `sessionReplayDirectUpload` in RumInitConfiguration.
+  // Without the option, records are handed over to the host application through the bridge. With
+  // it, they go through the regular segment collection and are uploaded from this page.
+  if (!canUseEventBridge() || configuration.sessionReplayDirectUpload) {
     const segmentCollection = startSegmentCollection(
       lifeCycle,
       configuration,
@@ -67,9 +70,20 @@ export function startRecording(
     ;({ addRecord } = startRecordBridge(viewHistory))
   }
 
+  // FLASHCAT FORK - the privacy level a recording runs under is the one its session was drawn
+  // with, not whatever the console has delivered since. Resolved once, here, because a recording
+  // begins and ends with its session: the recorders below read the level on every node they
+  // serialise, so anything that could change underneath them would leave a single replay partly
+  // masked and partly not — and an upload cannot be masked after the fact.
+  const recordConfiguration = {
+    ...configuration,
+    defaultPrivacyLevel:
+      sessionManager.findTrackedSession()?.drawnConfiguration?.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
+  }
+
   const recording = record({
     emit: addRecord,
-    configuration,
+    configuration: recordConfiguration,
     lifeCycle,
     viewHistory,
   })

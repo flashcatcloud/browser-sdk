@@ -4,7 +4,7 @@ import { NO_ERROR_STACK_PRESENT_MESSAGE, isError } from '../error/error'
 import { toStackTraceString } from '../../tools/stackTrace/handlingStack'
 import { getExperimentalFeatures } from '../../tools/experimentalFeatures'
 import type { Configuration } from '../configuration'
-import { INTAKE_SITE_STAGING, INTAKE_SITE_US1_FED } from '../configuration'
+import { INTAKE_SITE_STAGING } from '../configuration'
 import { Observable } from '../../tools/observable'
 import { timeStampNow } from '../../tools/utils/timeUtils'
 import { displayIfDebugEnabled, startMonitorErrorCollection } from '../../tools/monitor'
@@ -50,7 +50,7 @@ export interface Telemetry {
   enabled: boolean
 }
 
-const TELEMETRY_EXCLUDED_SITES: string[] = [INTAKE_SITE_US1_FED]
+const TELEMETRY_EXCLUDED_SITES: string[] = []
 
 // eslint-disable-next-line local-rules/disallow-side-effects
 let preStartTelemetryBuffer = createBoundedBuffer()

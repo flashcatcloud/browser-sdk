@@ -24,7 +24,7 @@ export async function expireSession(page: Page, browserContext: BrowserContext) 
   expect((await findSessionCookie(browserContext))?.isExpired).toEqual('1')
 
   // Cookies are cached for 1s, wait until the cache expires
-  await page.waitForTimeout(1100)
+  await page.waitForTimeout(1500)
 }
 
 export async function findSessionCookie(browserContext: BrowserContext) {

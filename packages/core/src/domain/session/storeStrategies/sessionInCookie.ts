@@ -2,7 +2,6 @@ import { isChromium } from '../../../tools/utils/browserDetection'
 import type { CookieOptions } from '../../../browser/cookie'
 import { getCurrentSite, areCookiesAuthorized, getCookie, setCookie } from '../../../browser/cookie'
 import type { InitConfiguration, Configuration } from '../../configuration'
-import { tryOldCookiesMigration } from '../oldCookiesMigration'
 import {
   SESSION_COOKIE_EXPIRATION_DELAY,
   SESSION_EXPIRATION_DELAY,
@@ -37,8 +36,6 @@ export function initCookieStrategy(configuration: Configuration, cookieOptions: 
         SESSION_TIME_OUT_DELAY
       ),
   }
-
-  tryOldCookiesMigration(cookieStore)
 
   return cookieStore
 }

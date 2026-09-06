@@ -1,5 +1,4 @@
 import { createInflate, inflateSync } from 'zlib'
-import https from 'https'
 import connectBusboy from 'connect-busboy'
 import express from 'express'
 
@@ -30,10 +29,7 @@ export function createIntakeServerApp(intakeRegistry: IntakeRegistry) {
     const infos = computeIntakeRequestInfos(req)
 
     try {
-      const [intakeRequest] = await Promise.all([
-        readIntakeRequest(req, infos),
-        !infos.isBridge && forwardIntakeRequestToDatadog(req),
-      ])
+      const intakeRequest = await readIntakeRequest(req, infos)
       intakeRegistry.push(intakeRequest)
     } catch (error) {
       console.error('Error while processing request:', error)
@@ -155,27 +151,6 @@ function readReplayIntakeRequest(
         }))
         .then(resolve, reject)
     })
-  })
-}
-
-function forwardIntakeRequestToDatadog(req: express.Request): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const ddforward = req.query.ddforward! as string
-    if (!/^\/api\/v2\//.test(ddforward)) {
-      throw new Error(`Unsupported ddforward: ${ddforward}`)
-    }
-    const options = {
-      method: 'POST',
-      headers: {
-        'X-Forwarded-For': req.socket.remoteAddress,
-        'Content-Type': req.headers['content-type'],
-        'User-Agent': req.headers['user-agent'],
-      },
-    }
-    const datadogIntakeRequest = https.request(new URL(ddforward, 'https://browser-intake-datadoghq.com'), options)
-    req.pipe(datadogIntakeRequest)
-    datadogIntakeRequest.on('response', resolve)
-    datadogIntakeRequest.on('error', reject)
   })
 }
 

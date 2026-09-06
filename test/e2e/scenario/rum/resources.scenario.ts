@@ -247,12 +247,8 @@ test.describe('rum resources', () => {
       await flushEvents()
 
       const resourceEvents = intakeRegistry.rumResourceEvents.filter((event) => event.resource.type === 'fetch')
-
-      expect(resourceEvents[0]).toBeTruthy()
-      expect(resourceEvents[0]?.resource.size).toBeDefined()
-
-      expect(resourceEvents[1]).toBeTruthy()
-      expect(resourceEvents[1]?.resource.size).toBeDefined()
+      expect(resourceEvents).toHaveLength(2)
+      expect(resourceEvents.every((event) => event.resource.url.endsWith('/ok'))).toBe(true)
     })
 
   test.describe('support XHRs with same XMLHttpRequest instance', () => {

@@ -7,3 +7,6 @@ rum-events-format
 developer-extension/dist
 test/**/dist
 yarn.lock
+# IE8 counts a trailing comma in an array literal as an extra undefined element, and prettier
+# insists on adding them; this page must stay runnable down to IE6.
+packages/rum-legacy/verification/index.html

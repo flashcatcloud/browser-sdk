@@ -6,6 +6,7 @@ export {
   serializeConfiguration,
   isSampleRate,
   buildEndpointHost,
+  createEndpointUrlBuilder,
   INTAKE_SITE_STAGING,
   INTAKE_SITE_US1,
   INTAKE_SITE_US1_FED,
@@ -112,6 +113,7 @@ export type { FetchResolveContext, FetchStartContext, FetchContext } from './bro
 export { initFetchObservable, resetFetchObservable } from './browser/fetchObservable'
 export type { PageMayExitEvent } from './browser/pageMayExitObservable'
 export { createPageMayExitObservable, PageExitReason, isPageExitReason } from './browser/pageMayExitObservable'
+export { createPageActivationObservable } from './browser/pageActivationObservable'
 export * from './browser/addEventListener'
 export { requestIdleCallback } from './tools/requestIdleCallback'
 export * from './tools/taskQueue'

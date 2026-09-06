@@ -4,7 +4,7 @@ import { callMonitored } from '../../tools/monitor'
 import type { ExperimentalFeature } from '../../tools/experimentalFeatures'
 import { resetExperimentalFeatures, addExperimentalFeatures } from '../../tools/experimentalFeatures'
 import type { Configuration } from '../configuration'
-import { INTAKE_SITE_US1, INTAKE_SITE_US1_FED } from '../configuration'
+import { INTAKE_SITE_US1 } from '../configuration'
 import { setNavigatorOnLine, setNavigatorConnection } from '../../../test'
 import {
   addTelemetryError,
@@ -223,10 +223,7 @@ describe('telemetry', () => {
   })
 
   describe('excluded sites', () => {
-    ;[
-      { site: INTAKE_SITE_US1_FED, enabled: false },
-      { site: INTAKE_SITE_US1, enabled: true },
-    ].forEach(({ site, enabled }) => {
+    ;[{ site: INTAKE_SITE_US1, enabled: true }].forEach(({ site, enabled }) => {
       it(`should be ${enabled ? 'enabled' : 'disabled'} on ${site}`, () => {
         const { notifySpy } = startAndSpyTelemetry({ site })
 
