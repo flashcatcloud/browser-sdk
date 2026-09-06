@@ -24,6 +24,8 @@ const noopStartRum = (): ReturnType<StartRum> => ({
   viewHistory: {} as any,
   session: {} as any,
   stopSession: () => undefined,
+  setForcedSession: () => undefined,
+  getRemoteConfig: () => undefined,
   startDurationVital: () => ({}) as DurationVitalReference,
   stopDurationVital: () => undefined,
   addDurationVital: () => undefined,
@@ -114,7 +116,10 @@ describe('rum public api', () => {
 
       rumPublicApi.init(DEFAULT_INIT_CONFIGURATION)
 
-      expect(rumPublicApi.getInitConfiguration()).toEqual(DEFAULT_INIT_CONFIGURATION)
+      expect(rumPublicApi.getInitConfiguration()).toEqual({
+        ...DEFAULT_INIT_CONFIGURATION,
+        site: 'browser.flashcat.cloud',
+      })
       expect(rumPublicApi.getInitConfiguration()).not.toBe(DEFAULT_INIT_CONFIGURATION)
     })
   })

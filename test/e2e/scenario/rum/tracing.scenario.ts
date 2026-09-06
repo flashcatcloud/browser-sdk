@@ -78,8 +78,8 @@ test.describe('tracing', () => {
     })
     .run(async ({ intakeRegistry, flushEvents, page }) => {
       await page.evaluate(() => {
-        window.DD_RUM!.setUser({ id: 'p1745' })
-        window.DD_RUM!.setAccount({ id: 'c9wpq8xrvd9t' })
+        window.FC_RUM!.setUser({ id: 'p1745' })
+        window.FC_RUM!.setAccount({ id: 'c9wpq8xrvd9t' })
       })
       const rawHeaders = await page.evaluate(() =>
         window
@@ -107,13 +107,11 @@ test.describe('tracing', () => {
     return JSON.parse(rawHeaders)
   }
 
-  // By default, we send both Datadog and W3C tracecontext headers
+  // By default, we send W3C tracecontext headers
   function checkRequestHeaders(
     headers: ParsedHeaders,
     { withBaggage }: { withBaggage: boolean } = { withBaggage: false }
   ) {
-    expect(headers['x-datadog-trace-id']).toMatch(/\d+/)
-    expect(headers['x-datadog-origin']).toBe('rum')
     expect(headers['traceparent']).toMatch(/^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-01$/)
     if (withBaggage) {
       expect(headers['baggage']).toMatch(/^session.id=.*,user.id=.*,account.id=.*$/)

@@ -120,6 +120,8 @@ describe('logs', () => {
         },
         origin: ErrorSource.LOGGER,
         usr: {
+          // the FlashCat fork defaults usr.id to the session anonymous id when no user is set
+          id: jasmine.any(String),
           anonymous_id: jasmine.any(String),
         },
       })
@@ -262,7 +264,7 @@ describe('logs', () => {
     })
 
     it('sends logs without session id when the session expires ', async () => {
-      setCookie(SESSION_STORE_KEY, 'id=foo&logs=1', ONE_MINUTE)
+      setCookie(SESSION_STORE_KEY, `id=foo&logs=1&created=${Date.now()}&expire=${Date.now() + ONE_MINUTE}`, ONE_MINUTE)
       ;({ handleLog, stop: stopLogs } = startLogs(
         initConfiguration,
         baseConfiguration,

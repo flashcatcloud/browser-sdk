@@ -141,7 +141,13 @@ function injectHeadersIfTracingAllowed(
     return
   }
 
-  const traceSampled = isTraceSampled(session.id, configuration.traceSampleRate)
+  // FLASHCAT FORK - the rate the session was drawn with, not the one delivered since. The draw is
+  // a hash of the session id, so a rate that moved mid-session would flip a session between traced
+  // and untraced while it is still running.
+  const traceSampled = isTraceSampled(
+    session.id,
+    session.drawnConfiguration?.traceSampleRate ?? configuration.traceSampleRate
+  )
 
   const shouldInjectHeaders = traceSampled || configuration.traceContextInjection === TraceContextInjection.ALL
   if (!shouldInjectHeaders) {

@@ -1,8 +1,13 @@
 import type { TimeStamp, HttpRequest } from '@flashcatcloud/browser-core'
 import { PageExitReason, DefaultPrivacyLevel, noop, DeflateEncoderStreamId } from '@flashcatcloud/browser-core'
-import type { ViewCreatedEvent } from '@flashcatcloud/browser-rum-core'
+import type { RumConfiguration, ViewCreatedEvent } from '@flashcatcloud/browser-rum-core'
 import { LifeCycle, LifeCycleEventType, startViewHistory } from '@flashcatcloud/browser-rum-core'
-import { collectAsyncCalls, createNewEvent, mockEventBridge, registerCleanupTask } from '@flashcatcloud/browser-core/test'
+import {
+  collectAsyncCalls,
+  createNewEvent,
+  mockEventBridge,
+  registerCleanupTask,
+} from '@flashcatcloud/browser-core/test'
 import type { ViewEndedEvent } from 'packages/rum-core/src/domain/view/trackViews'
 import type { RumSessionManagerMock } from '../../../rum-core/test'
 import { appendElement, createRumSessionManagerMock, mockRumConfiguration } from '../../../rum-core/test'
@@ -25,8 +30,11 @@ describe('startRecording', () => {
   let requestSendSpy: jasmine.Spy<HttpRequest['sendOnExit']>
   let stopRecording: () => void
 
-  function setupStartRecording() {
-    const configuration = mockRumConfiguration({ defaultPrivacyLevel: DefaultPrivacyLevel.ALLOW })
+  function setupStartRecording(partialConfiguration: Partial<RumConfiguration> = {}) {
+    const configuration = mockRumConfiguration({
+      defaultPrivacyLevel: DefaultPrivacyLevel.ALLOW,
+      ...partialConfiguration,
+    })
     resetReplayStats()
     const worker = startDeflateWorker(configuration, 'Session Replay', noop)
 
@@ -83,6 +91,39 @@ describe('startRecording', () => {
       },
       index_in_view: 0,
       source: 'browser',
+    })
+  })
+
+  describe('the privacy level a recording runs under', () => {
+    // A recording begins and ends with its session, and the recorders read the level on every node
+    // they serialise — so the level has to be the one latched at that session's draw. Asserted in
+    // both directions on purpose: one direction alone would also pass if the drawn value were
+    // ignored and the init value happened to agree.
+    function recordWith(init: DefaultPrivacyLevel, drawn: DefaultPrivacyLevel) {
+      textField.value = 'secret-value'
+      sessionManager.setDrawnConfiguration({
+        version: 3,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: undefined,
+        defaultPrivacyLevel: drawn,
+      })
+      setupStartRecording({ defaultPrivacyLevel: init })
+      flushSegment(lifeCycle)
+    }
+
+    it('masks when the console asked for it, though the site shipped allow', async () => {
+      recordWith(DefaultPrivacyLevel.ALLOW, DefaultPrivacyLevel.MASK)
+
+      const requests = await readSentRequests(1)
+      expect(JSON.stringify(requests[0].segment)).not.toContain('secret-value')
+    })
+
+    it('does not mask when the draw said allow, though the site shipped mask', async () => {
+      recordWith(DefaultPrivacyLevel.MASK, DefaultPrivacyLevel.ALLOW)
+
+      const requests = await readSentRequests(1)
+      expect(JSON.stringify(requests[0].segment)).toContain('secret-value')
     })
   })
 
@@ -271,6 +312,19 @@ describe('startRecording', () => {
       event: jasmine.objectContaining({ type: RecordType.Meta }),
       view: { id: 'view-id-2' },
     })
+  })
+
+  // FLASHCAT FORK - see `sessionReplayDirectUpload` in RumInitConfiguration.
+  it('should send segments itself when the bridge is present but sessionReplayDirectUpload is set', async () => {
+    const eventBridge = mockEventBridge()
+    const sendSpy = spyOn(eventBridge, 'send')
+    setupStartRecording({ sessionReplayDirectUpload: true })
+
+    flushSegment(lifeCycle)
+
+    const requests = await readSentRequests(1)
+    expect(requests[0].metadata.session).toEqual({ id: 'session-id' })
+    expect(sendSpy).not.toHaveBeenCalled()
   })
 
   function initialView(lifeCycle: LifeCycle) {

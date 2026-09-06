@@ -7,29 +7,24 @@
     <script src="http://localhost:8080/flashcat-logs.js"></script>
     <script>
       FC_RUM.init({
-        applicationId: 'eWbr4xk3ZRnLabRa6unqwD',
-        clientToken: 'ce8d1be90fc6534f89ce36ebf526765e131',
-        sessionPersistence: 'local-storage',
-        service: 'test',
-        env: 'local',
-        proxy: ({ path, parameters }) => {
-          // 区分线下环境
-          return `https://jira.flashcat.cloud${path}?${parameters}`
-        },
-        // Specify a version number to identify the deployed version of your application in Datadog
-        version: '1.0.0',
-        sessionSampleRate: 100,
-        sessionReplaySampleRate: 0,
-        defaultPrivacyLevel: 'mask-user-input',
-        compressIntakeRequests: false,
-        allowedTracingUrls: ['http://10.99.1.110', /https?:\/\/.*\.console\.flashcat\.cloud/],
+        clientToken: 'xxx',
+        applicationId: 'xxx',
+        sessionReplaySampleRate: 100,
+        trackResources: true,
+        trackLongTasks: true,
+        telemetrySampleRate: 100,
+        telemetryConfigurationSampleRate: 100,
+        telemetryUsageSampleRate: 100,
+        enableExperimentalFeatures: [],
       })
-
-      FC_RUM.setUser({
-        id: '123',
-        email: 'test@flashcat.cloud',
-        name: 'test',
+      FC_LOGS.init({
+        clientToken: 'xxx',
+        telemetrySampleRate: 100,
+        telemetryConfigurationSampleRate: 100,
+        telemetryUsageSampleRate: 100,
+        enableExperimentalFeatures: [],
       })
+      FC_FLAGGING.init()
     </script>
   </head>
 

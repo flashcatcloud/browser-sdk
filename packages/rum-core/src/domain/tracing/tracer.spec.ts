@@ -7,7 +7,7 @@ import type { RumInitConfiguration } from '../configuration'
 import { validateAndBuildRumConfiguration } from '../configuration'
 import { startTracer } from './tracer'
 import type { SpanIdentifier, TraceIdentifier } from './identifier'
-import { createSpanIdentifier, createTraceIdentifier } from './identifier'
+import { createSpanIdentifier, createTraceIdentifier, toPaddedHexadecimalString } from './identifier'
 
 describe('tracer', () => {
   const ALLOWED_DOMAIN_CONTEXT: Partial<RumXhrStartContext | RumFetchStartContext> = {
@@ -30,7 +30,7 @@ describe('tracer', () => {
       clientToken: 'xxx',
       applicationId: 'xxx',
       service: 'service',
-      allowedTracingUrls: [{ match: window.location.origin, propagatorTypes: ['datadog'] }],
+      allowedTracingUrls: [{ match: window.location.origin, propagatorTypes: ['tracecontext'] }],
       ...initConfiguration,
     })!
     const userContext = { getContext: () => ({ id: userId }) } as unknown as ContextManager
@@ -98,6 +98,25 @@ describe('tracer', () => {
       expect(context.traceId).toBeDefined()
       expect(context.spanId).toBeDefined()
       expect(xhr.headers).toEqual(tracingHeadersFor(context.traceId!, context.spanId!, '1'))
+    })
+
+    it('draws on the rate the session was drawn with, not the one init passed', () => {
+      // The console lowered the trace rate to 0 and this session was created under it. Reading the
+      // init value back would trace a session the draw already decided against.
+      const sessionManager = createRumSessionManagerMock().setDrawnConfiguration({
+        version: 8,
+        sessionSampleRate: 100,
+        sessionReplaySampleRate: 100,
+        traceSampleRate: 0,
+        defaultPrivacyLevel: 'mask',
+      })
+      const tracer = startTracerWithDefaults({ initConfiguration: { traceSampleRate: 100 }, sessionManager })
+      const context = { ...ALLOWED_DOMAIN_CONTEXT }
+      tracer.traceXhr(context, xhr as unknown as XMLHttpRequest)
+
+      // With the default injection mode an unsampled request carries nothing at all.
+      expect(context.traceId).toBeUndefined()
+      expect(xhr.headers).toEqual({})
     })
 
     it("should trace request with priority '0' when not sampled and config set to all", () => {
@@ -241,8 +260,8 @@ describe('tracer', () => {
       const context = { ...ALLOWED_DOMAIN_CONTEXT }
       tracer.traceXhr(context, xhr as unknown as XMLHttpRequest)
 
-      expect(xhr.headers['x-datadog-trace-id']).toBeDefined()
-      expect(xhr.headers['x-datadog-sampling-priority']).toBeDefined()
+      expect(xhr.headers['traceparent']).toBeDefined()
+      expect(xhr.headers['tracestate']).toBeDefined()
     })
 
     it('should add headers when trace not sampled and config set to all', () => {
@@ -255,8 +274,8 @@ describe('tracer', () => {
       const context = { ...ALLOWED_DOMAIN_CONTEXT }
       tracer.traceXhr(context, xhr as unknown as XMLHttpRequest)
 
-      expect(xhr.headers['x-datadog-trace-id']).toBeDefined()
-      expect(xhr.headers['x-datadog-sampling-priority']).toBeDefined()
+      expect(xhr.headers['traceparent']).toBeDefined()
+      expect(xhr.headers['tracestate']).toBeDefined()
     })
 
     describe('baggage propagation header', () => {
@@ -651,10 +670,8 @@ describe('tracer', () => {
       const context: Partial<RumFetchStartContext> = { ...ALLOWED_DOMAIN_CONTEXT }
       tracer.traceFetch(context)
 
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-origin']))
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-parent-id']))
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-trace-id']))
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-sampling-priority']))
+      expect(context.init!.headers).toContain(jasmine.arrayContaining(['traceparent']))
+      expect(context.init!.headers).toContain(jasmine.arrayContaining(['tracestate']))
     })
 
     it('should add headers when trace not sampled and config set to all', () => {
@@ -668,10 +685,8 @@ describe('tracer', () => {
       const context: Partial<RumFetchStartContext> = { ...ALLOWED_DOMAIN_CONTEXT }
       tracer.traceFetch(context)
 
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-origin']))
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-parent-id']))
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-trace-id']))
-      expect(context.init!.headers).toContain(jasmine.arrayContaining(['x-datadog-sampling-priority']))
+      expect(context.init!.headers).toContain(jasmine.arrayContaining(['traceparent']))
+      expect(context.init!.headers).toContain(jasmine.arrayContaining(['tracestate']))
     })
   })
 
@@ -716,10 +731,10 @@ function toPlainObject(headers: Headers) {
 
 function tracingHeadersFor(traceId: TraceIdentifier, spanId: SpanIdentifier, samplingPriority: '1' | '0') {
   return {
-    'x-datadog-origin': 'rum',
-    'x-datadog-parent-id': spanId.toString(),
-    'x-datadog-sampling-priority': samplingPriority,
-    'x-datadog-trace-id': traceId.toString(),
+    traceparent: `00-0000000000000000${toPaddedHexadecimalString(traceId)}-${toPaddedHexadecimalString(
+      spanId
+    )}-0${samplingPriority}`,
+    tracestate: `dd=s:${samplingPriority};o:rum`,
   }
 }
 

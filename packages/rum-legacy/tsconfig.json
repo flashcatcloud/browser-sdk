@@ -1,0 +1,30 @@
+// This package deliberately does NOT extend tsconfig.base.json.
+//
+// Two settings below are load-bearing and would be silently lost by inheriting the base config:
+//
+//   - "lib": ["ES5", "DOM"] turns "this API does not exist in the target browsers" from a runtime
+//     crash into a compile error. Promise, Map, Set, Object.assign, Array.from and friends simply
+//     do not resolve. Syntax is not the concern here (TypeScript downlevels it), missing runtime
+//     APIs are, and no bundler setting catches those.
+//
+//   - "paths": {} keeps this package free of @flashcatcloud/* imports. The core and rum-core
+//     packages are authored against ES2018 and pull in Promise/Map/Set, so importing any of them
+//     defeats the purpose of this build. Without path mappings those imports fail to resolve.
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "esModuleInterop": true,
+    "importHelpers": false,
+    "module": "ES2020",
+    "moduleResolution": "node",
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "strict": true,
+    "target": "ES5",
+    "lib": ["ES5", "DOM"],
+    "types": [],
+    "paths": {}
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.spec.ts"]
+}

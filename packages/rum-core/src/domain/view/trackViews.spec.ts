@@ -447,6 +447,21 @@ describe('view metrics', () => {
   })
 
   describe('initial view metrics', () => {
+    it('should not be collected when trackWebVitals is disabled', () => {
+      viewTest.stop()
+      viewTest = setupViewTest({ lifeCycle, partialConfig: { trackWebVitals: false } })
+
+      notifyPerformanceEntries([
+        createPerformanceEntry(RumPerformanceEntryType.PAINT),
+        createPerformanceEntry(RumPerformanceEntryType.NAVIGATION),
+        createPerformanceEntry(RumPerformanceEntryType.LARGEST_CONTENTFUL_PAINT),
+      ])
+      clock.tick(THROTTLE_VIEW_UPDATE_PERIOD)
+
+      const { getViewUpdate, getViewUpdateCount } = viewTest
+      expect(getViewUpdate(getViewUpdateCount() - 1).initialViewMetrics).toEqual({})
+    })
+
     it('updates should be throttled', () => {
       const { getViewUpdateCount, getViewUpdate } = viewTest
       expect(getViewUpdateCount()).toEqual(1)

@@ -114,11 +114,12 @@ type SegmentCollectionState =
     }
 
 /**
- * `buffer_checkout` is internal: it drops a withheld buffer that has grown past
- * {@link WITHHELD_BUFFER_DURATION}. It never reaches the intake, so it is mapped back to a schema value
- * where the next segment records why it was created.
+ * These two are internal and never reach the intake, so they are mapped back to a schema value where
+ * the next segment records why it was created. `buffer_checkout` drops a withheld buffer that has
+ * grown past {@link WITHHELD_BUFFER_DURATION}; `page_reactivated` cuts a segment when the page is
+ * switched back to, so the next one starts from the fresh full snapshot taken on the same event.
  */
-type InternalFlushReason = FlushReason | 'buffer_checkout'
+type InternalFlushReason = FlushReason | 'buffer_checkout' | 'page_reactivated'
 
 export function doStartSegmentCollection(
   lifeCycle: LifeCycle,
@@ -148,6 +149,13 @@ export function doStartSegmentCollection(
     }
   )
 
+  // When the page is re-activated (window/tab switched back to), flush the current segment so the
+  // next one starts fresh with the full snapshot taken by startFullSnapshots on the same event.
+  // Reuses the 'view_change' creation reason to avoid a schema change.
+  const { unsubscribe: unsubscribeReactivated } = lifeCycle.subscribe(LifeCycleEventType.PAGE_REACTIVATED, () => {
+    flushSegment('page_reactivated')
+  })
+
   function flushSegment(flushReason: InternalFlushReason) {
     // Decided once, and against the session that produced the records rather than whatever session
     // is current now: a segment must be either dropped or sent as a whole.
@@ -156,6 +164,12 @@ export function doStartSegmentCollection(
     const isWithheld = withheldForSessionId !== undefined && !buffering.isReleased(withheldForSessionId)
 
     if (state.status === SegmentCollectionStatus.SegmentPending) {
+      if (isWithheld && flushReason === 'page_reactivated') {
+        // The fresh full snapshot taken on the same event lands inside the withheld buffer, which
+        // stays replayable from it. Cutting here would only throw away what came before the switch.
+        return
+      }
+
       if (isWithheld && (flushReason === 'segment_duration_limit' || isPageExitReason(flushReason))) {
         // Nothing can be sent while withheld, so these rotations would only throw the buffer away -
         // and with it the full snapshot a released replay has to start from, leaving the rest of the
@@ -218,7 +232,12 @@ export function doStartSegmentCollection(
     if (flushReason !== 'stop') {
       state = {
         status: SegmentCollectionStatus.WaitingForInitialRecord,
-        nextSegmentCreationReason: flushReason === 'buffer_checkout' ? 'segment_duration_limit' : flushReason,
+        nextSegmentCreationReason:
+          flushReason === 'buffer_checkout'
+            ? 'segment_duration_limit'
+            : flushReason === 'page_reactivated'
+              ? 'view_change'
+              : flushReason,
       }
     } else {
       state = {
@@ -293,6 +312,7 @@ export function doStartSegmentCollection(
       flushSegment('stop')
       unsubscribeViewCreated()
       unsubscribePageMayExit()
+      unsubscribeReactivated()
     },
   }
 }

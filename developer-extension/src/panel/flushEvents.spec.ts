@@ -1,4 +1,4 @@
-import type { Configuration } from '@datadog/browser-core'
+import type { Configuration } from '@flashcatcloud/browser-core'
 import { registerCleanupTask } from '../../../packages/core/test'
 import type { PageMayExitEvent } from '../../../packages/core/src/browser/pageMayExitObservable'
 import { createPageMayExitObservable } from '../../../packages/core/src/browser/pageMayExitObservable'

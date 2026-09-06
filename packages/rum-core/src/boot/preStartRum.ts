@@ -1,4 +1,10 @@
-import type { TrackingConsentState, DeflateWorker, Context, ContextManager, BoundedBuffer } from '@flashcatcloud/browser-core'
+import type {
+  TrackingConsentState,
+  DeflateWorker,
+  Context,
+  ContextManager,
+  BoundedBuffer,
+} from '@flashcatcloud/browser-core'
 import {
   createBoundedBuffer,
   display,
@@ -18,11 +24,13 @@ import {
   validateAndBuildRumConfiguration,
   type RumConfiguration,
   type RumInitConfiguration,
+  readRemoteConfig,
+  buildRemoteConfigSetup,
 } from '../domain/configuration'
 import type { ViewOptions } from '../domain/view/trackViews'
 import type { DurationVital, CustomVitalsState } from '../domain/vital/vitalCollection'
 import { startDurationVital, stopDurationVital } from '../domain/vital/vitalCollection'
-import { fetchAndApplyRemoteConfiguration, serializeRumConfiguration } from '../domain/configuration'
+import { serializeRumConfiguration } from '../domain/configuration'
 import { callPluginsMethod } from '../domain/plugins'
 import { buildGlobalContextManager } from '../domain/contexts/globalContext'
 import { buildUserContextManager } from '../domain/contexts/userContext'
@@ -169,11 +177,7 @@ export function createPreStartStrategy(
 
       callPluginsMethod(initConfiguration.plugins, 'onInit', { initConfiguration, publicApi })
 
-      if (initConfiguration.remoteConfigurationId) {
-        fetchAndApplyRemoteConfiguration(initConfiguration, doInit)
-      } else {
-        doInit(initConfiguration)
-      }
+      doInit(initConfiguration)
     },
 
     get initConfiguration() {
@@ -183,6 +187,18 @@ export function createPreStartStrategy(
     getInternalContext: noop as () => undefined,
 
     stopSession: noop,
+
+    setForcedSession() {
+      bufferApiCalls.add((startRumResult) => startRumResult.setForcedSession())
+    },
+
+    getRemoteConfig() {
+      // Before the SDK starts, the last stored bag still answers — that is what lets application
+      // code read it right after init() without waiting for the first fetch.
+      return cachedInitConfiguration
+        ? readRemoteConfig(buildRemoteConfigSetup(cachedInitConfiguration)).custom
+        : undefined
+    },
 
     addTiming(name, time = timeStampNow()) {
       bufferApiCalls.add((startRumResult) => startRumResult.addTiming(name, time))
@@ -247,10 +263,17 @@ export function createPreStartStrategy(
 }
 
 function overrideInitConfigurationForBridge(initConfiguration: RumInitConfiguration): RumInitConfiguration {
+  // FLASHCAT FORK (4/4) - see `sessionReplayDirectUpload` in RumInitConfiguration.
+  // Upstream replaces the credentials with placeholders, because a page hosting a bridge is assumed
+  // never to send a request of its own. `sessionReplayDirectUpload` breaks that assumption: the page
+  // uploads Session Replay segments over HTTP, and the intake authenticates them with the client
+  // token and stores them under the application id. Both have to survive for those uploads to be
+  // accepted. RUM events are unaffected either way, as they go through `bridge.send()`, never HTTP.
+  const keepIntakeCredentials = !!initConfiguration.sessionReplayDirectUpload
   return {
     ...initConfiguration,
-    applicationId: '00000000-aaaa-0000-aaaa-000000000000',
-    clientToken: 'empty',
+    applicationId: keepIntakeCredentials ? initConfiguration.applicationId : '00000000-aaaa-0000-aaaa-000000000000',
+    clientToken: keepIntakeCredentials ? initConfiguration.clientToken : 'empty',
     sessionSampleRate: 100,
     defaultPrivacyLevel: initConfiguration.defaultPrivacyLevel ?? getEventBridge()?.getPrivacyLevel(),
   }

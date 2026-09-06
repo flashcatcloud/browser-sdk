@@ -2,6 +2,7 @@ import type { BuildEnvWindow } from '../../../test'
 import type { Payload } from '../../transport'
 import type { InitConfiguration } from './configuration'
 import { createEndpointBuilder } from './endpointBuilder'
+import { INTAKE_SITE_STAGING, INTAKE_SITE_US1 } from './intakeSites'
 
 const DEFAULT_PAYLOAD = {} as Payload
 
@@ -130,7 +131,7 @@ describe('endpointBuilder', () => {
       const config: InitConfiguration & { usePciIntake?: boolean } = {
         clientToken,
         usePciIntake: true,
-        site: 'datadoghq.com',
+        site: INTAKE_SITE_US1,
       }
       expect(createEndpointBuilder(config, 'logs', []).build('fetch', DEFAULT_PAYLOAD)).toContain(
         'https://pci.browser-intake-datadoghq.com'
@@ -140,7 +141,7 @@ describe('endpointBuilder', () => {
       const config: InitConfiguration & { usePciIntake?: boolean } = {
         clientToken,
         usePciIntake: true,
-        site: 'ap1.datadoghq.com',
+        site: INTAKE_SITE_STAGING,
       }
       expect(createEndpointBuilder(config, 'logs', []).build('fetch', DEFAULT_PAYLOAD)).not.toContain(
         'https://pci.browser-intake-datadoghq.com'
@@ -150,7 +151,7 @@ describe('endpointBuilder', () => {
       const config: InitConfiguration & { usePciIntake?: boolean } = {
         clientToken,
         usePciIntake: true,
-        site: 'datadoghq.com',
+        site: INTAKE_SITE_US1,
       }
       expect(createEndpointBuilder(config, 'rum', []).build('fetch', DEFAULT_PAYLOAD)).not.toContain(
         'https://pci.browser-intake-datadoghq.com'

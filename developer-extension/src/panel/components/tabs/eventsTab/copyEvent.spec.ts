@@ -40,7 +40,7 @@ describe('getIntakeUrlForEvent', () => {
       )!
     )
 
-    expect(url.host).toBe('browser-intake-datadoghq.com')
+    expect(url.host).toBe('browser.flashcat.cloud')
     expect(url.pathname).toBe('/api/v2/rum')
     expect(url.searchParams.get('ddsource')).toBe('browser')
     expect(url.searchParams.get('ddtags')).toBe('sdk_version:1.2.3,api:manual')
