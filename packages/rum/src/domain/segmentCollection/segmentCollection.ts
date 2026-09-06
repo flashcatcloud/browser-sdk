@@ -238,7 +238,12 @@ export function doStartSegmentCollection(
     if (flushReason !== 'stop') {
       state = {
         status: SegmentCollectionStatus.WaitingForInitialRecord,
-        nextSegmentCreationReason: toCreationReason(flushReason),
+        nextSegmentCreationReason:
+          flushReason === 'buffer_checkout'
+            ? 'segment_duration_limit'
+            : flushReason === 'page_reactivated'
+              ? 'view_change'
+              : flushReason,
       }
     } else {
       state = {
@@ -315,17 +320,6 @@ export function doStartSegmentCollection(
       unsubscribePageMayExit()
       unsubscribeReactivated()
     },
-  }
-}
-
-function toCreationReason(flushReason: InternalFlushReason): CreationReason {
-  switch (flushReason) {
-    case 'buffer_checkout':
-      return 'segment_duration_limit'
-    case 'page_reactivated':
-      return 'view_change'
-    default:
-      return flushReason
   }
 }
 
