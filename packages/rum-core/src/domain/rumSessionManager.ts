@@ -370,8 +370,9 @@ export function startRumSessionManager(
     // A session keeps the decision it was drawn with, so forcing a visitor that was not being
     // collected means ending their current (empty) session; the next activity draws again with
     // `forcedSession` set and starts a collected session with replay. A session already collected
-    // only needs replay forced on, which is the existing forced-replay path - and a session whose
-    // replay is withheld until it errors is released the same way, since the host asked for it now.
+    // only needs replay forced on, which is the existing forced-replay path - and a session that
+    // withholds its events or its replay until it errors is released the same way, since the host
+    // asked for it now: forcing the replay is what releases the events too.
     setForcedSession: () => {
       forcedSession = true
       const session = sessionManager.findSession()
@@ -379,7 +380,8 @@ export function startRumSessionManager(
         sessionManager.expire()
       } else if (
         session.trackingType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY ||
-        withholdsReplay(session.trackingType)
+        withholdsReplay(session.trackingType) ||
+        withholdsEvents(session.trackingType)
       ) {
         sessionManager.updateSessionState(() => ({ forcedReplay: '1' }))
       }

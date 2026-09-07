@@ -1421,6 +1421,20 @@ describe('rum session manager', () => {
       expect(session.sessionReplay).toBe(SessionReplayState.SAMPLED)
     })
 
+    it('releases a session withholding only its events when the host forces it', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({ configuration: ON_ERROR_ONLY })
+      const sessionId = sessionManager.findTrackedSession()!.id
+      expect(sessionManager.findTrackedSession()!.eventsWithheld).toBeTrue()
+
+      sessionManager.setForcedSession()
+
+      const session = sessionManager.findTrackedSession()!
+      // the same session, released, with the replay the host asked for
+      expect(session.id).toBe(sessionId)
+      expect(session.eventsWithheld).toBeFalse()
+      expect(session.sessionReplay).toBe(SessionReplayState.FORCED)
+    })
+
     it('releases the events when capture is forced, so the forced replay is not left orphaned', () => {
       const sessionManager = startRumSessionManagerWithDefaults({
         configuration: { ...ON_ERROR_ONLY, sessionReplaySampleRate: 100 },
