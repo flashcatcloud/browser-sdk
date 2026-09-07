@@ -1251,6 +1251,76 @@ describe('rum session manager', () => {
   })
 
   describe('session replay on error', () => {
+    for (const mark of ['error', 'force'] as const) {
+      for (const replacement of [false, true]) {
+        it(`reconciles ${mark} after lock exhaustion only for its original session (replacement=${replacement})`, () => {
+          if (!isChromium()) {
+            pending('requires a cookie store lock')
+          }
+          const manager = startRumSessionManagerWithDefaults({
+            configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnError: true },
+          })
+          const id = manager.findTrackedSession()!.id
+          const state = `id=${id}&rum=3&created=${Date.now()}&expire=${Date.now() + DURATION}`
+          setCookie(SESSION_STORE_KEY, `lock=other-tab&${state}`, DURATION)
+          if (mark === 'error') {
+            manager.setSessionHasError(id)
+          } else {
+            manager.setForcedReplay()
+          }
+          clock.tick(1500)
+          setCookie(SESSION_STORE_KEY, replacement ? state.replace(id, 'replacement') : state, DURATION)
+          clock.tick(3000)
+          expect(getSessionState(SESSION_STORE_KEY)[mark === 'error' ? 'hasError' : 'forcedReplay']).toBe(
+            replacement ? undefined : '1'
+          )
+        })
+      }
+    }
+
+    for (const force of ['setForcedReplay', 'setForcedSession'] as const) {
+      it(`${force} releases in memory before a locked store can persist it`, () => {
+        if (!isChromium()) {
+          pending('requires a cookie store lock')
+        }
+        const manager = startRumSessionManagerWithDefaults({
+          configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnError: true },
+        })
+        const id = manager.findTrackedSession()!.id
+        setCookie(
+          SESSION_STORE_KEY,
+          `lock=other-tab&id=${id}&rum=3&created=${Date.now()}&expire=${Date.now() + DURATION}`,
+          DURATION
+        )
+        manager[force]()
+        expect(manager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.FORCED)
+        expect(getSessionState(SESSION_STORE_KEY).forcedReplay).toBeUndefined()
+      })
+
+      it(`${force} never writes its deferred mark into a replacement session`, () => {
+        if (!isChromium()) {
+          pending('requires a cookie store lock')
+        }
+        const manager = startRumSessionManagerWithDefaults({
+          configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionReplayOnError: true },
+        })
+        const id = manager.findTrackedSession()!.id
+        setCookie(
+          SESSION_STORE_KEY,
+          `lock=other-tab&id=${id}&rum=3&created=${Date.now()}&expire=${Date.now() + DURATION}`,
+          DURATION
+        )
+        manager[force]()
+        setCookie(
+          SESSION_STORE_KEY,
+          `id=replacement&rum=3&created=${Date.now()}&expire=${Date.now() + DURATION}`,
+          DURATION
+        )
+        clock.tick(20)
+        expect(getSessionState(SESSION_STORE_KEY).forcedReplay).toBeUndefined()
+      })
+    }
+
     it('applies the error-replay type only when the plain replay draw missed', () => {
       startRumSessionManagerWithDefaults({
         configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 100, sessionReplayOnError: true },

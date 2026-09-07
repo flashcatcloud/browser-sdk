@@ -181,6 +181,20 @@ export function startWithheldEventBuffer(
   // Kept on a page exit: switching tabs raises one and the page comes straight back, while a page
   // that is really unloading takes the buffer with it either way - so there is nothing to gain by
   // dropping it, and a minute of history to lose. The replay side reasons the same way.
+  const sessionReleaseSubscription = lifeCycle.subscribe(
+    LifeCycleEventType.SESSION_RELEASED,
+    ({ sessionId, reason }) => {
+      if (withheldForSessionId !== sessionId) {
+        return
+      }
+      if (reason === 'force') {
+        release()
+      } else {
+        // The local triggering error is collected later in the same synchronous notification.
+        scheduleRelease()
+      }
+    }
+  )
   const pageMayExitSubscription = lifeCycle.subscribe(LifeCycleEventType.PAGE_MAY_EXIT, () => settleBuffer(false))
   const sessionExpireSubscription = lifeCycle.subscribe(LifeCycleEventType.SESSION_EXPIRED, () => settleBuffer(true))
 
@@ -350,7 +364,8 @@ export function startWithheldEventBuffer(
 
   return {
     stop: () => {
-      clearBuffer()
+      settleBuffer(true)
+      sessionReleaseSubscription.unsubscribe()
       eventSubscription.unsubscribe()
       pageMayExitSubscription.unsubscribe()
       sessionExpireSubscription.unsubscribe()

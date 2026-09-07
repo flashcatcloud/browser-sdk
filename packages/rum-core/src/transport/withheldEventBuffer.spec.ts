@@ -55,6 +55,38 @@ describe('startWithheldEventBuffer', () => {
     })
   })
 
+  it('releases immediately when the current session is forced', () => {
+    collect(RumEventType.VIEW)
+    collect(RumEventType.RESOURCE)
+    sessionManager.setForcedReplay()
+    lifeCycle.notify(LifeCycleEventType.SESSION_RELEASED, { sessionId: 'session-id', reason: 'force' })
+    expect(forwarded.length).toBe(2)
+  })
+
+  it('schedules a release learned from another tab without requiring a new event', () => {
+    collect(RumEventType.VIEW)
+    sessionManager.setSessionHasError()
+    lifeCycle.notify(LifeCycleEventType.SESSION_RELEASED, { sessionId: 'session-id', reason: 'error' })
+    expect(forwarded.length).toBe(0)
+    expect(releasedAfterJitter().length).toBe(1)
+  })
+
+  it('ignores a release notification for another session', () => {
+    collect(RumEventType.VIEW)
+    lifeCycle.notify(LifeCycleEventType.SESSION_RELEASED, { sessionId: 'other-session', reason: 'force' })
+    expect(releasedAfterJitter().length).toBe(0)
+  })
+
+  it('settles an errored buffer before stopping and does not forward again', () => {
+    collect(RumEventType.VIEW)
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR)
+    stopBuffer()
+    expect(forwarded.length).toBe(2)
+    stopBuffer()
+    expect(releasedAfterJitter().length).toBe(2)
+  })
+
   it('forwards immediately when the session is not withholding', () => {
     sessionManager.setTrackedWithSessionReplay()
 
@@ -482,11 +514,9 @@ describe('startWithheldEventBuffer', () => {
     expect(forwarded.map((event) => event.type)).toEqual([RumEventType.VIEW, RumEventType.RESOURCE, RumEventType.ERROR])
   })
 
-  it('forwards nothing into a batch that has been stopped', () => {
+  it('discards an unreleased buffer when stopping', () => {
     collect(RumEventType.VIEW)
     collect(RumEventType.RESOURCE)
-    sessionManager.setSessionHasError()
-    collect(RumEventType.ERROR)
 
     stopBuffer()
     clock.tick(WITHHELD_BUFFER_RELEASE_MAX_DELAY)

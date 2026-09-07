@@ -13,7 +13,7 @@ describe('startSessionErrorTracking', () => {
   function collect(type: string, source = 'source') {
     // only error events carry an `error` object; anything else that did would hide a guard that
     // reads it before checking the type
-    const event = type === 'error' ? { type, error: { source } } : { type }
+    const event = type === 'error' ? { type, session: { id: 'session-id' }, error: { source } } : { type }
     lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, event as unknown as RumEvent & Context)
   }
 
@@ -23,6 +23,25 @@ describe('startSessionErrorTracking', () => {
     setSessionHasErrorSpy = spyOn(sessionManager, 'setSessionHasError').and.callThrough()
     const { stop } = startSessionErrorTracking(lifeCycle, sessionManager)
     registerCleanupTask(stop)
+  })
+
+  it('ignores an error from an earlier session without consuming the current session mark', () => {
+    lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, {
+      type: 'error',
+      session: { id: 'previous-session' },
+      error: { source: 'custom' },
+    } as unknown as RumEvent & Context)
+    expect(setSessionHasErrorSpy).not.toHaveBeenCalled()
+    collect('error')
+    expect(setSessionHasErrorSpy).toHaveBeenCalledOnceWith('session-id')
+  })
+
+  it('does not attribute an error without a session id to the current session', () => {
+    lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, {
+      type: 'error',
+      error: { source: 'custom' },
+    } as unknown as RumEvent & Context)
+    expect(setSessionHasErrorSpy).not.toHaveBeenCalled()
   })
 
   it('marks the session on the first collected error', () => {

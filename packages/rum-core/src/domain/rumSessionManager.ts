@@ -325,18 +325,45 @@ export function startRumSessionManager(
     endSessionIfSettingsAreDecisive
   )
 
-  sessionManager.sessionStateUpdateObservable.subscribe(({ previousState, newState }) => {
-    if (!previousState.forcedReplay && newState.forcedReplay) {
-      const sessionEntity = sessionManager.findSession()
-      if (sessionEntity) {
-        sessionEntity.isReplayForced = true
-      }
+  function forceReplay() {
+    const session = sessionManager.findSession()
+    if (!session) {
+      return
     }
-    if (!previousState.hasError && newState.hasError) {
-      const sessionEntity = sessionManager.findSession()
-      if (sessionEntity) {
-        sessionEntity.hasError = true
-      }
+    const wasForced = session.isReplayForced
+    session.isReplayForced = true
+    if (!wasForced) {
+      lifeCycle.notify(LifeCycleEventType.SESSION_RELEASED, { sessionId: session.id, reason: 'force' })
+    }
+    sessionManager.updateSessionState((state) => (state.id === session.id ? { forcedReplay: '1' } : undefined))
+  }
+
+  const sessionStateSubscription = sessionManager.sessionStateUpdateObservable.subscribe(({ newState }) => {
+    const session = sessionManager.findSession()
+    if (!session || session.id !== newState.id) {
+      return
+    }
+    const becameForced = !session.isReplayForced && newState.forcedReplay === '1'
+    const becameErrored = !session.hasError && newState.hasError === '1'
+    session.isReplayForced ||= becameForced
+    session.hasError ||= becameErrored
+    if (becameForced || becameErrored) {
+      lifeCycle.notify(LifeCycleEventType.SESSION_RELEASED, {
+        sessionId: session.id,
+        reason: becameForced ? 'force' : 'error',
+      })
+    }
+    // A lock retry can be exhausted before a mark reaches storage. The existing poll is the
+    // next opportunity to reconcile it, and the session identity bounds how long it may live.
+    if ((session.hasError && newState.hasError !== '1') || (session.isReplayForced && newState.forcedReplay !== '1')) {
+      sessionManager.updateSessionState((state) =>
+        state.id === session.id
+          ? {
+              ...(session.hasError ? { hasError: '1' } : {}),
+              ...(session.isReplayForced ? { forcedReplay: '1' } : {}),
+            }
+          : undefined
+      )
     }
   })
   return {
@@ -360,11 +387,12 @@ export function startRumSessionManager(
     expire: sessionManager.expire,
     expireObservable: sessionManager.expireObservable,
     stop: () => {
+      sessionStateSubscription.unsubscribe()
       consentSubscription.unsubscribe()
       remoteConfigSubscription.unsubscribe()
       drawnHistory.stop()
     },
-    setForcedReplay: () => sessionManager.updateSessionState(() => ({ forcedReplay: '1' })),
+    setForcedReplay: forceReplay,
     // FLASHCAT FORK - the escape hatch for "collect this visitor NOW": the host application knows
     // who needs debugging (its own allow-list, a support flow), the SDK only provides the switch.
     // A session keeps the decision it was drawn with, so forcing a visitor that was not being
@@ -383,7 +411,7 @@ export function startRumSessionManager(
         withholdsReplay(session.trackingType) ||
         withholdsEvents(session.trackingType)
       ) {
-        sessionManager.updateSessionState(() => ({ forcedReplay: '1' }))
+        forceReplay()
       }
     },
     setSessionHasError: (sessionId) => {
@@ -393,7 +421,11 @@ export function startRumSessionManager(
         // through a lock that can defer it by several retries, and until then the withheld buffer
         // would still read the session as withholding - so an error followed closely by the page or
         // the session ending would throw away the very buffer the error was meant to release.
+        const hadError = sessionEntity.hasError
         sessionEntity.hasError = true
+        if (!hadError) {
+          lifeCycle.notify(LifeCycleEventType.SESSION_RELEASED, { sessionId, reason: 'error' })
+        }
       }
       sessionManager.updateSessionState((state) => (state.id === sessionId ? { hasError: '1' } : undefined))
     },

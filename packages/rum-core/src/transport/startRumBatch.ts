@@ -60,9 +60,9 @@ export function startRumBatch(
   return {
     ...batch,
     stop: () => {
-      // Stops the buffer too, so a release waiting on its jitter cannot fire into a batch that is
-      // no longer flushing.
+      // Drain released history while the batch is still listening, then flush its final messages.
       withheldEventBuffer.stop()
+      batch.flush('session_expire')
       batch.stop()
     },
   }
