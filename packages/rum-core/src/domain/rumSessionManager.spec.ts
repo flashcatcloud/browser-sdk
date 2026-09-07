@@ -820,6 +820,549 @@ describe('rum session manager', () => {
     })
   })
 
+  describe('restarting the session when the settings are decisive', () => {
+    const STORE_KEY = 'test-decisive-settings'
+    const DRAW_KEY = 'test-decisive-settings-draw'
+    const REMOTE_SETUP = {
+      buildUrl: () => 'https://example.com/config',
+      storeKey: STORE_KEY,
+      fetchTimeout: 3000,
+    }
+
+    afterEach(() => localStorage.removeItem(DRAW_KEY))
+
+    function storeRemote(stored: object) {
+      localStorage.setItem(STORE_KEY, JSON.stringify(stored))
+      registerCleanupTask(() => localStorage.removeItem(STORE_KEY))
+    }
+
+    function startWith(configuration: Partial<RumConfiguration> = {}) {
+      return startRumSessionManagerWithDefaults({
+        configuration: { remoteConfig: REMOTE_SETUP, drawStoreKey: DRAW_KEY, ...configuration },
+      })
+    }
+
+    // Settings reach storage first and are announced afterwards, the order the fetcher uses: the
+    // draw that may follow reads storage, so it has to find them already there.
+    function deliver(stored: object) {
+      storeRemote(stored)
+      lifeCycle.notify(LifeCycleEventType.REMOTE_CONFIGURATION_STORED)
+    }
+
+    function isSessionEnded() {
+      return getSessionState(SESSION_STORE_KEY).isExpired === '1'
+    }
+
+    describe('the three changes it can decide on its own', () => {
+      it('ends a session drawn at zero when the rate rises above it', () => {
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        startWith({ sessionSampleRate: 0 })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+
+        // Nothing was collected and no coin was flipped, so re-drawing this visitor lands exactly
+        // on the new rate — and until it happens an operator who has just switched collection on
+        // sees nothing at all, which is indistinguishable from broken.
+        deliver({ version: 2, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('ends a session drawn at zero even when the new rate is a partial one', () => {
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        startWith({ sessionSampleRate: 0 })
+
+        deliver({ version: 2, sessionSampleRate: 30 })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('ends a session drawn on an init rate of zero when the first settings deliver a rate', () => {
+        // Nothing in storage yet, so this session was drawn on the init values — and a draw landing
+        // exactly on them records nothing, which is why zero can only be read back off init here.
+        // This is the application that never collects until the console says so.
+        startWith({ sessionSampleRate: 0 })
+
+        deliver({ version: 1, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('collects the session that follows a rate lifted off zero', () => {
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        startWith({ sessionSampleRate: 0 })
+
+        deliver({ version: 2, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+        clock.tick(STORAGE_POLL_DELAY)
+        document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+      })
+
+      it('ends a session being collected when the rate goes to zero', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+        startWith({ sessionSampleRate: 100 })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+
+        deliver({ version: 2, sessionSampleRate: 0, sessionReplaySampleRate: 0 })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('ends the session when the privacy level tightens', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100, defaultPrivacyLevel: 'allow' })
+        startWith({ sessionSampleRate: 100, defaultPrivacyLevel: 'allow' })
+
+        deliver({ version: 2, sessionSampleRate: 100, defaultPrivacyLevel: 'mask-user-input' })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('ends the session on the tightening step that masks everything', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100, defaultPrivacyLevel: 'mask-user-input' })
+        startWith({ sessionSampleRate: 100, defaultPrivacyLevel: 'allow' })
+
+        deliver({ version: 2, sessionSampleRate: 100, defaultPrivacyLevel: 'mask' })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('ends a session drawn before any settings arrived when the first ones tighten the level', () => {
+        // Nothing in storage yet, so this session was drawn on the init values — and a draw that
+        // lands exactly on them records nothing, which is why the level it runs under can only be
+        // read back off init. The recorder falls back the same way, so this is the level the page
+        // is really being masked with.
+        startWith({ sessionSampleRate: 100, defaultPrivacyLevel: 'allow' })
+
+        deliver({ version: 1, sessionSampleRate: 100, defaultPrivacyLevel: 'mask' })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('ends a collected session when the callback turns the delivered values into a zero', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100 })
+        startWith({
+          sessionSampleRate: 100,
+          beforeSampling: ({ custom }) => (custom?.optOut === true ? { sessionSampleRate: 0 } : undefined),
+        })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).not.toBe(RumTrackingType.NOT_TRACKED)
+
+        // The response carries no rate at all: the console ships the data and the application's own
+        // code turns it into the decision. Asking the callback away from a draw is the whole reason
+        // that decision can reach the session already running.
+        deliver({ version: 2, custom: { optOut: true } })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('ends a collected session when the settings are switched off and init never collected', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100 })
+        startWith({ sessionSampleRate: 0 })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).not.toBe(RumTrackingType.NOT_TRACKED)
+
+        // Turning remote configuration off in the console stores the version and nothing else, so
+        // the rates go back to the ones the site passed to init. That is a change like any other,
+        // and here it is the decisive one.
+        deliver({ version: 2 })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('draws the session that follows on the settings that have just landed', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+        startWith({ sessionSampleRate: 100 })
+
+        deliver({ version: 2, sessionSampleRate: 0 })
+        clock.tick(STORAGE_POLL_DELAY)
+        document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+      })
+    })
+
+    describe('everything else waits for the next session', () => {
+      it('leaves the session alone when the rate moves to a value it cannot decide on', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100 })
+        startWith({ sessionSampleRate: 100 })
+
+        deliver({ version: 2, sessionSampleRate: 30 })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('leaves a session that lost a draw at a real rate alone when the rate rises', () => {
+        // The regression this exists to catch: re-drawing every session that is not collected,
+        // while leaving the collected ones alone, spares the winners and re-rolls the losers — a
+        // fleet drawn at 30 and moved to 80 would come out well above 80. Only a session drawn at
+        // zero has no winner beside it to spare.
+        spyOn(Math, 'random').and.returnValue(0.99)
+        storeRemote({ version: 1, sessionSampleRate: 30 })
+        startWith({ sessionSampleRate: 0 })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+
+        deliver({ version: 2, sessionSampleRate: 80 })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('leaves a session that is not being collected alone when the privacy level tightens', () => {
+        storeRemote({ version: 1, sessionSampleRate: 0, defaultPrivacyLevel: 'allow' })
+        startWith({ sessionSampleRate: 0, defaultPrivacyLevel: 'allow' })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+
+        // Nothing is being recorded for this visitor, so there is no plaintext for the stricter
+        // level to catch and nothing to gain by ending their session.
+        deliver({ version: 2, sessionSampleRate: 0, defaultPrivacyLevel: 'mask' })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('does not end one sampled-out session after another as settings keep arriving', () => {
+        // Nothing is recorded for this visitor, so a stricter level has nothing to catch however
+        // many times it is announced. The rate stays at zero throughout, so the one rule that does
+        // act on a sampled-out session finds nothing to act on either.
+        storeRemote({ version: 1, sessionSampleRate: 0, defaultPrivacyLevel: 'allow' })
+        startWith({ sessionSampleRate: 0, defaultPrivacyLevel: 'allow' })
+
+        deliver({ version: 2, sessionSampleRate: 0, defaultPrivacyLevel: 'mask' })
+        clock.tick(STORAGE_POLL_DELAY)
+        document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+        deliver({ version: 3, sessionSampleRate: 0, defaultPrivacyLevel: 'mask' })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('leaves the session alone when the privacy level loosens', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100, defaultPrivacyLevel: 'mask' })
+        startWith({ sessionSampleRate: 100 })
+
+        // Being slow here is the point: it leaves an operator time to undo a mistake, and what it
+        // costs meanwhile is more of the data already being collected.
+        deliver({ version: 2, sessionSampleRate: 100, defaultPrivacyLevel: 'allow' })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('leaves the session alone when only the custom bag changed', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100, custom: { cohort: 'a' } })
+        startWith({ sessionSampleRate: 100 })
+
+        deliver({ version: 2, sessionSampleRate: 100, custom: { cohort: 'b' } })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('leaves the session alone when only the trace rate changed', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100, traceSampleRate: 10 })
+        startWith({ sessionSampleRate: 100 })
+
+        deliver({ version: 2, sessionSampleRate: 100, traceSampleRate: 90 })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('leaves the session alone when only the replay rate changed', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+        startWith({ sessionSampleRate: 100 })
+
+        // The replay rate is deliberately not one of the three: it decides a draw nested inside the
+        // session draw, and a rule for it would have to say what happens to a replay the host
+        // application forced on. Until that is settled, a replay rate change waits for the next
+        // session like every other change.
+        deliver({ version: 2, sessionSampleRate: 100, sessionReplaySampleRate: 0 })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('does not fall over when the site never opted in and has no settings store', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100 })
+        startRumSessionManagerWithDefaults({ configuration: { sessionSampleRate: 0, drawStoreKey: DRAW_KEY } })
+
+        // Such a site never fetches, so the announcement can only ever be reached by hand and the
+        // store key below is one nothing would look under. All this pins down is that the decision
+        // survives `remoteConfig` being undefined; that the opt-out is respected is settled where
+        // the fetcher is never started, not here.
+        deliver({ version: 2, sessionSampleRate: 100 })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('has nothing to end when the session is already over', () => {
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        startWith({ sessionSampleRate: 0 })
+        expireCookie()
+        clock.tick(STORAGE_POLL_DELAY)
+        expireSessionSpy.calls.reset()
+
+        // There is no session to read a decision off, and nothing to end: the next activity draws
+        // on what has just been stored, which is all this change needs.
+        expect(() => deliver({ version: 2, sessionSampleRate: 100 })).not.toThrow()
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('what it compares', () => {
+      it('does not answer for a sampled-out session with the record of the one it replaced', () => {
+        // A page that draws owns the record slot. Having drawn on the init values it has nothing to
+        // record, and leaving the previous session's record there would let it answer for this one:
+        // every sampled-out session is recorded under the same id, so unlike a collected session it
+        // cannot tell that the record describes somebody else.
+        spyOn(Math, 'random').and.returnValue(0.99)
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        const firstPage = startWith({ sessionSampleRate: 50 })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+        firstPage.stop()
+        stopSessionManager()
+
+        // The settings entry is gone — swept as belonging to a release nobody runs any more — so
+        // the draw that follows uses the init rate and has nothing to record. It loses too, so it
+        // is a sampled-out session that did not write the record it would be read under.
+        localStorage.removeItem(STORE_KEY)
+        expireCookie()
+        const secondPage = startWith({ sessionSampleRate: 50 })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+        secondPage.stop()
+        stopSessionManager()
+
+        // A third page restores that session instead of drawing one, so the record is the only
+        // thing it can read the draw off — and the only record left would be the first session's.
+        startWith({ sessionSampleRate: 50 })
+        expireSessionSpy.calls.reset()
+
+        // Read off the first session's record this one looks drawn at zero and is re-drawn; read
+        // off init, which is what it was actually drawn at, it lost a draw at fifty and stays.
+        deliver({ version: 2, sessionSampleRate: 80 })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('reads the rate a sampled-out session was drawn at back through storage', () => {
+        // The case that decides whether any of this reaches a real visitor: they were drawn at zero
+        // on the page before, and the page acting on the change never performed that draw. A
+        // sampled-out session is given no id, so its draw is recorded under one no session can
+        // hold — without that record this page falls back to the init rate and answers wrongly.
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        const firstPage = startWith({ sessionSampleRate: 50 })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+        firstPage.stop()
+        stopSessionManager()
+
+        // A second page load restores the same session without drawing anything of its own. Init
+        // says 50 here on purpose: falling back to it would read this session as one that lost a
+        // draw and leave it alone, which is the answer the record exists to correct.
+        startWith({ sessionSampleRate: 50 })
+        deliver({ version: 2, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('reads the rate off storage rather than off the draw this page last saw', () => {
+        // Two sampled-out sessions look alike to the session store — no id, the same tracking type —
+        // so a tab that misses the expired state between them never learns the session was
+        // replaced: nothing expires and nothing renews here, and what this page last read of the
+        // draw stays as it was. Storage is the one thing the tab that drew the replacement shares
+        // with this one, so it is what has to be read when the decision is made.
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        startWith({ sessionSampleRate: 50 })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+
+        // Another tab hears a rate of 30, ends the session drawn at zero and draws the next one,
+        // which loses — all between two of this page's storage polls.
+        storeRemote({ version: 2, sessionSampleRate: 30 })
+        setCookie(SESSION_STORE_KEY, `rum=0&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
+        localStorage.setItem(
+          DRAW_KEY,
+          JSON.stringify({
+            id: 'not-tracked',
+            version: 2,
+            sessionSampleRate: 30,
+            sessionReplaySampleRate: 50,
+            traceSampleRate: 100,
+            defaultPrivacyLevel: 'mask',
+          })
+        )
+        clock.tick(STORAGE_POLL_DELAY)
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+
+        // This page's own request answers with settings newer still. Read off the draw it last saw
+        // the session looks drawn at zero and is ended; read off storage it lost a draw at thirty
+        // and is left alone.
+        deliver({ version: 3, sessionSampleRate: 80 })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('does not consult beforeSampling when no rate could decide anything', () => {
+        // Resolving the rate runs the site's own code, and an announcement is not a draw. It is
+        // asked only where the answer is what settles whether the session ends — never once per
+        // announcement for every visitor.
+        const beforeSampling = jasmine.createSpy('beforeSampling').and.returnValue(undefined)
+        spyOn(Math, 'random').and.returnValue(0.99)
+        storeRemote({ version: 1, sessionSampleRate: 30 })
+        startWith({ sessionSampleRate: 0, beforeSampling })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+        beforeSampling.calls.reset()
+
+        // This visitor lost a draw at thirty, so no rate the console publishes says anything about
+        // the session they are on, and there is nothing to ask.
+        deliver({ version: 2, sessionSampleRate: 80 })
+
+        expect(beforeSampling).not.toHaveBeenCalled()
+      })
+
+      it('never draws again to reach its decision', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100 })
+        startWith({ sessionSampleRate: 100 })
+        const draw = spyOn(Math, 'random').and.callThrough()
+
+        deliver({ version: 2, sessionSampleRate: 30 })
+
+        // Drawing here would be a second lottery on top of the one the next session runs, quietly
+        // turning a rate p into p².
+        expect(draw).not.toHaveBeenCalled()
+      })
+
+      it('compares against the level the session was drawn under, not the settings stored since', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100, defaultPrivacyLevel: 'mask' })
+        startWith({ sessionSampleRate: 100, defaultPrivacyLevel: 'allow' })
+
+        // A loosening leaves the running session masking everything, as it was drawn to.
+        deliver({ version: 2, sessionSampleRate: 100, defaultPrivacyLevel: 'allow' })
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+
+        // Stricter than what was stored a moment ago, still looser than what this session actually
+        // masks with. Judged against the stored settings it would end a session with nothing to
+        // gain from restarting.
+        deliver({ version: 3, sessionSampleRate: 100, defaultPrivacyLevel: 'mask-user-input' })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('lets beforeSampling have the last word on the rate it judges', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100 })
+        startWith({
+          sessionSampleRate: 100,
+          beforeSampling: ({ sessionSampleRate }) => ({ sessionSampleRate: sessionSampleRate === 0 ? 50 : 100 }),
+        })
+
+        // The console says zero, the application puts it back in the middle: the rate that would
+        // actually apply is fifty, which decides nothing.
+        deliver({ version: 2, sessionSampleRate: 0 })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+    })
+
+    describe('arriving more than once', () => {
+      it('does not end the session a second time when the same settings arrive again', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+        startWith({ sessionSampleRate: 100 })
+
+        deliver({ version: 2, sessionSampleRate: 0 })
+        expect(isSessionEnded()).toBeTrue()
+
+        clock.tick(STORAGE_POLL_DELAY)
+        document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+        expireSessionSpy.calls.reset()
+
+        // Another tab, a retry, a reload: the same answer arrives again and finds the difference
+        // that justified ending a session already gone.
+        lifeCycle.notify(LifeCycleEventType.REMOTE_CONFIGURATION_STORED)
+        lifeCycle.notify(LifeCycleEventType.REMOTE_CONFIGURATION_STORED)
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('stops re-drawing once the session that follows has lost a draw at the new rate', () => {
+        // The loop this could have become: the replacement is sampled out too, and if it were read
+        // as another session drawn at zero every further announcement would end it again. It was
+        // drawn at the new rate, and that is what its record says.
+        spyOn(Math, 'random').and.returnValue(0.99)
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        startWith({ sessionSampleRate: 0 })
+
+        deliver({ version: 2, sessionSampleRate: 30 })
+        expect(isSessionEnded()).toBeTrue()
+
+        clock.tick(STORAGE_POLL_DELAY)
+        document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+        expireSessionSpy.calls.reset()
+
+        lifeCycle.notify(LifeCycleEventType.REMOTE_CONFIGURATION_STORED)
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('stops tightening the privacy level once the session is drawn under it', () => {
+        storeRemote({ version: 1, sessionSampleRate: 100, defaultPrivacyLevel: 'allow' })
+        startWith({ sessionSampleRate: 100, defaultPrivacyLevel: 'allow' })
+
+        deliver({ version: 2, sessionSampleRate: 100, defaultPrivacyLevel: 'mask' })
+        expect(isSessionEnded()).toBeTrue()
+
+        clock.tick(STORAGE_POLL_DELAY)
+        document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+        expireSessionSpy.calls.reset()
+
+        lifeCycle.notify(LifeCycleEventType.REMOTE_CONFIGURATION_STORED)
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+    })
+
+    describe('a session the host application forced', () => {
+      function startForced(configuration: Partial<RumConfiguration> = {}) {
+        const rumSessionManager = startWith({ sessionSampleRate: 0, ...configuration })
+        rumSessionManager.setForcedSession()
+        clock.tick(STORAGE_POLL_DELAY)
+        document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+        expireSessionSpy.calls.reset()
+        return rumSessionManager
+      }
+
+      it('is not ended by a rate, since every draw it makes is collected anyway', () => {
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        startForced()
+
+        // Ending it would only replace it with another forced session — the same difference, for
+        // as long as the page lives.
+        deliver({ version: 2, sessionSampleRate: 0 })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('is still ended when the privacy level tightens', () => {
+        storeRemote({ version: 1, sessionSampleRate: 0, defaultPrivacyLevel: 'allow' })
+        startForced({ defaultPrivacyLevel: 'allow' })
+
+        // Forcing decides whether this visitor is collected. It says nothing about how much of
+        // their page may be uploaded in the clear.
+        deliver({ version: 2, sessionSampleRate: 0, defaultPrivacyLevel: 'mask' })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+    })
+  })
+
   function startRumSessionManagerWithDefaults({
     configuration,
     trackingConsentState = createTrackingConsentState(TrackingConsent.GRANTED),
