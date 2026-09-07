@@ -119,12 +119,11 @@ export const enum SessionReplayState {
  * keeps a stale one from being read instead is that the page which draws owns the slot — it writes
  * its draw or clears the slot, in the same stack that created the session — so the record always
  * describes the most recent draw, and the most recent draw is what created the session being read.
- * The gap left is the one this design already has for collected sessions and states two comments
- * down: a tab polling storage between the session store's write and the record's would read the
- * previous draw. A collected session falls back to init there; a sampled-out one reads the
- * previous sampled-out draw's rate instead, which differs from its own only if the console moved
- * the rate between two consecutive sessions of one visitor, and costs that visitor one extra
- * re-draw when it does.
+ * The one thing the record decides for a sampled-out session — whether a rate leaving 0 may end
+ * it — is read off storage at the moment of that decision rather than off the copy `trackDraw`
+ * took when the session was adopted. See `endSessionIfSettingsAreDecisive` for why the copy is not
+ * enough: the session store cannot tell one sampled-out session from the next, so a page can keep
+ * the copy of a session another tab has already replaced.
  */
 const NOT_TRACKED_DRAW_ID = 'not-tracked'
 
@@ -201,8 +200,8 @@ export function startRumSessionManager(
   // synchronous stack: a tab whose storage poll fell exactly between the two would find no record
   // and keep its own settings for that session. Writing it earlier is not possible from here — the
   // id it belongs to is generated inside the store, as that session is persisted. The record is
-  // read only here, when a session is adopted, so such a tab keeps its own settings for the whole
-  // remaining life of that session rather than until its next poll.
+  // read into the history only here, when a session is adopted, so such a tab keeps its own
+  // settings for the whole remaining life of that session rather than until its next poll.
   //
   // Storage is also per origin while the session need not be: with `trackSessionAcrossSubdomains`
   // a session arrives on the next subdomain with no record waiting, and is reported and traced
@@ -311,17 +310,22 @@ export function startRumSessionManager(
     }
 
     const remote = readRemoteConfig(configuration.remoteConfig)
-    // What this session was created under, which is not the previously stored settings: settings
-    // are stored while a session runs, and the session was drawn under whatever was stored before
-    // that. No record means the draw used the init values — `reportDraw` records every draw that
-    // did not, so a draw with nothing recorded is a draw that used them.
-    const drawn = drawnHistory.find()
 
     if (!isTypeTracked(session.trackingType)) {
+      // Read off storage rather than off `drawnHistory`, because the two can disagree here and only
+      // storage is right. Two sampled-out sessions look alike to the session store — no id, the
+      // same tracking type — so a page whose storage poll misses the expired state between them
+      // never learns that another tab ended the first and drew the second: nothing expires and
+      // nothing renews on this page, and the history keeps the draw of a session that is gone. The
+      // page that drew the replacement wrote its rate to storage in the same stack, so that is the
+      // one place this session's own rate can be found. A collected session cannot be confused this
+      // way, since its id changes with it.
+      //
       // Nothing forced can reach this comparison as a zero: a forced draw is recorded at 100 and is
       // collected besides, so the record already answers the question the tracked branch has to ask
-      // `forcedSession` about below.
-      const drawnSampleRate = drawn?.sessionSampleRate ?? configuration.sessionSampleRate
+      // `forcedSession` about below. No record means the draw used the init values, see `trackDraw`.
+      const drawnSampleRate =
+        readDrawRecord(configuration, NOT_TRACKED_DRAW_ID)?.sessionSampleRate ?? configuration.sessionSampleRate
       if (drawnSampleRate !== 0) {
         return
       }
@@ -334,9 +338,11 @@ export function startRumSessionManager(
       return
     }
 
-    // What this session is masking pages with right now — the recorder falls back to the init value
-    // the same way when there is no record, see `startRecording`.
-    const drawnPrivacyLevel = drawn?.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
+    // What this session is masking pages with right now, which is not the previously stored
+    // settings: settings are stored while a session runs, and the session was drawn under whatever
+    // was stored before that. No record means the draw used the init value, and so does the
+    // recorder — see `startRecording`, which falls back the same way.
+    const drawnPrivacyLevel = drawnHistory.find()?.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
     const nextPrivacyLevel = remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
     if (PRIVACY_LEVEL_STRICTNESS[nextPrivacyLevel] > PRIVACY_LEVEL_STRICTNESS[drawnPrivacyLevel]) {
       sessionManager.expire()

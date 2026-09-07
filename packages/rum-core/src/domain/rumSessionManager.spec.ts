@@ -1165,6 +1165,43 @@ describe('rum session manager', () => {
         expect(isSessionEnded()).toBeTrue()
       })
 
+      it('reads the rate off storage rather than off the draw this page last saw', () => {
+        // Two sampled-out sessions look alike to the session store — no id, the same tracking type —
+        // so a tab that misses the expired state between them never learns the session was
+        // replaced: nothing expires and nothing renews here, and what this page last read of the
+        // draw stays as it was. Storage is the one thing the tab that drew the replacement shares
+        // with this one, so it is what has to be read when the decision is made.
+        storeRemote({ version: 1, sessionSampleRate: 0 })
+        startWith({ sessionSampleRate: 50 })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+
+        // Another tab hears a rate of 30, ends the session drawn at zero and draws the next one,
+        // which loses — all between two of this page's storage polls.
+        storeRemote({ version: 2, sessionSampleRate: 30 })
+        setCookie(SESSION_STORE_KEY, `rum=0&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
+        localStorage.setItem(
+          DRAW_KEY,
+          JSON.stringify({
+            id: 'not-tracked',
+            version: 2,
+            sessionSampleRate: 30,
+            sessionReplaySampleRate: 50,
+            traceSampleRate: 100,
+            defaultPrivacyLevel: 'mask',
+          })
+        )
+        clock.tick(STORAGE_POLL_DELAY)
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+
+        // This page's own request answers with settings newer still. Read off the draw it last saw
+        // the session looks drawn at zero and is ended; read off storage it lost a draw at thirty
+        // and is left alone.
+        deliver({ version: 3, sessionSampleRate: 80 })
+
+        expect(expireSessionSpy).not.toHaveBeenCalled()
+        expect(isSessionEnded()).toBeFalse()
+      })
+
       it('does not consult beforeSampling when no rate could decide anything', () => {
         // Resolving the rate runs the site's own code, and an announcement is not a draw. It is
         // asked only where the answer is what settles whether the session ends — never once per

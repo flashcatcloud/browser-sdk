@@ -36,7 +36,10 @@
 - 📝 The rate a sampled-out session was drawn at is now recorded alongside the one a collected
   session was drawn at, in the same single `localStorage` entry this SDK already keeps for the
   draw. No new entry, no extra request. Without it a page that did not perform the draw — the
-  second page of a visit, or another tab — could not tell the two populations above apart.
+  second page of a visit, or another tab — could not tell the two populations above apart. The
+  decision reads that record straight off storage rather than off what the page last saw of the
+  draw: two sampled-out sessions look alike to the session store, so a tab can miss another tab
+  ending one and drawing the next, and storage is the one place the current draw is always found.
 - 📝 What you will see on the day you lift a rate off 0: visitors who were invisible start
   appearing within seconds of loading a page rather than at their next session, so collected volume
   climbs the same day rather than the next. That is the change taking effect, not a defect.
