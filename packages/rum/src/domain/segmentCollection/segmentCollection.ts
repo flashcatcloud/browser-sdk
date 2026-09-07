@@ -10,6 +10,7 @@ import {
 import type { LifeCycle, ViewHistory, RumSessionManager, RumConfiguration } from '@flashcatcloud/browser-rum-core'
 import { LifeCycleEventType, WITHHELD_BUFFER_DURATION } from '@flashcatcloud/browser-rum-core'
 import type { BrowserRecord, CreationReason, SegmentContext } from '../../types'
+import { RecordType } from '../../types'
 import { discardSegmentData, removeSegment } from '../replayStats'
 import { buildReplayPayload } from './buildReplayPayload'
 import type { FlushReason, Segment } from './segment'
@@ -137,6 +138,7 @@ export function doStartSegmentCollection(
   // back up to a minute" is a promise nobody can check.
   let droppedBufferCount = 0
   let lastBufferRestartAt: RelativeTime | undefined
+  let bufferRestartTimeoutId: TimeoutId | undefined
 
   const { unsubscribe: unsubscribeViewCreated } = lifeCycle.subscribe(LifeCycleEventType.VIEW_CREATED, () => {
     flushSegment('view_change')
@@ -156,7 +158,36 @@ export function doStartSegmentCollection(
     flushSegment('page_reactivated')
   })
 
+  const { unsubscribe: unsubscribeRumEvent } = lifeCycle.subscribe(
+    LifeCycleEventType.RUM_EVENT_COLLECTED,
+    restoreReleasedSnapshot
+  )
+
+  function restoreReleasedSnapshot() {
+    if (bufferRestartTimeoutId === undefined) {
+      return
+    }
+    const context = getSegmentContext()
+    if (context && buffering.isReleased(context.session.id)) {
+      // The error tracker marks the session before this listener runs. Restore the missing
+      // baseline now, before a view change or page exit can flush an unplayable segment.
+      clearTimeout(bufferRestartTimeoutId)
+      bufferRestartTimeoutId = undefined
+      lastBufferRestartAt = relativeNow()
+      buffering.restartFromFullSnapshot()
+    } else {
+      // The same oversized snapshot would be discarded again. Poll only for a release, without
+      // repeatedly serializing the document when neither an error nor new activity has arrived.
+      clearTimeout(bufferRestartTimeoutId)
+      bufferRestartTimeoutId = setTimeout(restoreReleasedSnapshot, SEGMENT_DURATION_LIMIT)
+    }
+  }
+
   function flushSegment(flushReason: InternalFlushReason) {
+    if (flushReason !== 'view_change' && flushReason !== 'page_reactivated') {
+      // A release can also arrive through the shared session store without a local error event.
+      restoreReleasedSnapshot()
+    }
     // Decided once, and against the session that produced the records rather than whatever session
     // is current now: a segment must be either dropped or sent as a whole.
     const withheldForSessionId =
@@ -260,12 +291,15 @@ export function doStartSegmentCollection(
       // to stop, and count records into the replay stats that no segment will ever hold.
       return
     }
-    // On a document whose full snapshot alone exceeds the segment limit, every restart would blow
-    // the limit again straight away and restart once more. Spacing restarts out avoids that hot
-    // loop, at the cost of a buffer that carries no full snapshot until the next restart is allowed
-    // - if the error lands in that window, what is released cannot be played from its start.
+    // A snapshot can itself exceed the budget. After a rapid second discard, wait for release
+    // before replacing it: ordinary flushes no longer restart buffers once the session errors.
+    clearTimeout(bufferRestartTimeoutId)
+    bufferRestartTimeoutId = undefined
     const now = relativeNow()
-    if (lastBufferRestartAt === undefined || now - lastBufferRestartAt >= SEGMENT_DURATION_LIMIT) {
+    const delay = lastBufferRestartAt === undefined ? 0 : SEGMENT_DURATION_LIMIT - (now - lastBufferRestartAt)
+    if (delay > 0) {
+      bufferRestartTimeoutId = setTimeout(restoreReleasedSnapshot, delay)
+    } else {
       lastBufferRestartAt = now
       buffering.restartFromFullSnapshot()
     }
@@ -275,6 +309,12 @@ export function doStartSegmentCollection(
     addRecord: (record: BrowserRecord) => {
       if (state.status === SegmentCollectionStatus.Stopped) {
         return
+      }
+
+      if (record.type === RecordType.FullSnapshot) {
+        // A view change or page reactivation can supply the replacement before the timer does.
+        clearTimeout(bufferRestartTimeoutId)
+        bufferRestartTimeoutId = undefined
       }
 
       if (state.status === SegmentCollectionStatus.WaitingForInitialRecord) {
@@ -310,9 +350,12 @@ export function doStartSegmentCollection(
 
     stop: () => {
       flushSegment('stop')
+      clearTimeout(bufferRestartTimeoutId)
+      bufferRestartTimeoutId = undefined
       unsubscribeViewCreated()
       unsubscribePageMayExit()
       unsubscribeReactivated()
+      unsubscribeRumEvent()
     },
   }
 }

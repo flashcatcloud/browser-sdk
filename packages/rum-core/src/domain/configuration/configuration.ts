@@ -457,8 +457,9 @@ export function validateAndBuildRumConfiguration(
       initConfiguration.startSessionReplayRecordingManually !== undefined
         ? !!initConfiguration.startSessionReplayRecordingManually
         : // An error-sampled session has to be recording before the error happens, otherwise there is
-          // nothing to withhold and release. So it must auto-start just like a plain sampled one.
-          sessionReplaySampleRate === 0 && !sessionReplayOnError,
+          // nothing to withhold and release. Remote configuration may enable replay on a later
+          // session, so keep the automatic start intent even when init disables replay.
+          sessionReplaySampleRate === 0 && !sessionReplayOnError && !initConfiguration.remoteConfigurationEnabled,
     sessionReplayDirectUpload: !!initConfiguration.sessionReplayDirectUpload,
     traceSampleRate: initConfiguration.traceSampleRate ?? 100,
     rulePsr: isNumber(initConfiguration.traceSampleRate) ? initConfiguration.traceSampleRate / 100 : undefined,

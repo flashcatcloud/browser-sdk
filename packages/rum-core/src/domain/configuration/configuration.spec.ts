@@ -435,6 +435,26 @@ describe('validateAndBuildRumConfiguration', () => {
   })
 
   describe('startSessionReplayRecordingManually', () => {
+    it('keeps automatic recording available for remotely enabled replay', () => {
+      expect(
+        validateAndBuildRumConfiguration({
+          ...DEFAULT_INIT_CONFIGURATION,
+          sessionReplaySampleRate: 0,
+          remoteConfigurationEnabled: true,
+        })!.startSessionReplayRecordingManually
+      ).toBeFalse()
+    })
+
+    it('respects explicit manual recording when remote configuration is enabled', () => {
+      expect(
+        validateAndBuildRumConfiguration({
+          ...DEFAULT_INIT_CONFIGURATION,
+          remoteConfigurationEnabled: true,
+          startSessionReplayRecordingManually: true,
+        })!.startSessionReplayRecordingManually
+      ).toBeTrue()
+    })
+
     it('defaults to true if sessionReplaySampleRate is 0', () => {
       expect(
         validateAndBuildRumConfiguration({ ...DEFAULT_INIT_CONFIGURATION, sessionReplaySampleRate: 0 })!

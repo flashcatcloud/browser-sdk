@@ -90,6 +90,25 @@ describe('startWithheldEventBuffer', () => {
     ])
   })
 
+  it('preserves the history and a releasing error larger than the buffer budget', () => {
+    const view = collect(RumEventType.VIEW)
+    const resource = collect(RumEventType.RESOURCE)
+    sessionManager.setSessionHasError()
+    const error = collect(RumEventType.ERROR, {
+      error: { source: 'custom', message: 'x'.repeat(WITHHELD_BUFFER_BYTES_LIMIT + 1) },
+    })
+
+    expect(releasedAfterJitter()).toEqual([view, resource, error])
+  })
+
+  it('does not release a large error while the session is still withholding', () => {
+    collect(RumEventType.VIEW)
+    collect(RumEventType.ERROR, {
+      error: { source: 'agent', message: 'x'.repeat(WITHHELD_BUFFER_BYTES_LIMIT + 1) },
+    })
+    expect(releasedAfterJitter()).toEqual([])
+  })
+
   it('keeps only the latest event of a view, since a view event supersedes the ones before it', () => {
     collect(RumEventType.VIEW, { documentVersion: 1 })
     collect(RumEventType.VIEW, { documentVersion: 2 })

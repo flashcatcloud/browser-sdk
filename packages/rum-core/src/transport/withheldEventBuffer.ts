@@ -125,6 +125,16 @@ export function startWithheldEventBuffer(
     }
 
     if (withheldForSessionId !== undefined && isFrom(withheldForSessionId)) {
+      if (
+        event.type === RumEventType.ERROR &&
+        computeBytesCount(jsonStringify(event) ?? '') > WITHHELD_BUFFER_BYTES_LIMIT
+      ) {
+        // The session has already earned its release. A single error larger than the history
+        // budget must reach the normal batch, without evicting itself or the history preceding it.
+        release()
+        forward(event)
+        return
+      }
       // Whatever is still withheld here belongs to a session that has just reported its error: the
       // guard above ended every other case. This event, typically the error itself, joins what is
       // held so that the whole history leaves in order, and behind the same jitter.
