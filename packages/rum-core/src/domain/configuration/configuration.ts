@@ -93,14 +93,22 @@ export interface RumInitConfiguration extends InitConfiguration {
    * values passed here, so they can be changed without releasing a new version of this site.
    *
    * A change applies to sessions started after it arrives, and a session already under way is never
-   * re-decided in place. Two changes do not wait for that session to end on its own, because their
-   * effect on it can be told without drawing again: a stricter `defaultPrivacyLevel`, and a session
-   * sample rate of 0. Both apply only while the visitor is being collected — one who is not records
-   * nothing and sends nothing, so neither has anything to act on there. Either ends the current
-   * session, and the visitor's next action starts a new one under the new settings; the old session
-   * is collected to its end as it was begun, so no recording is left masked in one half and plain
-   * in the other. Every other change waits for the next session, a loosening privacy level and a
-   * rate rising to 100 included — for "collect this visitor now" there is `setForcedSession()`.
+   * re-decided in place. Three changes do not wait for that session to end on its own, because
+   * their effect on it can be told without drawing again: a stricter `defaultPrivacyLevel`, and a
+   * session sample rate of 0, both while the visitor is being collected — one who is not records
+   * nothing and sends nothing, so neither has anything to act on there — and a rate above 0 for a
+   * visitor whose session was drawn AT 0, who was never in a draw at all and now could be. Any of
+   * the three ends the current session, and the visitor's next action starts a new one under the
+   * new settings; the old session is collected to its end as it was begun, so no recording is left
+   * masked in one half and plain in the other.
+   *
+   * Every other change waits for the next session, a loosening privacy level included, and so does
+   * a rate rising from one real value to another: only a second draw could say whether a session
+   * drawn at 30 should have been kept at 80, and drawing twice turns a rate p into p². Re-drawing
+   * only the visitors who are not collected would spare the winners and re-roll the losers, which
+   * lifts the real rate above the published one. A rate of 0 is the one value with no winners to
+   * spare, which is why leaving it is decidable and leaving 30 is not. For "collect this one
+   * visitor now" at any rate, there is `setForcedSession()`.
    *
    * How soon "does not wait" is depends on when this client next hears of the change, and it hears
    * only at page load and at each new session. A visitor who keeps loading pages hears within

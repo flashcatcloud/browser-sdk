@@ -99,6 +99,34 @@ export const enum SessionReplayState {
   FORCED,
 }
 
+/**
+ * FLASHCAT FORK - the id the draw of a session that lost its lottery is recorded under.
+ *
+ * A session that is not collected is given no id — see `sessionStore` — so it has nothing to key a
+ * record on, and until this existed its draw was simply not recorded. That left the one question
+ * this SDK has to answer before it may re-draw such a visitor unanswerable: was this session drawn
+ * at a rate of 0, or did it lose a draw at some other rate? Getting that wrong in the second
+ * direction re-rolls losers while sparing winners, which quietly lifts a fleet's real sampling
+ * rate towards 100% — see `endSessionIfSettingsAreDecisive`.
+ *
+ * Not a UUID, and not a value `generateUUID` can produce, so a record written here can never be
+ * mistaken for a real session's. The two are told apart by the id alone, which is what lets both
+ * share the single record slot: a collected session looks its own id up and a sampled-out one
+ * looks this up, and neither can read the other's.
+ *
+ * What it gives up, and why that is affordable: every sampled-out session matches this same id, so
+ * the id check that makes a stale record inert for a collected session does nothing here. What
+ * keeps a stale one from being read instead is that the page which draws owns the slot — it writes
+ * its draw or clears the slot, in the same stack that created the session — so the record always
+ * describes the most recent draw, and the most recent draw is what created the session being read.
+ * The one thing the record decides for a sampled-out session — whether a rate leaving 0 may end
+ * it — is read off storage at the moment of that decision rather than off the copy `trackDraw`
+ * took when the session was adopted. See `endSessionIfSettingsAreDecisive` for why the copy is not
+ * enough: the session store cannot tell one sampled-out session from the next, so a page can keep
+ * the copy of a session another tab has already replaced.
+ */
+const NOT_TRACKED_DRAW_ID = 'not-tracked'
+
 export function startRumSessionManager(
   configuration: RumConfiguration,
   lifeCycle: LifeCycle,
@@ -172,8 +200,8 @@ export function startRumSessionManager(
   // synchronous stack: a tab whose storage poll fell exactly between the two would find no record
   // and keep its own settings for that session. Writing it earlier is not possible from here — the
   // id it belongs to is generated inside the store, as that session is persisted. The record is
-  // read only here, when a session is adopted, so such a tab keeps its own settings for the whole
-  // remaining life of that session rather than until its next poll.
+  // read into the history only here, when a session is adopted, so such a tab keeps its own
+  // settings for the whole remaining life of that session rather than until its next poll.
   //
   // Storage is also per origin while the session need not be: with `trackSessionAcrossSubdomains`
   // a session arrives on the next subdomain with no record waiting, and is reported and traced
@@ -182,15 +210,32 @@ export function startRumSessionManager(
     const drawn = pendingDraw
     pendingDraw = undefined
     const sessionEntity = sessionManager.findSession()
-    if (!sessionEntity?.id) {
+    if (!sessionEntity) {
       return
     }
+    // A session that lost its draw has no id to be recorded under, so it is recorded under an id no
+    // session can hold. It has to be recorded at all for the same reason a collected one does — the
+    // rate it was drawn at is not something a later page can work out, and here it decides whether
+    // a console change away from 0 may re-draw this visitor at once. Which of the two is read back
+    // follows from the session itself, so no record can be read for a session it does not describe.
+    const drawId = sessionEntity.id || NOT_TRACKED_DRAW_ID
     if (drawn) {
-      writeDrawRecord(configuration, { id: sessionEntity.id, ...drawn })
-      drawnHistory.add(drawn, startTime)
+      // The page that draws owns the slot, and says so either way. A record is only worth keeping
+      // when it says something the init values do not — but leaving the previous one in place
+      // instead would let it outlive the session it described, and a sampled-out session cannot
+      // spot that the way a collected one does: it matches on an id every sampled-out session
+      // shares. So a draw that has nothing to record clears the slot rather than passing over it.
+      // The cost is one `removeItem` per session drawn on a site that enabled none of this, which
+      // is a handful per visit.
+      if (isWorthRecording(configuration, drawn)) {
+        writeDrawRecord(configuration, { id: drawId, ...drawn })
+        drawnHistory.add(drawn, startTime)
+      } else {
+        forgetDrawRecord(configuration)
+      }
       return
     }
-    const stored = readDrawRecord(configuration, sessionEntity.id)
+    const stored = readDrawRecord(configuration, drawId)
     if (stored) {
       drawnHistory.add(stored, startTime)
     }
@@ -213,27 +258,37 @@ export function startRumSessionManager(
   // pages fetches the change within seconds and then carries on under the old decision for the rest
   // of their visit.
   //
-  // Two changes are not made to wait, and what makes exactly those two special is that their
+  // Three changes are not made to wait, and what makes exactly those three special is that their
   // outcome for the running session can be asserted without drawing again:
   //
   //   - a stricter default privacy level: every further second recorded is a second of plaintext
   //     uploaded, and masking cannot reach back for it. This is the one whose cost is not
   //     recoverable, and the reason the rest of this exists;
-  //   - a session sample rate of 0: nothing is meant to be collected any more, and this is the
-  //     emergency stop the console offers — one that took four hours would not be one.
+  //   - a session sample rate of 0 for a session being collected: nothing is meant to be collected
+  //     any more, and this is the emergency stop the console offers — one that took four hours
+  //     would not be one;
+  //   - a rate above 0 for a session that was drawn AT 0: this visitor was never in a draw at all,
+  //     and now could be. Without it an application whose rate only ever comes from the console
+  //     shows an operator who has just switched collection on precisely nothing, for as long as
+  //     the sessions already running take to rotate — and nothing at all is indistinguishable from
+  //     broken.
   //
-  // Both are about a session that is being collected, which is why that is the first thing checked.
-  // A visitor who is not being collected records nothing and uploads nothing, so neither rule has
-  // anything to act on for them.
+  // The first two are about a session that is being collected, and the third only ever about one
+  // that is not, which is why each rule checks that for itself.
   //
   // No rate other than 0 says anything about whether THIS session should have been kept — only a
-  // second draw could, and drawing twice silently turns a rate p into p². A rate of 100 could be
-  // asserted about a session that is not collected, and deliberately is not acted on: `setForcedSession`
-  // already exists for "collect this visitor now", it is the one direction that raises volume
-  // unannounced, and nothing about it is urgent. So everything else waits for the next session, a
-  // loosening privacy level included. Loosening waits on purpose: the delay is what leaves an
-  // operator room to undo a mistake, and what it costs meanwhile is more of the data already being
-  // collected.
+  // second draw could, and drawing twice silently turns a rate p into p². That is also why the
+  // third rule is written against the rate the session was DRAWN at rather than against whether it
+  // is being collected: re-drawing every session that is not collected, while leaving the collected
+  // ones alone, spares the winners and re-rolls the losers, so a fleet drawn at 20 and moved to 50
+  // would come out at 60. A rate of 0 is the one value with no winners to spare — nothing was
+  // collected, no coin was flipped — so re-drawing everyone lands exactly on the new rate. And it
+  // costs nothing to end such a session: it has no id, no events and no history, so it does not
+  // exist in the data and ending it leaves no seam.
+  //
+  // Everything else waits for the next session, a loosening privacy level included. Loosening waits
+  // on purpose: the delay is what leaves an operator room to undo a mistake, and what it costs
+  // meanwhile is more of the data already being collected.
   //
   // The action is to end the session and let the next activity start a new one — never to flip the
   // running one, which would leave a replay masked in its first half and plain in its second, or
@@ -250,18 +305,38 @@ export function startRumSessionManager(
   // Any other tab of the same visitor that does load a page ends the session they share.
   function endSessionIfSettingsAreDecisive() {
     const session = sessionManager.findSession()
-    if (!session || !isTypeTracked(session.trackingType)) {
-      // Nothing here that ending would change. Whatever starts this visitor's next session draws
-      // on the settings just stored, which is the ordinary path and already gives them effect.
-      //
-      // It also could not be decided if we wanted to: a session that is not collected is given no
-      // id, so no record is kept of what it was drawn under. The comparison below would fall
-      // through to the init value on every announcement and keep answering "tighter", ending one
-      // empty session after another for as long as the visitor stayed.
+    if (!session) {
       return
     }
 
     const remote = readRemoteConfig(configuration.remoteConfig)
+
+    if (!isTypeTracked(session.trackingType)) {
+      // Read off storage rather than off `drawnHistory`, because the two can disagree here and only
+      // storage is right. Two sampled-out sessions look alike to the session store — no id, the
+      // same tracking type — so a page whose storage poll misses the expired state between them
+      // never learns that another tab ended the first and drew the second: nothing expires and
+      // nothing renews on this page, and the history keeps the draw of a session that is gone. The
+      // page that drew the replacement wrote its rate to storage in the same stack, so that is the
+      // one place this session's own rate can be found. A collected session cannot be confused this
+      // way, since its id changes with it.
+      //
+      // Nothing forced can reach this comparison as a zero: a forced draw is recorded at 100 and is
+      // collected besides, so the record already answers the question the tracked branch has to ask
+      // `forcedSession` about below. No record means the draw used the init values, see `trackDraw`.
+      const drawnSampleRate =
+        readDrawRecord(configuration, NOT_TRACKED_DRAW_ID)?.sessionSampleRate ?? configuration.sessionSampleRate
+      if (drawnSampleRate !== 0) {
+        return
+      }
+      // Asked only now, and only here, because resolving runs the site's `beforeSampling`: this
+      // announcement is not a draw, and the callback should be run no more often than a decision
+      // actually turns on its answer.
+      if (resolveSampleRates(configuration, remote).sessionSampleRate > 0) {
+        sessionManager.expire()
+      }
+      return
+    }
 
     // What this session is masking pages with right now, which is not the previously stored
     // settings: settings are stored while a session runs, and the session was drawn under whatever
@@ -283,8 +358,7 @@ export function startRumSessionManager(
       return
     }
 
-    const { sessionSampleRate } = resolveSampleRates(configuration, remote)
-    if (sessionSampleRate === 0) {
+    if (resolveSampleRates(configuration, remote).sessionSampleRate === 0) {
       sessionManager.expire()
     }
   }
@@ -454,9 +528,11 @@ function computeSessionState(
   configuration: RumConfiguration,
   rawTrackingType?: string,
   forcedSession?: boolean,
-  // FLASHCAT FORK - called when a draw actually happens (never for a restored session) and lands
-  // on something other than the init values, with the rates the draw used and the remote version
-  // they came from.
+  // FLASHCAT FORK - called whenever a draw actually happens and never for a restored session, with
+  // the rates the draw used and the remote version they came from. Reporting every draw, including
+  // one that landed on the init values, is what lets the caller tell "this page drew" from "this
+  // page adopted a session somebody else drew" — see `trackDraw`, where only the first may write to
+  // the record slot.
   onDraw?: (drawn: DrawnConfiguration) => void
 ) {
   let trackingType: RumTrackingType
@@ -549,12 +625,9 @@ const PRIVACY_LEVEL_STRICTNESS: { [level in DefaultPrivacyLevel]: number } = {
  * report the same shape and differ only in the rates: forcing pins them, an ordinary draw uses
  * what the console and the application settled on.
  *
- * What decides whether a draw is worth recording is the draw itself, not which feature produced it:
- * a draw that used exactly what init passed is already described by the events, so recording it
- * would buy nothing and cost a storage write on every site that turned none of this on. Everything
- * else is recorded — including a `beforeSampling` override or a forced session on a site with
- * remote configuration switched off, where the rates used and the rates init passed are precisely
- * the values that differ.
+ * Whether the draw is worth keeping is `isWorthRecording`'s question, asked one layer up, because
+ * the answer there decides between writing the record and clearing it — and only a caller that
+ * hears about every draw can clear one.
  */
 function reportDraw(
   configuration: RumConfiguration,
@@ -566,23 +639,32 @@ function reportDraw(
   if (!onDraw) {
     return
   }
-  const drawn: DrawnConfiguration = {
+  onDraw({
     version: remote.version,
     sessionSampleRate,
     sessionReplaySampleRate,
     traceSampleRate: remote.traceSampleRate ?? initTraceRule(configuration),
     defaultPrivacyLevel: remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
-  }
-  if (
-    drawn.version === undefined &&
-    drawn.sessionSampleRate === configuration.sessionSampleRate &&
-    drawn.sessionReplaySampleRate === configuration.sessionReplaySampleRate &&
-    drawn.traceSampleRate === initTraceRule(configuration) &&
-    drawn.defaultPrivacyLevel === configuration.defaultPrivacyLevel
-  ) {
-    return
-  }
-  onDraw(drawn)
+  })
+}
+
+/**
+ * FLASHCAT FORK - whether a draw says anything the init values do not.
+ *
+ * One that does not is already described by the events, so keeping it would buy nothing and cost a
+ * storage write on every site that turned none of this on. Asked about the draw rather than about
+ * which feature produced it: a `beforeSampling` override or a forced session on a site with remote
+ * configuration switched off is precisely the case where the rates used and the rates init passed
+ * are the values that differ.
+ */
+function isWorthRecording(configuration: RumConfiguration, drawn: DrawnConfiguration) {
+  return (
+    drawn.version !== undefined ||
+    drawn.sessionSampleRate !== configuration.sessionSampleRate ||
+    drawn.sessionReplaySampleRate !== configuration.sessionReplaySampleRate ||
+    drawn.traceSampleRate !== initTraceRule(configuration) ||
+    drawn.defaultPrivacyLevel !== configuration.defaultPrivacyLevel
+  )
 }
 
 /**
