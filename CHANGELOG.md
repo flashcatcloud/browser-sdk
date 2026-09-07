@@ -18,7 +18,7 @@
 
 ---
 
-## Unreleased
+## v0.2.3
 
 - ✨ A session sample rate published from the console that rises above 0 now ends the running
   session of a visitor whose session was drawn at 0, so collection starts at their next interaction

@@ -6,47 +6,47 @@ __metadata:
   cacheKey: 10c0
 
 "@flashcatcloud/browser-core@file:../../../packages/core/package.tgz::locator=app%40workspace%3A.":
-  version: 0.2.2
-  resolution: "@flashcatcloud/browser-core@file:../../../packages/core/package.tgz#../../../packages/core/package.tgz::hash=7f59f0&locator=app%40workspace%3A."
-  checksum: 10c0/b9468d62875e5390dfc5ed4ccea3da4f87e20cca8b6f3e913998f621a8d188abe3e0fe3b0e8bdfa3f0401537dc8d74a32bedf31cdd2e469122bdaad810df52ae
+  version: 0.2.3
+  resolution: "@flashcatcloud/browser-core@file:../../../packages/core/package.tgz#../../../packages/core/package.tgz::hash=3757b8&locator=app%40workspace%3A."
+  checksum: 10c0/cc949e44210ec8d8546242d0b8c4cbcae46f3b53a295d20740c16fbd95ef99c85f4b11312998938156fd82cd54546f57fd12ca5c50c932be8b5c241f091237a4
   languageName: node
   linkType: hard
 
 "@flashcatcloud/browser-logs@file:../../../packages/logs/package.tgz::locator=app%40workspace%3A.":
-  version: 0.2.2
-  resolution: "@flashcatcloud/browser-logs@file:../../../packages/logs/package.tgz#../../../packages/logs/package.tgz::hash=e6bcc1&locator=app%40workspace%3A."
+  version: 0.2.3
+  resolution: "@flashcatcloud/browser-logs@file:../../../packages/logs/package.tgz#../../../packages/logs/package.tgz::hash=f16bce&locator=app%40workspace%3A."
   dependencies:
-    "@flashcatcloud/browser-core": "npm:0.2.2"
+    "@flashcatcloud/browser-core": "npm:0.2.3"
   peerDependencies:
-    "@flashcatcloud/browser-rum": 0.2.2
+    "@flashcatcloud/browser-rum": 0.2.3
   peerDependenciesMeta:
     "@flashcatcloud/browser-rum":
       optional: true
-  checksum: 10c0/fb9e48075e01feef767f84cc948939964dc2b24fb2d469dfc2dd31a6a56678974ee059a26c75e87adff212a5843883a19a63df41f599280d965c2beb3c777012
+  checksum: 10c0/997fa5864dd29469fea4a042dae3eddbc9647aee8535074288328e9eced7d8274ef78ee7b2ff311821cf15f34d2bd3347bd9d7dacb77a75c194045c3eb36a3f1
   languageName: node
   linkType: hard
 
 "@flashcatcloud/browser-rum-core@file:../../../packages/rum-core/package.tgz::locator=app%40workspace%3A.":
-  version: 0.2.2
-  resolution: "@flashcatcloud/browser-rum-core@file:../../../packages/rum-core/package.tgz#../../../packages/rum-core/package.tgz::hash=c37333&locator=app%40workspace%3A."
+  version: 0.2.3
+  resolution: "@flashcatcloud/browser-rum-core@file:../../../packages/rum-core/package.tgz#../../../packages/rum-core/package.tgz::hash=bd22d4&locator=app%40workspace%3A."
   dependencies:
-    "@flashcatcloud/browser-core": "npm:0.2.2"
-  checksum: 10c0/267e2c5dc167aa4458b98c6a6f919f0f8d90434bd55467109d7b19c02c580b87857cac98d22f0f34579f96c0f9f0720d3c8e54edce62487829c1c4fd1fc82531
+    "@flashcatcloud/browser-core": "npm:0.2.3"
+  checksum: 10c0/f5d6867b01ff891dbf35cd0cc2887199df5d7f941f1c1cbfba8f55387084df096d20d5b1399790897c5c93342439c0df56409df02afb5276a3d98d2ed54e902b
   languageName: node
   linkType: hard
 
 "@flashcatcloud/browser-rum@file:../../../packages/rum/package.tgz::locator=app%40workspace%3A.":
-  version: 0.2.2
-  resolution: "@flashcatcloud/browser-rum@file:../../../packages/rum/package.tgz#../../../packages/rum/package.tgz::hash=35fdbc&locator=app%40workspace%3A."
+  version: 0.2.3
+  resolution: "@flashcatcloud/browser-rum@file:../../../packages/rum/package.tgz#../../../packages/rum/package.tgz::hash=b90a0d&locator=app%40workspace%3A."
   dependencies:
-    "@flashcatcloud/browser-core": "npm:0.2.2"
-    "@flashcatcloud/browser-rum-core": "npm:0.2.2"
+    "@flashcatcloud/browser-core": "npm:0.2.3"
+    "@flashcatcloud/browser-rum-core": "npm:0.2.3"
   peerDependencies:
-    "@flashcatcloud/browser-logs": 0.2.2
+    "@flashcatcloud/browser-logs": 0.2.3
   peerDependenciesMeta:
     "@flashcatcloud/browser-logs":
       optional: true
-  checksum: 10c0/38bfaf9b05e07f3a2b74267ac925b4c8eb1e543be3476705f586c479c9b136424eeb34cd9e44ebfac8245ff6d7a93deda06687043ad921bea165457453b5b492
+  checksum: 10c0/34dc1334c2125ecc6dab66764d7afa57ed2e85e22b7136fa8c15464ea93af619739c705c1a41453b10e642527f548952cd273e98768c041ea6c09b90f3bdffa4
   languageName: node
   linkType: hard
 
