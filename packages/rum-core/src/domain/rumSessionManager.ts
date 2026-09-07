@@ -541,7 +541,10 @@ function computeSessionState(
     // the decision it was created with: settings arriving mid-session never start or stop
     // collecting for a visitor already on the site.
     const remote = readRemoteConfig(configuration.remoteConfig)
-    const { sessionSampleRate, sessionReplaySampleRate } = resolveSampleRates(configuration, remote)
+    const { sessionSampleRate, sessionReplaySampleRate, sessionReplayOnError } = resolveSampleRates(
+      configuration,
+      remote
+    )
 
     reportDraw(configuration, remote, sessionSampleRate, sessionReplaySampleRate, onDraw)
 
@@ -549,7 +552,7 @@ function computeSessionState(
       trackingType = RumTrackingType.NOT_TRACKED
     } else if (performDraw(sessionReplaySampleRate)) {
       trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
-    } else if (configuration.sessionReplayOnError) {
+    } else if (sessionReplayOnError) {
       // Only for sessions the plain replay draw missed, so a session is never counted by both.
       trackingType = RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
     } else {
@@ -563,8 +566,10 @@ function computeSessionState(
 }
 
 /**
- * FLASHCAT FORK - the rates a draw would use right now: what the console delivered, falling back to
- * what the site passed to init, with the application's `beforeSampling` given the last word. This
+ * FLASHCAT FORK - the rates a draw would use right now, and the on-error switch beside them: what
+ * the console delivered, falling back to what the site passed to init, with the application's
+ * `beforeSampling` given the last word on the rates (the switch is not offered to it: it is a
+ * yes or a no the console already answered). This
  * is what turns the delivered custom values into sampling decisions without a wasted first draw or
  * a session restart: the console ships the data (an allow-list, a cohort rule), the application's
  * own code interprets it here. Its failure modes must never reach session creation, so a thrown
@@ -598,7 +603,11 @@ function resolveSampleRates(configuration: RumConfiguration, remote: RemoteConfi
     }
   }
 
-  return { sessionSampleRate, sessionReplaySampleRate }
+  return {
+    sessionSampleRate,
+    sessionReplaySampleRate,
+    sessionReplayOnError: remote.sessionReplayOnError ?? configuration.sessionReplayOnError,
+  }
 }
 
 /**
