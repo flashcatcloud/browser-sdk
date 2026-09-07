@@ -383,6 +383,110 @@ describe('startSegmentCollection withholding (error session replay)', () => {
     })
   })
 
+  it('releases a checkout still being encoded without reusing its segment index', async () => {
+    addRecord({ ...RECORD, type: RecordType.FullSnapshot, data: {} } as BrowserRecord)
+    worker.processAllMessages()
+    clock.tick(BUFFER_CHECKOUT_TIME)
+    reportError()
+    lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, { type: 'error' } as any)
+    addRecord(RECORD)
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+    const metadata = await Promise.all(
+      httpRequestSpy.send.calls.allArgs().map(([payload]) => readMetadataFromReplayPayload(payload))
+    )
+    expect(metadata.map((segment) => segment.index_in_view)).toEqual([0, 1])
+    expect(metadata[0]?.has_full_snapshot).toBeTrue()
+  })
+
+  it('remembers a release if recording ends before the worker answers', () => {
+    addRecord(RECORD)
+    worker.processAllMessages()
+    clock.tick(BUFFER_CHECKOUT_TIME)
+    reportError()
+    lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, { type: 'error' } as any)
+    stopCollection()
+    releasedSessionId = undefined
+    worker.processAllMessages()
+    expect(httpRequestSpy.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('drains records and a stop queued behind a released flush', async () => {
+    addRecord(RECORD)
+    worker.processAllMessages()
+    clock.tick(BUFFER_CHECKOUT_TIME)
+    addRecord(RECORD)
+    reportError()
+    stopCollection()
+    releasedSessionId = undefined
+    worker.processAllMessages()
+    const metadata = await Promise.all(
+      httpRequestSpy.send.calls.allArgs().map(([payload]) => readMetadataFromReplayPayload(payload))
+    )
+    expect(metadata.map((segment) => segment.index_in_view)).toEqual([0, 1])
+    expect(metadata.map((segment) => segment.records_count)).toEqual([1, 1])
+  })
+
+  it('preserves encoder ordering when a new recording starts before the old flush completes', async () => {
+    const sharedWorker = new MockWorker()
+    const sharedEncoder = createDeflateEncoder({} as RumConfiguration, sharedWorker, DeflateEncoderStreamId.REPLAY)
+    const sent: Array<Parameters<HttpRequest['send']>[0]> = []
+    let released = false
+    const request = { send: (payload: Parameters<HttpRequest['send']>[0]) => sent.push(payload), sendOnExit: noop }
+    const first = doStartSegmentCollection(lifeCycle, () => CONTEXT, request, sharedEncoder, {
+      getWithholdingSessionId: () => (released ? undefined : CONTEXT.session.id),
+      isReleased: () => released,
+      restartFromFullSnapshot: noop,
+    })
+    first.addRecord(RECORD)
+    clock.tick(BUFFER_CHECKOUT_TIME)
+    first.addRecord(RECORD)
+    released = true
+    first.stop()
+    const second = doStartSegmentCollection(
+      new LifeCycle(),
+      () => ({ ...CONTEXT, session: { id: 'next-session' }, view: { id: 'next-view' } }),
+      request,
+      sharedEncoder,
+      {
+        getWithholdingSessionId: () => undefined,
+        isReleased: () => false,
+        restartFromFullSnapshot: noop,
+      }
+    )
+    second.addRecord(RECORD)
+    second.stop()
+    sharedWorker.processAllMessages()
+    const segments = await Promise.all(
+      sent.map(
+        async (payload) =>
+          JSON.parse(await ((payload.data as FormData).get('segment') as Blob).text()) as {
+            session: { id: string }
+            records: BrowserRecord[]
+            index_in_view: number
+          }
+      )
+    )
+    expect(segments.map((segment) => segment.session.id)).toEqual([
+      CONTEXT.session.id,
+      CONTEXT.session.id,
+      'next-session',
+    ])
+    expect(segments.map((segment) => segment.index_in_view)).toEqual([0, 1, 0])
+    expect(segments.map((segment) => segment.records.length)).toEqual([1, 1, 1])
+  })
+
+  it('never releases an unfinished flush for a different session', () => {
+    addRecord(RECORD)
+    clock.tick(BUFFER_CHECKOUT_TIME)
+    releasedSessionId = 'different-session'
+    stopCollection()
+    worker.processAllMessages()
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+  })
+
   it('does not send anything while the session has not reported an error', () => {
     addRecord(RECORD)
     clock.tick(SEGMENT_DURATION_LIMIT)

@@ -21,8 +21,8 @@ export function addWroteData(viewId: string, additionalBytesCount: number) {
 
 /**
  * Gives back the segment count {@link addSegment} took, and with it the `index_in_view` the segment
- * was holding. Undone in the same phase it was taken - synchronously - because the index is read at
- * creation: a segment created before this runs would hold an index the dropped one still occupies.
+ * was holding. Segment collection serializes encoder operations, so a dropped segment returns its
+ * reservation after the release decision and before the next segment is created.
  */
 export function removeSegment(viewId: string) {
   const replayStats = statsPerView?.get(viewId)

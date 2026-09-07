@@ -113,8 +113,6 @@ type SegmentCollectionState =
       bufferCheckoutTimeoutId: TimeoutId | undefined
       /** Set when the segment was created while its session was withholding its replay. */
       withheldForSessionId: string | undefined
-      /** The view the segment belongs to, so its index can be given back without waiting on a flush. */
-      viewId: string
     }
   | {
       status: SegmentCollectionStatus.Stopped
@@ -127,6 +125,10 @@ type SegmentCollectionState =
  * switched back to, so the next one starts from the fresh full snapshot taken on the same event.
  */
 type InternalFlushReason = FlushReason | 'buffer_checkout' | 'page_reactivated'
+
+// Recordings can stop and restart while the same encoder is still finishing a segment.
+// Serialize at the encoder boundary so their metadata and index reservations cannot overlap.
+let encodingQueues: WeakMap<DeflateEncoder, { flushing: boolean; operations: Array<() => void> }> | undefined
 
 export function doStartSegmentCollection(
   lifeCycle: LifeCycle,
@@ -145,15 +147,48 @@ export function doStartSegmentCollection(
   let droppedBufferCount = 0
   let lastBufferRestartAt: RelativeTime | undefined
   let bufferRestartTimeoutId: TimeoutId | undefined
+  encodingQueues ||= new WeakMap()
+  const encodingQueue = encodingQueues.get(encoder) || { flushing: false, operations: [] }
+  encodingQueues.set(encoder, encodingQueue)
+  let stopped = false
+  const withholdingSessionIds = new Set<string>()
+  const releasedSessionIds = new Set<string>()
+
+  function rememberReleases() {
+    withholdingSessionIds.forEach((sessionId) => {
+      if (buffering.isReleased(sessionId)) {
+        releasedSessionIds.add(sessionId)
+      }
+    })
+  }
+
+  function runWhenReady(operation: () => void) {
+    encodingQueue.operations.push(operation)
+    drainPendingOperations()
+  }
+
+  function drainPendingOperations() {
+    while (!encodingQueue.flushing && encodingQueue.operations.length) {
+      encodingQueue.operations.shift()!()
+    }
+  }
+
+  function requestFlush(reason: InternalFlushReason) {
+    rememberReleases()
+    if (reason !== 'view_change' && reason !== 'page_reactivated') {
+      restoreReleasedSnapshot()
+    }
+    runWhenReady(() => flushSegment(reason))
+  }
 
   const { unsubscribe: unsubscribeViewCreated } = lifeCycle.subscribe(LifeCycleEventType.VIEW_CREATED, () => {
-    flushSegment('view_change')
+    requestFlush('view_change')
   })
 
   const { unsubscribe: unsubscribePageMayExit } = lifeCycle.subscribe(
     LifeCycleEventType.PAGE_MAY_EXIT,
     (pageMayExitEvent) => {
-      flushSegment(pageMayExitEvent.reason as FlushReason)
+      requestFlush(pageMayExitEvent.reason as FlushReason)
     }
   )
 
@@ -161,7 +196,7 @@ export function doStartSegmentCollection(
   // next one starts fresh with the full snapshot taken by startFullSnapshots on the same event.
   // Reuses the 'view_change' creation reason to avoid a schema change.
   const { unsubscribe: unsubscribeReactivated } = lifeCycle.subscribe(LifeCycleEventType.PAGE_REACTIVATED, () => {
-    flushSegment('page_reactivated')
+    requestFlush('page_reactivated')
   })
 
   const { unsubscribe: unsubscribeRumEvent } = lifeCycle.subscribe(
@@ -169,7 +204,18 @@ export function doStartSegmentCollection(
     restoreReleasedSnapshot
   )
 
+  const { unsubscribe: unsubscribeSessionReleased } = lifeCycle.subscribe(
+    LifeCycleEventType.SESSION_RELEASED,
+    ({ sessionId }) => {
+      if (withholdingSessionIds.has(sessionId)) {
+        releasedSessionIds.add(sessionId)
+      }
+      restoreReleasedSnapshot()
+    }
+  )
+
   function restoreReleasedSnapshot() {
+    rememberReleases()
     if (bufferRestartTimeoutId === undefined) {
       return
     }
@@ -190,15 +236,11 @@ export function doStartSegmentCollection(
   }
 
   function flushSegment(flushReason: InternalFlushReason) {
-    if (flushReason !== 'view_change' && flushReason !== 'page_reactivated') {
-      // A release can also arrive through the shared session store without a local error event.
-      restoreReleasedSnapshot()
-    }
-    // Decided once, and against the session that produced the records rather than whatever session
-    // is current now: a segment must be either dropped or sent as a whole.
+    // Keep the encoder and index reservation owned by this segment until its asynchronous
+    // decision settles. Later records retain their emission context while waiting in FIFO order.
     const withheldForSessionId =
       state.status === SegmentCollectionStatus.SegmentPending ? state.withheldForSessionId : undefined
-    const isWithheld = withheldForSessionId !== undefined && !buffering.isReleased(withheldForSessionId)
+    const isWithheld = withheldForSessionId !== undefined && !releasedSessionIds.has(withheldForSessionId)
 
     if (state.status === SegmentCollectionStatus.SegmentPending) {
       if (isWithheld && flushReason === 'page_reactivated') {
@@ -218,21 +260,16 @@ export function doStartSegmentCollection(
           // An expiring session does not lose it: the session history entry is still open when the
           // recorder is stopped (`sessionManager.ts` notifies before closing it), so the stop flush
           // still sees the session as released and sends. Only losing the page outright loses it.
-          state.expirationTimeoutId = setTimeout(() => flushSegment('segment_duration_limit'), SEGMENT_DURATION_LIMIT)
+          state.expirationTimeoutId = setTimeout(() => requestFlush('segment_duration_limit'), SEGMENT_DURATION_LIMIT)
         }
         return
       }
 
-      if (isWithheld) {
-        // Given back here, synchronously, rather than in the flush callback below: that callback only
-        // runs after a round trip to the deflate worker, and a record arriving in between creates a
-        // segment that reads its `index_in_view` from a count this one still occupies - leaving two
-        // uploaded segments claiming the same index, and index 0 never uploaded at all.
-        removeSegment(state.viewId)
-      }
-
+      encodingQueue.flushing = true
       state.segment.flush((metadata, encoderResult) => {
-        if (isWithheld) {
+        rememberReleases()
+        if (withheldForSessionId !== undefined && !releasedSessionIds.has(withheldForSessionId)) {
+          removeSegment(metadata.view.id)
           // No error was reported, so this buffer is dropped rather than sent. Rolling back what its
           // records contributed keeps `has_replay` and the counters on view events honest.
           discardSegmentData(metadata.view.id, encoderResult.rawBytesCount, metadata.records_count)
@@ -240,6 +277,8 @@ export function doStartSegmentCollection(
           // Restarted from here rather than synchronously below, so the fresh full snapshot lands in
           // the segment that follows this one rather than in the one being thrown away.
           restartBuffer(flushReason)
+          encodingQueue.flushing = false
+          drainPendingOperations()
           return
         }
 
@@ -261,6 +300,8 @@ export function doStartSegmentCollection(
         } else {
           httpRequest.send(payload)
         }
+        encodingQueue.flushing = false
+        drainPendingOperations()
       })
       clearTimeout(state.expirationTimeoutId)
       clearTimeout(state.bufferCheckoutTimeoutId)
@@ -291,7 +332,7 @@ export function doStartSegmentCollection(
     if (flushReason !== 'buffer_checkout' && flushReason !== 'segment_bytes_limit') {
       return
     }
-    if (state.status === SegmentCollectionStatus.Stopped) {
+    if (stopped || state.status === SegmentCollectionStatus.Stopped) {
       // The flush that got here waited on the deflate worker, and recording was stopped in the
       // meantime. Re-serializing the document now would cost a full snapshot on a page that asked
       // to stop, and count records into the replay stats that no segment will ever hold.
@@ -311,57 +352,75 @@ export function doStartSegmentCollection(
     }
   }
 
-  return {
-    addRecord: (record: BrowserRecord) => {
-      if (state.status === SegmentCollectionStatus.Stopped) {
+  function addRecord(
+    record: BrowserRecord,
+    context: SegmentContext | undefined,
+    withheldForSessionId: string | undefined
+  ) {
+    if (state.status === SegmentCollectionStatus.Stopped) {
+      return
+    }
+
+    if (record.type === RecordType.FullSnapshot) {
+      // A view change or page reactivation can supply the replacement before the timer does.
+      clearTimeout(bufferRestartTimeoutId)
+      bufferRestartTimeoutId = undefined
+    }
+
+    if (state.status === SegmentCollectionStatus.WaitingForInitialRecord) {
+      if (!context) {
         return
       }
 
-      if (record.type === RecordType.FullSnapshot) {
-        // A view change or page reactivation can supply the replacement before the timer does.
-        clearTimeout(bufferRestartTimeoutId)
-        bufferRestartTimeoutId = undefined
+      state = {
+        status: SegmentCollectionStatus.SegmentPending,
+        segment: createSegment({ encoder, context, creationReason: state.nextSegmentCreationReason }),
+        expirationTimeoutId: setTimeout(() => {
+          requestFlush('segment_duration_limit')
+        }, SEGMENT_DURATION_LIMIT),
+        bufferCheckoutTimeoutId:
+          withheldForSessionId !== undefined
+            ? setTimeout(() => {
+                requestFlush('buffer_checkout')
+              }, BUFFER_CHECKOUT_TIME)
+            : undefined,
+        withheldForSessionId,
       }
+    }
 
-      if (state.status === SegmentCollectionStatus.WaitingForInitialRecord) {
-        const context = getSegmentContext()
-        if (!context) {
-          return
-        }
-
-        const withheldForSessionId = buffering.getWithholdingSessionId()
-        state = {
-          status: SegmentCollectionStatus.SegmentPending,
-          segment: createSegment({ encoder, context, creationReason: state.nextSegmentCreationReason }),
-          expirationTimeoutId: setTimeout(() => {
-            flushSegment('segment_duration_limit')
-          }, SEGMENT_DURATION_LIMIT),
-          bufferCheckoutTimeoutId:
-            withheldForSessionId !== undefined
-              ? setTimeout(() => {
-                  flushSegment('buffer_checkout')
-                }, BUFFER_CHECKOUT_TIME)
-              : undefined,
-          withheldForSessionId,
-          viewId: context.view.id,
-        }
+    state.segment.addRecord(record, (encodedBytesCount) => {
+      if (encodedBytesCount > SEGMENT_BYTES_LIMIT) {
+        requestFlush('segment_bytes_limit')
       }
+    })
+  }
 
-      state.segment.addRecord(record, (encodedBytesCount) => {
-        if (encodedBytesCount > SEGMENT_BYTES_LIMIT) {
-          flushSegment('segment_bytes_limit')
-        }
-      })
+  return {
+    addRecord: (record: BrowserRecord) => {
+      if (stopped) {
+        return
+      }
+      const context = getSegmentContext()
+      const withheldForSessionId = buffering.getWithholdingSessionId()
+      if (withheldForSessionId !== undefined) {
+        withholdingSessionIds.add(withheldForSessionId)
+      }
+      rememberReleases()
+      runWhenReady(() => addRecord(record, context, withheldForSessionId))
     },
-
     stop: () => {
-      flushSegment('stop')
+      if (stopped) {
+        return
+      }
+      requestFlush('stop')
+      stopped = true
       clearTimeout(bufferRestartTimeoutId)
       bufferRestartTimeoutId = undefined
       unsubscribeViewCreated()
       unsubscribePageMayExit()
       unsubscribeReactivated()
       unsubscribeRumEvent()
+      unsubscribeSessionReleased()
     },
   }
 }
