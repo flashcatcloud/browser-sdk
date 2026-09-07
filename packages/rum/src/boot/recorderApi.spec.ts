@@ -10,6 +10,7 @@ import {
   mockRumConfiguration,
   mockViewHistory,
 } from '../../../rum-core/test'
+import { validateAndBuildRumConfiguration } from '../../../rum-core/src/domain/configuration'
 import type { CreateDeflateWorker } from '../domain/deflate'
 import { MockWorker } from '../../test'
 import { resetDeflateWorkerState } from '../domain/deflate'
@@ -73,6 +74,40 @@ describe('makeRecorderApi', () => {
   }
 
   describe('recorder boot', () => {
+    it('starts a remotely selected buffered replay with the built recording default', async () => {
+      const configuration = validateAndBuildRumConfiguration({
+        applicationId: 'app',
+        clientToken: 'token',
+        remoteConfigurationEnabled: true,
+      })!
+      setupRecorderApi({
+        sessionManager: createRumSessionManagerMock().setTrackedWithErrorSessionReplay(),
+        startSessionReplayRecordingManually: configuration.startSessionReplayRecordingManually,
+      })
+      rumInit()
+      expect(loadRecorderSpy).toHaveBeenCalledTimes(1)
+      await collectAsyncCalls(startRecordingSpy, 1)
+    })
+
+    it('keeps automatic start intent until a later session enables buffered replay', async () => {
+      const configuration = validateAndBuildRumConfiguration({
+        applicationId: 'app',
+        clientToken: 'token',
+        remoteConfigurationEnabled: true,
+      })!
+      const sessionManager = createRumSessionManagerMock().setNotTracked()
+      setupRecorderApi({
+        sessionManager,
+        startSessionReplayRecordingManually: configuration.startSessionReplayRecordingManually,
+      })
+      rumInit()
+      expect(loadRecorderSpy).not.toHaveBeenCalled()
+      sessionManager.setTrackedWithErrorSessionReplay()
+      lifeCycle.notify(LifeCycleEventType.SESSION_RENEWED)
+      expect(loadRecorderSpy).toHaveBeenCalledTimes(1)
+      await collectAsyncCalls(startRecordingSpy, 1)
+    })
+
     describe('with automatic start', () => {
       it('starts recording when init() is called', async () => {
         setupRecorderApi()

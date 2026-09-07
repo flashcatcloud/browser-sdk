@@ -454,6 +454,92 @@ describe('startSegmentCollection withholding (error session replay)', () => {
     expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(2)
   })
 
+  it('restores a full snapshot after consecutive oversized snapshots and an error', async () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(VERY_BIG_RECORD))
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+
+    reportError()
+    addRecord(RECORD)
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).toHaveBeenCalled()
+    expect(
+      (await readMetadataFromReplayPayload(httpRequestSpy.send.calls.first().args[0])).has_full_snapshot
+    ).toBeTrue()
+  })
+
+  it('restores a missing snapshot before an errored page exits during the restart delay', async () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(VERY_BIG_RECORD))
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    reportError()
+    addRecord(RECORD)
+    lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, { reason: PageExitReason.UNLOADING })
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.sendOnExit).toHaveBeenCalled()
+    expect(
+      (await readMetadataFromReplayPayload(httpRequestSpy.sendOnExit.calls.first().args[0])).has_full_snapshot
+    ).toBeTrue()
+  })
+
+  it('restores the missing snapshot as soon as an error releases the session', () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(VERY_BIG_RECORD))
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    reportError()
+    lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, { type: 'error' } as any)
+
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(2)
+    worker.processAllMessages()
+    expect(httpRequestSpy.send).toHaveBeenCalled()
+  })
+
+  it('cancels the delayed replacement when a new view supplies a snapshot', () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(VERY_BIG_RECORD))
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    lifeCycle.notify(LifeCycleEventType.VIEW_CREATED, {} as any)
+    addRecord({ ...VERY_BIG_RECORD, data: {} } as BrowserRecord)
+    worker.processAllMessages()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+  })
+
+  it('does not repeatedly serialize an oversized document while waiting for an error', () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(VERY_BIG_RECORD))
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    for (let i = 0; i < 4; i++) {
+      clock.tick(SEGMENT_DURATION_LIMIT)
+      worker.processAllMessages()
+    }
+
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+  })
+
+  it('cancels a delayed snapshot when recording stops', () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(VERY_BIG_RECORD))
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    stopCollection()
+    clock.tick(SEGMENT_DURATION_LIMIT * 2)
+    worker.processAllMessages()
+
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+  })
+
   it('keeps the buffer when the page is only hidden, so the replay can still start from its snapshot', () => {
     // switching tabs is ordinary; dropping here would take the only full snapshot with it
     addRecord(RECORD)
