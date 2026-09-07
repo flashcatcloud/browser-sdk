@@ -229,6 +229,8 @@ describe('rum session manager', () => {
       sessionReplaySampleRate?: number
       traceSampleRate?: number
       defaultPrivacyLevel?: string
+      sessionReplayOnError?: boolean
+      sessionOnError?: boolean
     }) {
       localStorage.setItem(STORE_KEY, JSON.stringify(values))
       registerCleanupTask(() => localStorage.removeItem(STORE_KEY))
@@ -254,6 +256,58 @@ describe('rum session manager', () => {
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 
       expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
+    it('keeps a replay on error when the console says so, over what init said', () => {
+      storeRemoteConfigValues({ sessionReplaySampleRate: 0, sessionReplayOnError: true })
+
+      startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 100,
+          sessionReplaySampleRate: 100,
+          sessionReplayOnError: false,
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(
+        RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+      )
+    })
+
+    it('keeps a session on error when the console says so, over what init said', () => {
+      storeRemoteConfigValues({ sessionSampleRate: 0, sessionOnError: true })
+
+      startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 100,
+          sessionReplaySampleRate: 0,
+          sessionOnError: false,
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(
+        RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY
+      )
+    })
+
+    it('turns the replay-on-error switch off when the console says so', () => {
+      storeRemoteConfigValues({ sessionReplayOnError: false })
+
+      startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 100,
+          sessionReplaySampleRate: 0,
+          sessionReplayOnError: true,
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY)
     })
 
     it('falls back to the rate passed to init for a knob the console did not set', () => {
