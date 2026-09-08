@@ -96,6 +96,21 @@ describe('startWithheldEventBuffer', () => {
     expect(forwarded.length).toBe(2)
   })
 
+  it('forwards an event collected after the release instead of holding it again', () => {
+    collect(RumEventType.VIEW)
+    collect(RumEventType.RESOURCE)
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR)
+    releasedAfterJitter()
+    const forwardedAfterRelease = forwarded.length
+
+    // The buffer released and cleared; a later event of the same, now-released session must reach
+    // the batch straight away rather than be held into a fresh hold-then-release cycle.
+    collect(RumEventType.RESOURCE, { date: 5678 })
+
+    expect(forwarded.length).toBe(forwardedAfterRelease + 1)
+  })
+
   it('uploads nothing while the session has not reported an error', () => {
     collect(RumEventType.VIEW)
     collect(RumEventType.RESOURCE)
@@ -247,6 +262,23 @@ describe('startWithheldEventBuffer', () => {
     sessionManager.setSessionHasError()
     collect(RumEventType.ERROR)
 
+    expect(releasedAfterJitter().map((event) => event.type)).toContain(RumEventType.ACTION)
+  })
+
+  it('drops newer long tasks before an older action, by tier rather than by age', () => {
+    collect(RumEventType.VIEW)
+    // the action is the oldest detail, so eviction by age would take it first; its tier is above a
+    // long task's, so tiered eviction must keep it and give up the newer long tasks instead
+    collect(RumEventType.ACTION, { date: 1 })
+    for (let i = 0; i < WITHHELD_BUFFER_EVENTS_LIMIT; i++) {
+      collect(RumEventType.LONG_TASK, { date: 2 })
+    }
+
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR)
+
+    // the eviction gives up a long task, not the older action - collapsing the action into the long
+    // task's tier would take the oldest detail, the action, instead
     expect(releasedAfterJitter().map((event) => event.type)).toContain(RumEventType.ACTION)
   })
 

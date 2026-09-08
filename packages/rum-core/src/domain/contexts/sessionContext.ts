@@ -74,15 +74,27 @@ export function startSessionContext(
       hasReplay = !isReplayWithheld && recorderApi.isRecording() ? true : undefined
     }
 
+    // These three are fork additions the generated event schema does not declare, so on the session
+    // object below they would only be checked against its `[k: string]: unknown` index signature - a
+    // typo in a name would compile and silently emit a field the backend never reads. Typing them
+    // here makes an excess or misspelled key fail the build instead.
+    const forkMarkers: {
+      sampled_for_replay: boolean | undefined
+      sampled_for_error: boolean | undefined
+      sampled_for_error_replay: boolean | undefined
+    } = {
+      sampled_for_replay: sampledForReplay,
+      sampled_for_error: sampledForError,
+      sampled_for_error_replay: sampledForErrorReplay,
+    }
+
     return {
       type: eventType,
       session: {
         id: session.id,
         type: SessionType.USER,
         has_replay: hasReplay,
-        sampled_for_replay: sampledForReplay,
-        sampled_for_error: sampledForError,
-        sampled_for_error_replay: sampledForErrorReplay,
+        ...forkMarkers,
         is_active: isActive,
       },
       // FLASHCAT FORK - overrides the init values reported by the default context with the rates

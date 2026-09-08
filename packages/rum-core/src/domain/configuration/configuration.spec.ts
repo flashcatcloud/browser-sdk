@@ -186,6 +186,20 @@ describe('validateAndBuildRumConfiguration', () => {
       expect(displayWarnSpy.calls.argsFor(0)[0]).toContain('sessionSampleRate did not draw')
     })
 
+    it('does not warn about manual recording when replay is disabled for the on-error session', () => {
+      // there is nothing to withhold on the replay side, so the manual-start warning does not apply -
+      // even though the plain session rate leaves room for the switch and recording is manual
+      validateAndBuildRumConfiguration({
+        ...DEFAULT_INIT_CONFIGURATION,
+        sessionSampleRate: 20,
+        sessionOnError: true,
+        sessionReplaySampleRate: 0,
+        startSessionReplayRecordingManually: true,
+      })
+
+      expect(displayWarnSpy).not.toHaveBeenCalled()
+    })
+
     it('warns when the default session rate leaves it nothing to apply to', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,

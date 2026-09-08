@@ -310,6 +310,22 @@ describe('rum session manager', () => {
       expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY)
     })
 
+    it('turns the session-on-error switch off when the console says so', () => {
+      storeRemoteConfigValues({ sessionOnError: false })
+
+      startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 0,
+          sessionOnError: true,
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      // a delivered false must win over init's true, so nothing is collected - not fall back to it
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+    })
+
     it('falls back to the rate passed to init for a knob the console did not set', () => {
       storeRemoteConfigValues({ sessionReplaySampleRate: 100 })
 

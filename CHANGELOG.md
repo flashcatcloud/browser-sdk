@@ -18,6 +18,19 @@
 
 ---
 
+## Unreleased
+
+- ✨ Two new init options keep only the sessions that report an error, for customers who want every
+  error investigated without storing and paying for every session. `sessionOnError` keeps the
+  events of a session the plain `sessionSampleRate` draw missed: it records from the start, uploads
+  nothing, and is never stored unless it reports an error — on the first error the withheld history,
+  up to the last minute of it, is uploaded and collection continues. `sessionReplayOnError` does the
+  same for the Session Replay of a session the plain `sessionReplaySampleRate` draw missed. Both are
+  switches, default off, and apply only to what the plain rate did not already draw, so a session is
+  never counted twice. Both can also be set from the console when `remoteConfigurationEnabled` is on.
+  View events of such a session carry `sampled_for_error` / `sampled_for_error_replay` so a stored
+  error session can be told apart from an ordinary one.
+
 ## v0.2.2
 
 - 🐛 The settings cache no longer grows by one entry per release of your site. Entries are keyed by

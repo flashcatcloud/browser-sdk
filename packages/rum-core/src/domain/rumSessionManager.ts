@@ -37,9 +37,10 @@ export interface RumSessionManager {
   setForcedReplay: () => void
   setForcedSession: () => void
   /**
-   * Marks the given session as having reported an error. For a session sampled by
-   * `sessionReplayOnError`, this is what releases the withheld replay. The id is required
-   * because the store write can be deferred by the lock, and it must not land on a later session.
+   * Marks the given session as having reported an error. This is what releases what an on-error
+   * session withheld: the replay for a `sessionReplayOnError` session, and the withheld events for a
+   * `sessionOnError` one. The id is required because the store write can be deferred by the lock, and
+   * it must not land on a later session.
    */
   setSessionHasError: (sessionId: string) => void
 }

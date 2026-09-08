@@ -112,6 +112,20 @@ describe('session context', () => {
     expect(plainEvent.session!.sampled_for_error_replay).toBeUndefined()
   })
 
+  it('does not report sampled_for_replay for an error-replay session that has not errored', () => {
+    // a type-3 session withholds only its replay, not its events; its events ship on their own, so
+    // reporting sampled_for_replay before the error would claim a replay for a recording that may
+    // never be sent
+    sessionManager.setTrackedWithErrorSessionReplay()
+
+    const event = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(event.session!.sampled_for_replay).toBe(false)
+  })
+
   it('should not set hasReplay when a dropped buffer left the view with nothing', () => {
     // a withheld buffer that was dropped rolls back what it held, and a view left with an empty
     // stats entry has no replay to offer
