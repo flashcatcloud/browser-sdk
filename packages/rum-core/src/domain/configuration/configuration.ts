@@ -223,7 +223,13 @@ export interface RumInitConfiguration extends InitConfiguration {
    */
   sessionOnError?: boolean | undefined
   /**
-   * If the session is sampled for Session Replay, only start the recording when `startSessionReplayRecording()` is called, instead of at the beginning of the session. Default: if startSessionReplayRecording is 0, true; otherwise, false.
+   * If the session is sampled for Session Replay, only start the recording when `startSessionReplayRecording()` is called, instead of at the beginning of the session.
+   *
+   * Default when left unset: `true` only if `sessionReplaySampleRate` is 0, `sessionReplayOnError` is
+   * off, and `remoteConfigurationEnabled` is not set; `false` otherwise. A session kept by
+   * `sessionReplayOnError`, or one whose replay rate may be raised from the console, has to be
+   * recording before the error happens, so the recording must start on its own rather than wait for a
+   * manual call.
    * See [Session Replay Usage](https://docs.datadoghq.com/real_user_monitoring/session_replay/browser/#usage) for further information.
    */
   startSessionReplayRecordingManually?: boolean | undefined

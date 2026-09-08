@@ -522,6 +522,45 @@ describe('startSegmentCollection withholding (error session replay)', () => {
     expect((await readMetadataFromReplayPayload(httpRequestSpy.send.calls.mostRecent().args[0])).records_count).toBe(2)
   })
 
+  it('keeps the withheld buffer across a page reactivation instead of cutting it', async () => {
+    addRecord(RECORD)
+    worker.processAllMessages()
+    // A reactivation flush must not cut the withheld buffer: cutting drops it, taking the records
+    // that came before the reactivation with it and leaving the released replay unable to start
+    // from them.
+    lifeCycle.notify(LifeCycleEventType.PAGE_REACTIVATED)
+    worker.processAllMessages()
+    expect(restartFromFullSnapshotSpy).not.toHaveBeenCalled()
+    addRecord(RECORD)
+
+    reportError()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    const metadata = await Promise.all(
+      httpRequestSpy.send.calls.allArgs().map(([payload]) => readMetadataFromReplayPayload(payload))
+    )
+    const totalRecords = metadata.reduce((count, segment) => count + segment.records_count, 0)
+    // both records survive in what is released; a reactivation cut would have dropped the first one
+    expect(totalRecords).toBe(2)
+  })
+
+  it('wakes the deferred restart from a SESSION_RELEASED event with no accompanying rum event', () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(VERY_BIG_RECORD))
+    // An oversized snapshot drops the buffer and arms the deferred restart poll, still withholding.
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+
+    // The session errors and is released, but nothing else happens on the page - no rum event, no
+    // clock tick. Only the SESSION_RELEASED subscription can wake the restart here.
+    reportError()
+    lifeCycle.notify(LifeCycleEventType.SESSION_RELEASED, { sessionId: CONTEXT.session.id } as any)
+    worker.processAllMessages()
+
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(2)
+  })
+
   it('drops the buffer and restarts from a full snapshot once it spans the checkout time', () => {
     addRecord(RECORD)
     clock.tick(WITHHELD_BUFFER_DURATION)
