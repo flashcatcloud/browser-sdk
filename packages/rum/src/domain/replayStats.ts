@@ -19,6 +19,33 @@ export function addWroteData(viewId: string, additionalBytesCount: number) {
   getOrCreateReplayStats(viewId).segments_total_raw_size += additionalBytesCount
 }
 
+/**
+ * Gives back the segment count {@link addSegment} took, and with it the `index_in_view` the segment
+ * was holding. Segment collection serializes encoder operations, so a dropped segment returns its
+ * reservation after the release decision and before the next segment is created.
+ */
+export function removeSegment(viewId: string) {
+  const replayStats = statsPerView?.get(viewId)
+  if (!replayStats) {
+    return
+  }
+  replayStats.segments_count = Math.max(0, replayStats.segments_count - 1)
+}
+
+/**
+ * Rolls back what a dropped segment's records contributed. These are the counters reported on view
+ * events, and a withheld segment that is dropped never reached the intake, so it must leave no
+ * trace in them.
+ */
+export function discardSegmentData(viewId: string, rawBytesCount: number, recordsCount: number) {
+  const replayStats = statsPerView?.get(viewId)
+  if (!replayStats) {
+    return
+  }
+  replayStats.records_count = Math.max(0, replayStats.records_count - recordsCount)
+  replayStats.segments_total_raw_size = Math.max(0, replayStats.segments_total_raw_size - rawBytesCount)
+}
+
 export function getReplayStats(viewId: string) {
   return statsPerView?.get(viewId)
 }

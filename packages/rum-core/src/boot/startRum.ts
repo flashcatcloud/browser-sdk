@@ -29,6 +29,7 @@ import { startErrorCollection } from '../domain/error/errorCollection'
 import { startResourceCollection } from '../domain/resource/resourceCollection'
 import { startViewCollection } from '../domain/view/viewCollection'
 import { startRumSessionManager, startRumSessionManagerStub } from '../domain/rumSessionManager'
+import { startSessionErrorTracking } from '../domain/trackSessionError'
 import { startRumBatch } from '../transport/startRumBatch'
 import { startRumEventBridge } from '../transport/startRumEventBridge'
 import { startUrlContexts } from '../domain/contexts/urlContexts'
@@ -120,6 +121,9 @@ export function startRum(
     ? startRumSessionManagerStub(configuration, lifeCycle)
     : startRumSessionManager(configuration, lifeCycle, trackingConsentState)
   cleanupTasks.push(session.stop)
+
+  const sessionErrorTracking = startSessionErrorTracking(lifeCycle, session)
+  cleanupTasks.push(() => sessionErrorTracking.stop())
 
   if (!canUseEventBridge()) {
     // FLASHCAT FORK - keep the console's sampling rates fresh, at the rhythm the sessions read

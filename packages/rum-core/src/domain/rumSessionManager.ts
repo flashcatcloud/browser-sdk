@@ -36,6 +36,12 @@ export interface RumSessionManager {
   expireObservable: Observable<void>
   setForcedReplay: () => void
   setForcedSession: () => void
+  /**
+   * Marks the given session as having reported an error. For a session sampled by
+   * `sessionReplayOnError`, this is what releases the withheld replay. The id is required
+   * because the store write can be deferred by the lock, and it must not land on a later session.
+   */
+  setSessionHasError: (sessionId: string) => void
 }
 
 /**
@@ -80,6 +86,12 @@ export interface DrawnConfiguration {
 export type RumSession = {
   id: string
   sessionReplay: SessionReplayState
+  /**
+   * Whether the replay of this session is only kept if it reports an error. Unlike
+   * {@link sessionReplay} this stays true once the error has been reported, so a replay collected
+   * that way can be told apart from one collected unconditionally.
+   */
+  sampledOnErrorReplay: boolean
   anonymousId?: string
   // FLASHCAT FORK - absent when the draw used exactly what init passed — nothing to override then,
   // the events already report those values — and when the record of the draw did not survive
@@ -91,12 +103,19 @@ export const enum RumTrackingType {
   NOT_TRACKED = '0',
   TRACKED_WITH_SESSION_REPLAY = '1',
   TRACKED_WITHOUT_SESSION_REPLAY = '2',
+  TRACKED_WITH_ERROR_SESSION_REPLAY = '3',
 }
 
 export const enum SessionReplayState {
   OFF,
   SAMPLED,
   FORCED,
+  /**
+   * The session records, but every segment is withheld until it reports its first error. If no error
+   * ever happens, nothing is uploaded and the session is never billed. Once an error is reported the
+   * session moves to `SAMPLED` and the withheld buffer is released.
+   */
+  BUFFERED_ON_ERROR,
 }
 
 /**
@@ -368,12 +387,45 @@ export function startRumSessionManager(
     endSessionIfSettingsAreDecisive
   )
 
-  sessionManager.sessionStateUpdateObservable.subscribe(({ previousState, newState }) => {
-    if (!previousState.forcedReplay && newState.forcedReplay) {
-      const sessionEntity = sessionManager.findSession()
-      if (sessionEntity) {
-        sessionEntity.isReplayForced = true
-      }
+  function forceReplay() {
+    const session = sessionManager.findSession()
+    if (!session) {
+      return
+    }
+    const wasForced = session.isReplayForced
+    session.isReplayForced = true
+    if (!wasForced) {
+      lifeCycle.notify(LifeCycleEventType.SESSION_RELEASED, { sessionId: session.id, reason: 'force' })
+    }
+    sessionManager.updateSessionState((state) => (state.id === session.id ? { forcedReplay: '1' } : undefined))
+  }
+
+  const sessionStateSubscription = sessionManager.sessionStateUpdateObservable.subscribe(({ newState }) => {
+    const session = sessionManager.findSession()
+    if (!session || session.id !== newState.id) {
+      return
+    }
+    const becameForced = !session.isReplayForced && newState.forcedReplay === '1'
+    const becameErrored = !session.hasError && newState.hasError === '1'
+    session.isReplayForced ||= becameForced
+    session.hasError ||= becameErrored
+    if (becameForced || becameErrored) {
+      lifeCycle.notify(LifeCycleEventType.SESSION_RELEASED, {
+        sessionId: session.id,
+        reason: becameForced ? 'force' : 'error',
+      })
+    }
+    // A lock retry can be exhausted before a mark reaches storage. The existing poll is the
+    // next opportunity to reconcile it, and the session identity bounds how long it may live.
+    if ((session.hasError && newState.hasError !== '1') || (session.isReplayForced && newState.forcedReplay !== '1')) {
+      sessionManager.updateSessionState((state) =>
+        state.id === session.id
+          ? {
+              ...(session.hasError ? { hasError: '1' } : {}),
+              ...(session.isReplayForced ? { forcedReplay: '1' } : {}),
+            }
+          : undefined
+      )
     }
   })
   return {
@@ -384,12 +436,8 @@ export function startRumSessionManager(
       }
       return {
         id: session.id,
-        sessionReplay:
-          session.trackingType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY
-            ? SessionReplayState.SAMPLED
-            : session.isReplayForced
-              ? SessionReplayState.FORCED
-              : SessionReplayState.OFF,
+        sessionReplay: computeSessionReplayState(session.trackingType, session.hasError, session.isReplayForced),
+        sampledOnErrorReplay: withholdsReplay(session.trackingType),
         anonymousId: session.anonymousId,
         // FLASHCAT FORK - looked up at the same time as the session itself, so an event that
         // belongs to a session already renewed still reports the draw that created it.
@@ -399,27 +447,73 @@ export function startRumSessionManager(
     expire: sessionManager.expire,
     expireObservable: sessionManager.expireObservable,
     stop: () => {
+      sessionStateSubscription.unsubscribe()
       consentSubscription.unsubscribe()
       remoteConfigSubscription.unsubscribe()
       drawnHistory.stop()
     },
-    setForcedReplay: () => sessionManager.updateSessionState({ forcedReplay: '1' }),
+    setForcedReplay: forceReplay,
     // FLASHCAT FORK - the escape hatch for "collect this visitor NOW": the host application knows
     // who needs debugging (its own allow-list, a support flow), the SDK only provides the switch.
     // A session keeps the decision it was drawn with, so forcing a visitor that was not being
     // collected means ending their current (empty) session; the next activity draws again with
     // `forcedSession` set and starts a collected session with replay. A session already collected
-    // only needs replay forced on, which is the existing forced-replay path.
+    // only needs replay forced on, which is the existing forced-replay path - and a session whose
+    // replay is withheld until it errors is released the same way, since the host asked for it now.
     setForcedSession: () => {
       forcedSession = true
       const session = sessionManager.findSession()
       if (!session || !isTypeTracked(session.trackingType)) {
         sessionManager.expire()
-      } else if (session.trackingType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY) {
-        sessionManager.updateSessionState({ forcedReplay: '1' })
+      } else if (
+        session.trackingType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY ||
+        withholdsReplay(session.trackingType)
+      ) {
+        forceReplay()
       }
     },
+    setSessionHasError: (sessionId) => {
+      const sessionEntity = sessionManager.findSession()
+      if (sessionEntity?.id === sessionId) {
+        // Marked in memory straight away, and not only once the store write lands: that write goes
+        // through a lock that can defer it by several retries, and until then the withheld buffer
+        // would still read the session as withholding - so an error followed closely by the page or
+        // the session ending would throw away the very buffer the error was meant to release.
+        const hadError = sessionEntity.hasError
+        sessionEntity.hasError = true
+        if (!hadError) {
+          lifeCycle.notify(LifeCycleEventType.SESSION_RELEASED, { sessionId, reason: 'error' })
+        }
+      }
+      sessionManager.updateSessionState((state) => (state.id === sessionId ? { hasError: '1' } : undefined))
+    },
   }
+}
+
+export function withholdsReplay(trackingType: RumTrackingType) {
+  return trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+}
+
+export function computeSessionReplayState(
+  trackingType: RumTrackingType,
+  hasError: boolean,
+  isReplayForced: boolean
+): SessionReplayState {
+  if (trackingType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY) {
+    return SessionReplayState.SAMPLED
+  }
+  if (withholdsReplay(trackingType) && hasError) {
+    return SessionReplayState.SAMPLED
+  }
+  // A forced replay wins over withholding: the host explicitly asked for this user's replay, so it
+  // must not keep waiting for an error that may never come.
+  if (isReplayForced) {
+    return SessionReplayState.FORCED
+  }
+  if (withholdsReplay(trackingType)) {
+    return SessionReplayState.BUFFERED_ON_ERROR
+  }
+  return SessionReplayState.OFF
 }
 
 /**
@@ -513,6 +607,8 @@ export function startRumSessionManagerStub(
       return {
         id: sessionId ?? STUB_SESSION_ID,
         sessionReplay,
+        // The host records for us, or this page uploads what the plain rate drew: neither withholds.
+        sampledOnErrorReplay: false,
         anonymousId: bridge?.getAnonymousId(),
       }
     },
@@ -520,6 +616,7 @@ export function startRumSessionManagerStub(
     expireObservable,
     setForcedReplay: noop,
     setForcedSession: noop,
+    setSessionHasError: noop,
     stop: () => clearInterval(watchIntervalId),
   }
 }
@@ -552,16 +649,22 @@ function computeSessionState(
     // the decision it was created with: settings arriving mid-session never start or stop
     // collecting for a visitor already on the site.
     const remote = readRemoteConfig(configuration.remoteConfig)
-    const { sessionSampleRate, sessionReplaySampleRate } = resolveSampleRates(configuration, remote)
+    const { sessionSampleRate, sessionReplaySampleRate, sessionReplayOnError } = resolveSampleRates(
+      configuration,
+      remote
+    )
 
     reportDraw(configuration, remote, sessionSampleRate, sessionReplaySampleRate, onDraw)
 
     if (!performDraw(sessionSampleRate)) {
       trackingType = RumTrackingType.NOT_TRACKED
-    } else if (!performDraw(sessionReplaySampleRate)) {
-      trackingType = RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY
-    } else {
+    } else if (performDraw(sessionReplaySampleRate)) {
       trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
+    } else if (sessionReplayOnError) {
+      // Only for sessions the plain replay draw missed, so a session is never counted by both.
+      trackingType = RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+    } else {
+      trackingType = RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY
     }
   }
   return {
@@ -571,8 +674,10 @@ function computeSessionState(
 }
 
 /**
- * FLASHCAT FORK - the rates a draw would use right now: what the console delivered, falling back to
- * what the site passed to init, with the application's `beforeSampling` given the last word. This
+ * FLASHCAT FORK - the rates a draw would use right now, and the on-error switch beside them: what
+ * the console delivered, falling back to what the site passed to init, with the application's
+ * `beforeSampling` given the last word on the rates (the switch is not offered to it: it is a
+ * yes or a no the console already answered). This
  * is what turns the delivered custom values into sampling decisions without a wasted first draw or
  * a session restart: the console ships the data (an allow-list, a cohort rule), the application's
  * own code interprets it here. Its failure modes must never reach session creation, so a thrown
@@ -606,7 +711,11 @@ function resolveSampleRates(configuration: RumConfiguration, remote: RemoteConfi
     }
   }
 
-  return { sessionSampleRate, sessionReplaySampleRate }
+  return {
+    sessionSampleRate,
+    sessionReplaySampleRate,
+    sessionReplayOnError: remote.sessionReplayOnError ?? configuration.sessionReplayOnError,
+  }
 }
 
 /**
@@ -756,13 +865,15 @@ function hasValidRumSession(trackingType?: string): trackingType is RumTrackingT
   return (
     trackingType === RumTrackingType.NOT_TRACKED ||
     trackingType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY ||
-    trackingType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY
+    trackingType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY ||
+    trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
   )
 }
 
 function isTypeTracked(rumSessionType: RumTrackingType | undefined) {
   return (
     rumSessionType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY ||
-    rumSessionType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY
+    rumSessionType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY ||
+    rumSessionType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
   )
 }

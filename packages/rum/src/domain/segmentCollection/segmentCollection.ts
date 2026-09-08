@@ -1,13 +1,29 @@
-import type { DeflateEncoder, HttpRequest, TimeoutId } from '@flashcatcloud/browser-core'
-import { isPageExitReason, ONE_SECOND, clearTimeout, setTimeout } from '@flashcatcloud/browser-core'
+import type { DeflateEncoder, HttpRequest, RelativeTime, TimeoutId } from '@flashcatcloud/browser-core'
+import {
+  addTelemetryDebug,
+  isPageExitReason,
+  ONE_SECOND,
+  clearTimeout,
+  relativeNow,
+  setTimeout,
+} from '@flashcatcloud/browser-core'
 import type { LifeCycle, ViewHistory, RumSessionManager, RumConfiguration } from '@flashcatcloud/browser-rum-core'
 import { LifeCycleEventType } from '@flashcatcloud/browser-rum-core'
 import type { BrowserRecord, CreationReason, SegmentContext } from '../../types'
+import { RecordType } from '../../types'
+import { discardSegmentData, removeSegment } from '../replayStats'
 import { buildReplayPayload } from './buildReplayPayload'
 import type { FlushReason, Segment } from './segment'
 import { createSegment } from './segment'
 
 export const SEGMENT_DURATION_LIMIT = 5 * ONE_SECOND
+
+/**
+ * How much history a withheld buffer may span before it is dropped and restarted from a fresh full
+ * snapshot. This bounds two things at once: the memory a session that never errors holds on to, and
+ * how far back an error session can show once its buffer is released.
+ */
+export const BUFFER_CHECKOUT_TIME = 60 * ONE_SECOND
 /**
  * beacon payload max queue size implementation is 64kb
  * ensure that we leave room for logs, rum and potential other users
@@ -39,19 +55,43 @@ export let SEGMENT_BYTES_LIMIT = 60_000
 // To help investigate session replays issues, each segment is created with a "creation reason",
 // indicating why the session has been created.
 
+/**
+ * Lets a session record without uploading anything until it reports an error. Sessions drawn by
+ * `sessionReplayOnError` record from the start, but every segment is withheld: dropped on
+ * checkout while no error has happened, sent normally from the moment one has.
+ */
+export interface SegmentBuffering {
+  /**
+   * The id of the current session if it is withholding its replay, `undefined` otherwise. A segment
+   * remembers this at creation, so that what happens to it later is decided by the session that
+   * actually produced its records.
+   */
+  getWithholdingSessionId: () => string | undefined
+  /**
+   * Whether that same session has since reported its error. Anything else — the session expired, or
+   * was renewed into a different one — means the records were never released and must be dropped:
+   * uploading them would bill a session for a replay nobody asked for and nobody can explain.
+   */
+  isReleased: (sessionId: string) => boolean
+  /** Restarts the buffer from a fresh full snapshot, after the previous one was dropped. */
+  restartFromFullSnapshot: () => void
+}
+
 export function startSegmentCollection(
   lifeCycle: LifeCycle,
   configuration: RumConfiguration,
   sessionManager: RumSessionManager,
   viewHistory: ViewHistory,
   httpRequest: HttpRequest,
-  encoder: DeflateEncoder
+  encoder: DeflateEncoder,
+  buffering: SegmentBuffering
 ) {
   return doStartSegmentCollection(
     lifeCycle,
     () => computeSegmentContext(configuration.applicationId, sessionManager, viewHistory),
     httpRequest,
-    encoder
+    encoder,
+    buffering
   )
 }
 
@@ -69,30 +109,86 @@ type SegmentCollectionState =
       status: SegmentCollectionStatus.SegmentPending
       segment: Segment
       expirationTimeoutId: TimeoutId
+      /** Only armed while the segment is withheld: bounds how much history the buffer may span. */
+      bufferCheckoutTimeoutId: TimeoutId | undefined
+      /** Set when the segment was created while its session was withholding its replay. */
+      withheldForSessionId: string | undefined
     }
   | {
       status: SegmentCollectionStatus.Stopped
     }
 
+/**
+ * These two are internal and never reach the intake, so they are mapped back to a schema value where
+ * the next segment records why it was created. `buffer_checkout` drops a withheld buffer that has
+ * grown past {@link BUFFER_CHECKOUT_TIME}; `page_reactivated` cuts a segment when the page is
+ * switched back to, so the next one starts from the fresh full snapshot taken on the same event.
+ */
+type InternalFlushReason = FlushReason | 'buffer_checkout' | 'page_reactivated'
+
+// Recordings can stop and restart while the same encoder is still finishing a segment.
+// Serialize at the encoder boundary so their metadata and index reservations cannot overlap.
+let encodingQueues: WeakMap<DeflateEncoder, { flushing: boolean; operations: Array<() => void> }> | undefined
+
 export function doStartSegmentCollection(
   lifeCycle: LifeCycle,
   getSegmentContext: () => SegmentContext | undefined,
   httpRequest: HttpRequest,
-  encoder: DeflateEncoder
+  encoder: DeflateEncoder,
+  buffering: SegmentBuffering
 ) {
   let state: SegmentCollectionState = {
     status: SegmentCollectionStatus.WaitingForInitialRecord,
     nextSegmentCreationReason: 'init',
   }
 
+  // How many buffers were dropped before one was finally released. Without this, "the replay goes
+  // back up to a minute" is a promise nobody can check.
+  let droppedBufferCount = 0
+  let lastBufferRestartAt: RelativeTime | undefined
+  let bufferRestartTimeoutId: TimeoutId | undefined
+  encodingQueues ||= new WeakMap()
+  const encodingQueue = encodingQueues.get(encoder) || { flushing: false, operations: [] }
+  encodingQueues.set(encoder, encodingQueue)
+  let stopped = false
+  const withholdingSessionIds = new Set<string>()
+  const releasedSessionIds = new Set<string>()
+
+  function rememberReleases() {
+    withholdingSessionIds.forEach((sessionId) => {
+      if (buffering.isReleased(sessionId)) {
+        releasedSessionIds.add(sessionId)
+      }
+    })
+  }
+
+  function runWhenReady(operation: () => void) {
+    encodingQueue.operations.push(operation)
+    drainPendingOperations()
+  }
+
+  function drainPendingOperations() {
+    while (!encodingQueue.flushing && encodingQueue.operations.length) {
+      encodingQueue.operations.shift()!()
+    }
+  }
+
+  function requestFlush(reason: InternalFlushReason) {
+    rememberReleases()
+    if (reason !== 'view_change' && reason !== 'page_reactivated') {
+      restoreReleasedSnapshot()
+    }
+    runWhenReady(() => flushSegment(reason))
+  }
+
   const { unsubscribe: unsubscribeViewCreated } = lifeCycle.subscribe(LifeCycleEventType.VIEW_CREATED, () => {
-    flushSegment('view_change')
+    requestFlush('view_change')
   })
 
   const { unsubscribe: unsubscribePageMayExit } = lifeCycle.subscribe(
     LifeCycleEventType.PAGE_MAY_EXIT,
     (pageMayExitEvent) => {
-      flushSegment(pageMayExitEvent.reason as FlushReason)
+      requestFlush(pageMayExitEvent.reason as FlushReason)
     }
   )
 
@@ -100,12 +196,103 @@ export function doStartSegmentCollection(
   // next one starts fresh with the full snapshot taken by startFullSnapshots on the same event.
   // Reuses the 'view_change' creation reason to avoid a schema change.
   const { unsubscribe: unsubscribeReactivated } = lifeCycle.subscribe(LifeCycleEventType.PAGE_REACTIVATED, () => {
-    flushSegment('view_change')
+    requestFlush('page_reactivated')
   })
 
-  function flushSegment(flushReason: FlushReason) {
+  const { unsubscribe: unsubscribeRumEvent } = lifeCycle.subscribe(
+    LifeCycleEventType.RUM_EVENT_COLLECTED,
+    restoreReleasedSnapshot
+  )
+
+  const { unsubscribe: unsubscribeSessionReleased } = lifeCycle.subscribe(
+    LifeCycleEventType.SESSION_RELEASED,
+    ({ sessionId }) => {
+      if (withholdingSessionIds.has(sessionId)) {
+        releasedSessionIds.add(sessionId)
+      }
+      restoreReleasedSnapshot()
+    }
+  )
+
+  function restoreReleasedSnapshot() {
+    rememberReleases()
+    if (bufferRestartTimeoutId === undefined) {
+      return
+    }
+    const context = getSegmentContext()
+    if (context && buffering.isReleased(context.session.id)) {
+      // The error tracker marks the session before this listener runs. Restore the missing
+      // baseline now, before a view change or page exit can flush an unplayable segment.
+      clearTimeout(bufferRestartTimeoutId)
+      bufferRestartTimeoutId = undefined
+      lastBufferRestartAt = relativeNow()
+      buffering.restartFromFullSnapshot()
+    } else {
+      // The same oversized snapshot would be discarded again. Poll only for a release, without
+      // repeatedly serializing the document when neither an error nor new activity has arrived.
+      clearTimeout(bufferRestartTimeoutId)
+      bufferRestartTimeoutId = setTimeout(restoreReleasedSnapshot, SEGMENT_DURATION_LIMIT)
+    }
+  }
+
+  function flushSegment(flushReason: InternalFlushReason) {
+    // Keep the encoder and index reservation owned by this segment until its asynchronous
+    // decision settles. Later records retain their emission context while waiting in FIFO order.
+    const withheldForSessionId =
+      state.status === SegmentCollectionStatus.SegmentPending ? state.withheldForSessionId : undefined
+    const isWithheld = withheldForSessionId !== undefined && !releasedSessionIds.has(withheldForSessionId)
+
     if (state.status === SegmentCollectionStatus.SegmentPending) {
+      if (isWithheld && flushReason === 'page_reactivated') {
+        // The fresh full snapshot taken on the same event lands inside the withheld buffer, which
+        // stays replayable from it. Cutting here would only throw away what came before the switch.
+        return
+      }
+
+      if (isWithheld && (flushReason === 'segment_duration_limit' || isPageExitReason(flushReason))) {
+        // Nothing can be sent while withheld, so these rotations would only throw the buffer away -
+        // and with it the full snapshot a released replay has to start from, leaving the rest of the
+        // session as incremental records nothing can be played from. A page that is merely hidden or
+        // frozen comes back and goes on recording; one that is really unloading takes the buffer with
+        // it either way. Keeping it is never worse than dropping it.
+        if (flushReason === 'segment_duration_limit') {
+          // Re-armed, so the buffer is flushed normally within one rotation of the session erroring.
+          // An expiring session does not lose it: the session history entry is still open when the
+          // recorder is stopped (`sessionManager.ts` notifies before closing it), so the stop flush
+          // still sees the session as released and sends. Only losing the page outright loses it.
+          state.expirationTimeoutId = setTimeout(() => requestFlush('segment_duration_limit'), SEGMENT_DURATION_LIMIT)
+        }
+        return
+      }
+
+      encodingQueue.flushing = true
       state.segment.flush((metadata, encoderResult) => {
+        rememberReleases()
+        if (withheldForSessionId !== undefined && !releasedSessionIds.has(withheldForSessionId)) {
+          removeSegment(metadata.view.id)
+          // No error was reported, so this buffer is dropped rather than sent. Rolling back what its
+          // records contributed keeps `has_replay` and the counters on view events honest.
+          discardSegmentData(metadata.view.id, encoderResult.rawBytesCount, metadata.records_count)
+          droppedBufferCount += 1
+          // Restarted from here rather than synchronously below, so the fresh full snapshot lands in
+          // the segment that follows this one rather than in the one being thrown away.
+          restartBuffer(flushReason)
+          encodingQueue.flushing = false
+          drainPendingOperations()
+          return
+        }
+
+        if (withheldForSessionId !== undefined) {
+          // The first segment released by an error: report how much history it actually carried, so
+          // the window we promise can be compared against the one users get.
+          addTelemetryDebug('Error session replay buffer released', {
+            'buffer.duration': metadata.end - metadata.start,
+            'buffer.records_count': metadata.records_count,
+            'buffer.dropped_count': droppedBufferCount,
+          })
+          droppedBufferCount = 0
+        }
+
         const payload = buildReplayPayload(encoderResult.output, metadata, encoderResult.rawBytesCount)
 
         if (isPageExitReason(flushReason)) {
@@ -113,14 +300,22 @@ export function doStartSegmentCollection(
         } else {
           httpRequest.send(payload)
         }
+        encodingQueue.flushing = false
+        drainPendingOperations()
       })
       clearTimeout(state.expirationTimeoutId)
+      clearTimeout(state.bufferCheckoutTimeoutId)
     }
 
     if (flushReason !== 'stop') {
       state = {
         status: SegmentCollectionStatus.WaitingForInitialRecord,
-        nextSegmentCreationReason: flushReason,
+        nextSegmentCreationReason:
+          flushReason === 'buffer_checkout'
+            ? 'segment_duration_limit'
+            : flushReason === 'page_reactivated'
+              ? 'view_change'
+              : flushReason,
       }
     } else {
       state = {
@@ -129,39 +324,103 @@ export function doStartSegmentCollection(
     }
   }
 
-  return {
-    addRecord: (record: BrowserRecord) => {
-      if (state.status === SegmentCollectionStatus.Stopped) {
+  /**
+   * A dropped buffer leaves no full snapshot behind, so the next one would not be replayable on its
+   * own. A view change does not need this: the new view emits its own full snapshot.
+   */
+  function restartBuffer(flushReason: InternalFlushReason) {
+    if (flushReason !== 'buffer_checkout' && flushReason !== 'segment_bytes_limit') {
+      return
+    }
+    if (stopped || state.status === SegmentCollectionStatus.Stopped) {
+      // The flush that got here waited on the deflate worker, and recording was stopped in the
+      // meantime. Re-serializing the document now would cost a full snapshot on a page that asked
+      // to stop, and count records into the replay stats that no segment will ever hold.
+      return
+    }
+    // A snapshot can itself exceed the budget. After a rapid second discard, wait for release
+    // before replacing it: ordinary flushes no longer restart buffers once the session errors.
+    clearTimeout(bufferRestartTimeoutId)
+    bufferRestartTimeoutId = undefined
+    const now = relativeNow()
+    const delay = lastBufferRestartAt === undefined ? 0 : SEGMENT_DURATION_LIMIT - (now - lastBufferRestartAt)
+    if (delay > 0) {
+      bufferRestartTimeoutId = setTimeout(restoreReleasedSnapshot, delay)
+    } else {
+      lastBufferRestartAt = now
+      buffering.restartFromFullSnapshot()
+    }
+  }
+
+  function addRecord(
+    record: BrowserRecord,
+    context: SegmentContext | undefined,
+    withheldForSessionId: string | undefined
+  ) {
+    if (state.status === SegmentCollectionStatus.Stopped) {
+      return
+    }
+
+    if (record.type === RecordType.FullSnapshot) {
+      // A view change or page reactivation can supply the replacement before the timer does.
+      clearTimeout(bufferRestartTimeoutId)
+      bufferRestartTimeoutId = undefined
+    }
+
+    if (state.status === SegmentCollectionStatus.WaitingForInitialRecord) {
+      if (!context) {
         return
       }
 
-      if (state.status === SegmentCollectionStatus.WaitingForInitialRecord) {
-        const context = getSegmentContext()
-        if (!context) {
-          return
-        }
-
-        state = {
-          status: SegmentCollectionStatus.SegmentPending,
-          segment: createSegment({ encoder, context, creationReason: state.nextSegmentCreationReason }),
-          expirationTimeoutId: setTimeout(() => {
-            flushSegment('segment_duration_limit')
-          }, SEGMENT_DURATION_LIMIT),
-        }
+      state = {
+        status: SegmentCollectionStatus.SegmentPending,
+        segment: createSegment({ encoder, context, creationReason: state.nextSegmentCreationReason }),
+        expirationTimeoutId: setTimeout(() => {
+          requestFlush('segment_duration_limit')
+        }, SEGMENT_DURATION_LIMIT),
+        bufferCheckoutTimeoutId:
+          withheldForSessionId !== undefined
+            ? setTimeout(() => {
+                requestFlush('buffer_checkout')
+              }, BUFFER_CHECKOUT_TIME)
+            : undefined,
+        withheldForSessionId,
       }
+    }
 
-      state.segment.addRecord(record, (encodedBytesCount) => {
-        if (encodedBytesCount > SEGMENT_BYTES_LIMIT) {
-          flushSegment('segment_bytes_limit')
-        }
-      })
+    state.segment.addRecord(record, (encodedBytesCount) => {
+      if (encodedBytesCount > SEGMENT_BYTES_LIMIT) {
+        requestFlush('segment_bytes_limit')
+      }
+    })
+  }
+
+  return {
+    addRecord: (record: BrowserRecord) => {
+      if (stopped) {
+        return
+      }
+      const context = getSegmentContext()
+      const withheldForSessionId = buffering.getWithholdingSessionId()
+      if (withheldForSessionId !== undefined) {
+        withholdingSessionIds.add(withheldForSessionId)
+      }
+      rememberReleases()
+      runWhenReady(() => addRecord(record, context, withheldForSessionId))
     },
-
     stop: () => {
-      flushSegment('stop')
+      if (stopped) {
+        return
+      }
+      requestFlush('stop')
+      stopped = true
+      clearTimeout(bufferRestartTimeoutId)
+      bufferRestartTimeoutId = undefined
       unsubscribeViewCreated()
       unsubscribePageMayExit()
       unsubscribeReactivated()
+      unsubscribeRumEvent()
+      unsubscribeSessionReleased()
     },
   }
 }
