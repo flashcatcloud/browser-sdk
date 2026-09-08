@@ -26,7 +26,7 @@ export function startSessionErrorTracking(lifeCycle: LifeCycle, sessionManager: 
       return
     }
     // Only a session that is withholding something has any use for this mark. Setting it on any
-    // other session would write the session store for customers who enabled neither rate - and that
+    // other session would write the session store for customers who enabled neither switch - and that
     // write also pushes the session's expiry out (`processSessionStoreOperations` expands every
     // state it persists), which would move where their sessions end.
     const session = sessionManager.findTrackedSession()
