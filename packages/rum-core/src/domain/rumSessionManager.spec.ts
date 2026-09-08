@@ -990,6 +990,32 @@ describe('rum session manager', () => {
       })
     })
 
+    describe('a session the on-error switch keeps', () => {
+      it('does not end an on-error session when the rate is zero, because the switch still collects it', () => {
+        // The switch's own documented shape: the plain rate misses every session, `sessionOnError`
+        // keeps the ones that error. A zero rate here is that setting, not a stop - ending the
+        // session would discard exactly what the switch exists to keep, and blind the page from this
+        // fetch (which lands on every fresh profile and after every deploy) until the first click.
+        startWith({ sessionSampleRate: 0, sessionOnError: true })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).not.toBe(RumTrackingType.NOT_TRACKED)
+
+        deliver({ version: 1, sessionSampleRate: 0 })
+
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('still ends the session when the console turns the switch off at a zero rate', () => {
+        // The emergency stop is preserved: a rate of zero with the switch explicitly off collects
+        // nothing, so the running session is decided against and ended.
+        startWith({ sessionSampleRate: 0, sessionOnError: true })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).not.toBe(RumTrackingType.NOT_TRACKED)
+
+        deliver({ version: 1, sessionSampleRate: 0, sessionOnError: false })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+    })
+
     describe('everything else waits for the next session', () => {
       it('leaves the session alone when the rate moves to a value it cannot decide on', () => {
         storeRemote({ version: 1, sessionSampleRate: 100 })

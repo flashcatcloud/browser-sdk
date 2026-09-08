@@ -314,8 +314,15 @@ export function startRumSessionManager(
       return
     }
 
-    const { sessionSampleRate } = resolveSampleRates(configuration, remote)
-    if (sessionSampleRate === 0) {
+    // FLASHCAT FORK - a rate of zero ends a running session only when nothing else would keep it.
+    // `sessionOnError` collects exactly the sessions the plain rate misses, so a zero rate next to
+    // it is the switch's ordinary setting, not a stop: at a zero rate a session is tracked if and
+    // only if the switch is on (a replay-on-error switch cannot keep one on its own, since the
+    // session draw fails first). Ending it here would discard the very session the switch exists to
+    // keep, and leave the page blind from this fetch until the visitor's first interaction - which
+    // is what a fresh profile and every deploy would hit on their first configuration fetch.
+    const { sessionSampleRate, sessionOnError } = resolveSampleRates(configuration, remote)
+    if (sessionSampleRate === 0 && !sessionOnError) {
       sessionManager.expire()
     }
   }
