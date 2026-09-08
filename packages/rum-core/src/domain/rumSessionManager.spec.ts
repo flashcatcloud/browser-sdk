@@ -556,6 +556,29 @@ describe('rum session manager', () => {
       })
     })
 
+    it('reports a zero session sample rate for a session kept only because it errors', () => {
+      // 99 is above any rate below 100, so the plain draw misses and the switch keeps the session
+      spyOn(Math, 'random').and.returnValue(0.99)
+      storeRemote({ version: 7, sessionSampleRate: 50, sessionReplaySampleRate: 0 })
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 50,
+          sessionOnError: true,
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+          drawStoreKey: DRAW_KEY,
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(
+        RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY
+      )
+      // It was kept by the switch, not by the 50% draw it missed, so it stands for one session, not
+      // 100/50. Reporting the plain rate would have the adoption panel count it as two.
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration!.sessionSampleRate).toBe(0)
+    })
+
     it('reports the rate beforeSampling decided, not the delivered one', () => {
       storeRemote({ version: 3, sessionSampleRate: 0, sessionReplaySampleRate: 0 })
 

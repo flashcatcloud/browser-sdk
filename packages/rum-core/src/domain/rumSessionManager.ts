@@ -627,8 +627,6 @@ function computeSessionState(
       remote
     )
 
-    reportDraw(configuration, remote, sessionSampleRate, sessionReplaySampleRate, onDraw)
-
     if (performDraw(sessionSampleRate)) {
       if (performDraw(sessionReplaySampleRate)) {
         trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
@@ -650,6 +648,15 @@ function computeSessionState(
     } else {
       trackingType = RumTrackingType.NOT_TRACKED
     }
+
+    // Reported after the ladder, not before, so an on-error session can report the rate the backend
+    // should extrapolate from. Such a session was kept despite the plain draw missing it, so it
+    // stands for itself, not for `100 / rate` like a plainly sampled one - reporting the plain rate
+    // would have the console's adoption panel count each error session as `100 / rate` sessions. A
+    // rate of 0 there is read as "one session, do not scale". A session merely withholding its
+    // replay (type '3') was still drawn by the plain rate and reports it unchanged.
+    const reportedSampleRate = withholdsEvents(trackingType) ? 0 : sessionSampleRate
+    reportDraw(configuration, remote, reportedSampleRate, sessionReplaySampleRate, onDraw)
   }
   return {
     trackingType,

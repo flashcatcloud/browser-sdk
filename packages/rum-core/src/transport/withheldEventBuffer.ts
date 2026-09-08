@@ -130,9 +130,13 @@ export function startWithheldEventBuffer(
         computeBytesCount(jsonStringify(event) ?? '') > WITHHELD_BUFFER_BYTES_LIMIT
       ) {
         // The session has already earned its release. A single error larger than the history
-        // budget must reach the normal batch, without evicting itself or the history preceding it.
-        release()
+        // budget must reach the normal batch, without evicting itself or the history preceding it -
+        // so it is forwarded straight away rather than held. The history it precedes still leaves
+        // behind the jitter: releasing it here in the same tick would defeat the anti-thundering-herd
+        // spread for exactly the correlated outage the jitter exists for. `scheduleRelease` is a
+        // no-op if the release the mark already scheduled is still pending.
         forward(event)
+        scheduleRelease()
         return
       }
       // Whatever is still withheld here belongs to a session that has just reported its error: the

@@ -421,21 +421,29 @@ export function validateAndBuildRumConfiguration(
   // Each of the cases below is a combination the customer can set that cannot apply to a single
   // session. It is valid, so validation lets it through - but silence would leave someone waiting
   // for data that is never coming.
-  if (sessionOnError && (initConfiguration.sessionSampleRate ?? 100) === 100) {
-    display.warn(
-      'sessionOnError only applies to sessions sessionSampleRate did not draw, and that rate is 100: it will never apply.'
-    )
-  }
-  if (sessionReplayOnError) {
-    if (sessionReplaySampleRate === 100) {
+  //
+  // Only judged against the init rates when the console cannot change them: under remote
+  // configuration these values are a fallback until the first fetch lands, so the console may
+  // deliver the very rate that leaves the switch room to apply. Warning on the init values there
+  // would fire on the documented remote-config setup - a site that omits the rate and lets the
+  // console own it - which is exactly not a misconfiguration.
+  if (!initConfiguration.remoteConfigurationEnabled) {
+    if (sessionOnError && (initConfiguration.sessionSampleRate ?? 100) === 100) {
       display.warn(
-        'sessionReplayOnError only applies to sessions sessionReplaySampleRate did not draw, and that rate is 100: it will never apply.'
+        'sessionOnError only applies to sessions sessionSampleRate did not draw, and that rate is 100: it will never apply.'
       )
     }
-    if ((initConfiguration.sessionSampleRate ?? 100) === 0 && !sessionOnError) {
-      display.warn(
-        'sessionReplayOnError has no effect while sessionSampleRate is 0 and sessionOnError is off: no session is tracked.'
-      )
+    if (sessionReplayOnError) {
+      if (sessionReplaySampleRate === 100) {
+        display.warn(
+          'sessionReplayOnError only applies to sessions sessionReplaySampleRate did not draw, and that rate is 100: it will never apply.'
+        )
+      }
+      if ((initConfiguration.sessionSampleRate ?? 100) === 0 && !sessionOnError) {
+        display.warn(
+          'sessionReplayOnError has no effect while sessionSampleRate is 0 and sessionOnError is off: no session is tracked.'
+        )
+      }
     }
   }
 

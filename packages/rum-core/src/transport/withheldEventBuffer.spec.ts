@@ -145,7 +145,23 @@ describe('startWithheldEventBuffer', () => {
       error: { source: 'custom', message: 'x'.repeat(WITHHELD_BUFFER_BYTES_LIMIT + 1) },
     })
 
-    expect(releasedAfterJitter()).toEqual([view, resource, error])
+    // The oversized error cannot be held, so it goes out first, ahead of the history it precedes;
+    // the backend orders by client time, so the wire order does not matter.
+    expect(releasedAfterJitter()).toEqual([error, view, resource])
+  })
+
+  it('still spreads the history behind the jitter when the releasing error is oversized', () => {
+    const view = collect(RumEventType.VIEW)
+    const resource = collect(RumEventType.RESOURCE)
+    sessionManager.setSessionHasError()
+    const error = collect(RumEventType.ERROR, {
+      error: { source: 'custom', message: 'x'.repeat(WITHHELD_BUFFER_BYTES_LIMIT + 1) },
+    })
+
+    // Only the oversized error has left so far; releasing the history in this same tick would defeat
+    // the jitter for exactly the correlated outage it protects against.
+    expect(forwarded).toEqual([error])
+    expect(releasedAfterJitter()).toEqual([error, view, resource])
   })
 
   it('does not release a large error while the session is still withholding', () => {

@@ -209,6 +209,18 @@ describe('validateAndBuildRumConfiguration', () => {
       expect(displayWarnSpy).toHaveBeenCalledTimes(1)
     })
 
+    it('stays silent under remote configuration, where the console owns the session rate', () => {
+      // the documented remote-config setup: the site omits the rate and lets the console deliver it,
+      // so the init default of 100 is a fallback, not the rate the switch will face
+      validateAndBuildRumConfiguration({
+        ...DEFAULT_INIT_CONFIGURATION,
+        sessionOnError: true,
+        remoteConfigurationEnabled: true,
+      })
+
+      expect(displayWarnSpy).not.toHaveBeenCalled()
+    })
+
     it('says nothing once the plain session rate leaves room for it', () => {
       validateAndBuildRumConfiguration({
         ...DEFAULT_INIT_CONFIGURATION,
