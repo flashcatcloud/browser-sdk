@@ -316,14 +316,15 @@ export function startRumSessionManager(
     }
 
     // FLASHCAT FORK - a rate of zero ends a running session only when nothing else would keep it.
-    // `sessionOnError` collects exactly the sessions the plain rate misses, so a zero rate next to
-    // it is the switch's ordinary setting, not a stop: at a zero rate a session is tracked if and
-    // only if the switch is on (a replay-on-error switch cannot keep one on its own, since the
-    // session draw fails first). Ending it here would discard the very session the switch exists to
-    // keep, and leave the page blind from this fetch until the visitor's first interaction - which
-    // is what a fresh profile and every deploy would hit on their first configuration fetch.
+    // The exception is this session itself being an on-error one: `sessionOnError` collects exactly
+    // the sessions the plain rate misses, so a zero rate next to it is the switch's ordinary setting,
+    // not a stop. Ending such a session would discard the very thing the switch exists to keep, and
+    // leave the page blind from this fetch until the visitor's first interaction - which is what a
+    // fresh profile and every deploy would hit on their first configuration fetch. A plainly drawn
+    // session ('1'/'2'/'3') is still ended by the emergency stop even when the switch is on: the
+    // switch shapes what the NEXT draw keeps, it does not exempt a session already collected in full.
     const { sessionSampleRate, sessionOnError } = resolveSampleRates(configuration, remote)
-    if (sessionSampleRate === 0 && !sessionOnError) {
+    if (sessionSampleRate === 0 && !(sessionOnError && withholdsEvents(session.trackingType))) {
       sessionManager.expire()
     }
   }
@@ -681,6 +682,8 @@ function computeSessionState(
 function resolveSampleRates(configuration: RumConfiguration, remote: RemoteConfigValues) {
   let sessionSampleRate = remote.sessionSampleRate ?? configuration.sessionSampleRate
   let sessionReplaySampleRate = remote.sessionReplaySampleRate ?? configuration.sessionReplaySampleRate
+  let sessionOnError = remote.sessionOnError ?? configuration.sessionOnError
+  let sessionReplayOnError = remote.sessionReplayOnError ?? configuration.sessionReplayOnError
 
   if (configuration.beforeSampling) {
     try {
@@ -692,9 +695,18 @@ function resolveSampleRates(configuration: RumConfiguration, remote: RemoteConfi
       if (override) {
         if (isRate(override.sessionSampleRate)) {
           sessionSampleRate = override.sessionSampleRate
+          // The callback's documented contract is "0 never collects". A visitor it draws to 0 must
+          // not be kept by the on-error switch either, or "never collect" would quietly become
+          // "collect on error". A rate it leaves alone keeps the switch.
+          if (override.sessionSampleRate === 0) {
+            sessionOnError = false
+          }
         }
         if (isRate(override.sessionReplaySampleRate)) {
           sessionReplaySampleRate = override.sessionReplaySampleRate
+          if (override.sessionReplaySampleRate === 0) {
+            sessionReplayOnError = false
+          }
         }
       }
     } catch (e) {
@@ -705,8 +717,8 @@ function resolveSampleRates(configuration: RumConfiguration, remote: RemoteConfi
   return {
     sessionSampleRate,
     sessionReplaySampleRate,
-    sessionOnError: remote.sessionOnError ?? configuration.sessionOnError,
-    sessionReplayOnError: remote.sessionReplayOnError ?? configuration.sessionReplayOnError,
+    sessionOnError,
+    sessionReplayOnError,
   }
 }
 

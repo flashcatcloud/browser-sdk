@@ -112,8 +112,14 @@ export function startWithheldEventBuffer(
       // tracking types does not recognise them, so it redraws the session and rewrites the type.
       // A session that did report an error keeps both its id and its type, and is left alone here.
       const wasWithheldFor = withheldForSessionId
-      discardBuffer()
-      if (isFrom(wasWithheldFor)) {
+      // Blacklist the id only when the session truly changed: a straggler of a renewed or expired
+      // session must be dropped. But an older bundle that rewrote the type kept the SAME id - the
+      // session is not gone, it just no longer withholds. Blacklisting its id there would drop every
+      // event of a session the backend goes on storing; instead drop only the buffer and let this
+      // event and the ones after it upload as the plain session it now is.
+      const sessionStillPresent = session?.id === wasWithheldFor
+      discardBuffer(!sessionStillPresent)
+      if (isFrom(wasWithheldFor) && !sessionStillPresent) {
         return
       }
     }
@@ -233,11 +239,20 @@ export function startWithheldEventBuffer(
       return
     }
 
+    const eventBytes = computeBytesCount(jsonStringify(event) ?? '')
+    if (eventBytes > WITHHELD_BUFFER_BYTES_LIMIT) {
+      // A single non-error event larger than the whole budget can never be part of a released
+      // buffer, and holding it would evict the entire preceding minute to make room it will never
+      // fit into. Drop it and keep the history instead. The releasing error takes the other path,
+      // above, where it is forwarded on its own without touching the buffer.
+      droppedCount += 1
+      return
+    }
     const held: WithheldEvent = {
       event,
       viewId: event.view.id,
       time: relativeNow(),
-      bytes: computeBytesCount(jsonStringify(event) ?? ''),
+      bytes: eventBytes,
       tier: getEvictionTier(event),
     }
     details.push(held)
@@ -343,8 +358,8 @@ export function startWithheldEventBuffer(
   }
 
   /** Throws the buffer away, and remembers whose it was so its stragglers go the same way. */
-  function discardBuffer() {
-    if (withheldForSessionId !== undefined) {
+  function discardBuffer(blacklist = true) {
+    if (blacklist && withheldForSessionId !== undefined) {
       discardedSessionIds.push(withheldForSessionId)
       if (discardedSessionIds.length > DISCARDED_SESSIONS_REMEMBERED) {
         discardedSessionIds.shift()

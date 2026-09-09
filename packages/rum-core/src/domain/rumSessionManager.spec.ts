@@ -386,6 +386,21 @@ describe('rum session manager', () => {
       expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
     })
 
+    it('draws a callback-excluded visitor to nothing, past the on-error switch', () => {
+      // The callback's contract is "0 never collects". A visitor it excludes must not be kept by the
+      // on-error switch either, or excluding them would quietly become collecting them on error.
+      startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 100,
+          sessionOnError: true,
+          beforeSampling: () => ({ sessionSampleRate: 0 }),
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
+    })
+
     it('receives the delivered rates and custom values', () => {
       storeRemote({ sessionSampleRate: 42, custom: { viplist: ['u-1'] } })
       const beforeSampling = jasmine.createSpy('beforeSampling')
@@ -1050,6 +1065,19 @@ describe('rum session manager', () => {
         expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).not.toBe(RumTrackingType.NOT_TRACKED)
 
         deliver({ version: 1, sessionSampleRate: 0, sessionOnError: false })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('still ends a plainly drawn session at a zero rate even when the switch is on', () => {
+        // The switch keeps the sessions the plain draw missed; it does not exempt one already
+        // collected in full. A rate-0 emergency stop still ends this plainly sampled session, which
+        // then redraws as an on-error one on the visitor's next action.
+        storeRemote({ version: 1, sessionSampleRate: 100, sessionReplaySampleRate: 0 })
+        startWith({ sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionOnError: true })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY)
+
+        deliver({ version: 2, sessionSampleRate: 0, sessionOnError: true })
 
         expect(isSessionEnded()).toBeTrue()
       })

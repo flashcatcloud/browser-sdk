@@ -298,6 +298,23 @@ describe('startWithheldEventBuffer', () => {
     expect(releasedAfterJitter().map((event) => event.type)).toContain(RumEventType.ACTION)
   })
 
+  it('drops a single event larger than the whole budget instead of evicting the minute for it', () => {
+    const view = collect(RumEventType.VIEW)
+    const resource = collect(RumEventType.RESOURCE)
+    // one action whose context alone exceeds the budget: it can never be part of a released buffer,
+    // so holding it would evict the history to make room it will never fit into
+    collect(RumEventType.ACTION, { context: { blob: 'x'.repeat(WITHHELD_BUFFER_BYTES_LIMIT + 1) } })
+
+    sessionManager.setSessionHasError()
+    const error = collect(RumEventType.ERROR)
+
+    const released = releasedAfterJitter()
+    expect(released).toContain(view)
+    expect(released).toContain(resource)
+    expect(released).toContain(error)
+    expect(released.some((event) => event.type === RumEventType.ACTION)).toBeFalse()
+  })
+
   it('never drops errors, however full the buffer gets', () => {
     collect(RumEventType.VIEW)
     collect(RumEventType.ERROR, { date: 1 })
@@ -433,16 +450,25 @@ describe('startWithheldEventBuffer', () => {
     expect(releasedSessionIds).toEqual(['session-3', 'session-3'])
   })
 
-  it('drops the buffer when the session stops withholding without having errored', () => {
-    collect(RumEventType.VIEW)
-    collect(RumEventType.RESOURCE)
+  it('drops the withheld buffer but keeps uploading a session an older bundle rewrote under the same id', () => {
+    const view = collect(RumEventType.VIEW, { session: { id: 'session-id' }, date: 1 })
+    const resource = collect(RumEventType.RESOURCE, { session: { id: 'session-id' }, date: 2 })
 
-    // an older SDK sharing the same session store does not know this tracking type and redraws it:
-    // the session stops withholding, but it never reported an error
+    // an older SDK sharing the same session store does not know this tracking type and redraws it,
+    // keeping the id: the session stops withholding, but it never reported an error
     sessionManager.setTrackedWithoutSessionReplay()
-    collect(RumEventType.RESOURCE)
+    const resourceAfter = collect(RumEventType.RESOURCE, { session: { id: 'session-id' }, date: 3 })
+    const laterResource = collect(RumEventType.RESOURCE, { session: { id: 'session-id' }, date: 4 })
 
-    expect(releasedAfterJitter().length).toBe(0)
+    const released = releasedAfterJitter()
+    // what was withheld never earned release and is dropped...
+    expect(released).not.toContain(view)
+    expect(released).not.toContain(resource)
+    // ...but the session is not gone, so its id is not blacklisted and its events go on uploading as
+    // the plain session it now is - both the one that triggered the discard and the ones after it,
+    // rather than being dropped for the rest of the session
+    expect(released).toContain(resourceAfter)
+    expect(released).toContain(laterResource)
   })
 
   it('releases the views oldest first, since a session is built out of the first one to arrive', () => {
