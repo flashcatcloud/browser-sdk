@@ -31,6 +31,18 @@
   View events of such a session carry `sampled_for_error` / `sampled_for_error_replay` so a stored
   error session can be told apart from an ordinary one.
 
+  Known limitations of the on-error switches:
+
+  - A site that gates recording on consent by calling `startSessionReplayRecording()` itself must set
+    `startSessionReplayRecordingManually: true` explicitly. With `remoteConfigurationEnabled` on and an
+    init replay rate of 0, the recorder now starts on its own so a console-delivered rate has something
+    to withhold — which would otherwise begin recording before the consent call.
+  - On a single-page app, the released replay reaches back only to the start of the view the error
+    happened in, while the released events reach back the full minute across views.
+  - With the opt-in `compressIntakeRequests`, closing the tab within a few seconds of a session's first
+    error can lose that release: the burst is then too large for `sendBeacon` and the exit fetch is
+    cancelled by the unload. The default (uncompressed) path is not affected.
+
 ## v0.2.2
 
 - 🐛 The settings cache no longer grows by one entry per release of your site. Entries are keyed by

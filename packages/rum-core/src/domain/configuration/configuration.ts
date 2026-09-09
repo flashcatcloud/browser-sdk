@@ -207,6 +207,10 @@ export interface RumInitConfiguration extends InitConfiguration {
    * Such a session records from the start and keeps at most the last minute of it in memory. If it
    * never reports an error, nothing is uploaded and the session is not billed. On the first error,
    * the withheld minute is uploaded and recording continues normally for the rest of the session.
+   *
+   * The withheld replay does not span a view change: what is released reaches back to the start of
+   * the view the error happened in, not a full minute across earlier views. The session's events
+   * (see `sessionOnError`) do reach back the full minute across views.
    */
   sessionReplayOnError?: boolean | undefined
   /**
