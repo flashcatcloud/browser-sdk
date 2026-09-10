@@ -230,6 +230,7 @@ describe('rum session manager', () => {
       traceSampleRate?: number
       defaultPrivacyLevel?: string
       sessionReplayOnError?: boolean
+      sessionOnError?: boolean
     }) {
       localStorage.setItem(STORE_KEY, JSON.stringify(values))
       registerCleanupTask(() => localStorage.removeItem(STORE_KEY))
@@ -275,6 +276,24 @@ describe('rum session manager', () => {
       )
     })
 
+    it('keeps a session on error when the console says so, over what init said', () => {
+      storeRemoteConfigValues({ sessionSampleRate: 0, sessionOnError: true })
+
+      startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 100,
+          sessionReplaySampleRate: 0,
+          sessionOnError: false,
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(
+        RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY
+      )
+    })
+
     it('turns the replay-on-error switch off when the console says so', () => {
       storeRemoteConfigValues({ sessionReplayOnError: false })
 
@@ -289,6 +308,22 @@ describe('rum session manager', () => {
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 
       expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY)
+    })
+
+    it('turns the session-on-error switch off when the console says so', () => {
+      storeRemoteConfigValues({ sessionOnError: false })
+
+      startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 0,
+          sessionOnError: true,
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      // a delivered false must win over init's true, so nothing is collected - not fall back to it
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
     })
 
     it('falls back to the rate passed to init for a knob the console did not set', () => {
@@ -349,6 +384,21 @@ describe('rum session manager', () => {
       document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
 
       expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
+    it('draws a callback-excluded visitor to nothing, past the on-error switch', () => {
+      // The callback's contract is "0 never collects". A visitor it excludes must not be kept by the
+      // on-error switch either, or excluding them would quietly become collecting them on error.
+      startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 100,
+          sessionOnError: true,
+          beforeSampling: () => ({ sessionSampleRate: 0 }),
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.NOT_TRACKED)
     })
 
     it('receives the delivered rates and custom values', () => {
@@ -519,6 +569,29 @@ describe('rum session manager', () => {
         traceSampleRate: undefined,
         defaultPrivacyLevel: 'mask',
       })
+    })
+
+    it('reports a zero session sample rate for a session kept only because it errors', () => {
+      // 99 is above any rate below 100, so the plain draw misses and the switch keeps the session
+      spyOn(Math, 'random').and.returnValue(0.99)
+      storeRemote({ version: 7, sessionSampleRate: 50, sessionReplaySampleRate: 0 })
+
+      const rumSessionManager = startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 50,
+          sessionOnError: true,
+          remoteConfig: REMOTE_SAMPLING_SETUP,
+          drawStoreKey: DRAW_KEY,
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(
+        RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY
+      )
+      // It was kept by the switch, not by the 50% draw it missed, so it stands for one session, not
+      // 100/50. Reporting the plain rate would have the adoption panel count it as two.
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration!.sessionSampleRate).toBe(0)
     })
 
     it('reports the rate beforeSampling decided, not the delivered one', () => {
@@ -971,6 +1044,45 @@ describe('rum session manager', () => {
       })
     })
 
+    describe('a session the on-error switch keeps', () => {
+      it('does not end an on-error session when the rate is zero, because the switch still collects it', () => {
+        // The switch's own documented shape: the plain rate misses every session, `sessionOnError`
+        // keeps the ones that error. A zero rate here is that setting, not a stop - ending the
+        // session would discard exactly what the switch exists to keep, and blind the page from this
+        // fetch (which lands on every fresh profile and after every deploy) until the first click.
+        startWith({ sessionSampleRate: 0, sessionOnError: true })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).not.toBe(RumTrackingType.NOT_TRACKED)
+
+        deliver({ version: 1, sessionSampleRate: 0 })
+
+        expect(isSessionEnded()).toBeFalse()
+      })
+
+      it('still ends the session when the console turns the switch off at a zero rate', () => {
+        // The emergency stop is preserved: a rate of zero with the switch explicitly off collects
+        // nothing, so the running session is decided against and ended.
+        startWith({ sessionSampleRate: 0, sessionOnError: true })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).not.toBe(RumTrackingType.NOT_TRACKED)
+
+        deliver({ version: 1, sessionSampleRate: 0, sessionOnError: false })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+
+      it('still ends a plainly drawn session at a zero rate even when the switch is on', () => {
+        // The switch keeps the sessions the plain draw missed; it does not exempt one already
+        // collected in full. A rate-0 emergency stop still ends this plainly sampled session, which
+        // then redraws as an on-error one on the visitor's next action.
+        storeRemote({ version: 1, sessionSampleRate: 100, sessionReplaySampleRate: 0 })
+        startWith({ sessionSampleRate: 100, sessionReplaySampleRate: 0, sessionOnError: true })
+        expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY)
+
+        deliver({ version: 2, sessionSampleRate: 0, sessionOnError: true })
+
+        expect(isSessionEnded()).toBeTrue()
+      })
+    })
+
     describe('everything else waits for the next session', () => {
       it('leaves the session alone when the rate moves to a value it cannot decide on', () => {
         storeRemote({ version: 1, sessionSampleRate: 100 })
@@ -1416,6 +1528,132 @@ describe('rum session manager', () => {
 
       expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY)
       expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.OFF)
+    })
+  })
+
+  describe('session on error', () => {
+    const ON_ERROR_ONLY = {
+      sessionSampleRate: 0,
+      sessionOnError: true,
+      sessionReplaySampleRate: 0,
+      sessionReplayOnError: false,
+    }
+
+    it('applies the on-error type only when the plain session draw missed', () => {
+      startRumSessionManagerWithDefaults({
+        configuration: { ...ON_ERROR_ONLY, sessionSampleRate: 100 },
+      })
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY)
+    })
+
+    it('withholds the events of a session drawn on error', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({ configuration: ON_ERROR_ONLY })
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(
+        RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY
+      )
+      expect(sessionManager.findTrackedSession()!.eventsWithheld).toBeTrue()
+
+      sessionManager.setSessionHasError(sessionManager.findTrackedSession()!.id)
+
+      expect(sessionManager.findTrackedSession()!.eventsWithheld).toBeFalse()
+    })
+
+    it('withholds the replay alongside the events, even when the plain replay rate was drawn', () => {
+      // a replay uploaded while the events are withheld would have no session to attach to
+      const sessionManager = startRumSessionManagerWithDefaults({
+        configuration: { ...ON_ERROR_ONLY, sessionReplaySampleRate: 100 },
+      })
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(
+        RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
+      )
+      expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.BUFFERED_ON_ERROR)
+    })
+
+    it('releases events and replay together on the first error', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({
+        configuration: { ...ON_ERROR_ONLY, sessionReplaySampleRate: 100 },
+      })
+
+      sessionManager.setSessionHasError(sessionManager.findTrackedSession()!.id)
+
+      const session = sessionManager.findTrackedSession()!
+      expect(session.eventsWithheld).toBeFalse()
+      expect(session.sessionReplay).toBe(SessionReplayState.SAMPLED)
+    })
+
+    it('releases a session withholding only its events when the host forces it', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({ configuration: ON_ERROR_ONLY })
+      const sessionId = sessionManager.findTrackedSession()!.id
+      expect(sessionManager.findTrackedSession()!.eventsWithheld).toBeTrue()
+
+      sessionManager.setForcedSession()
+
+      const session = sessionManager.findTrackedSession()!
+      // the same session, released, with the replay the host asked for
+      expect(session.id).toBe(sessionId)
+      expect(session.eventsWithheld).toBeFalse()
+      expect(session.sessionReplay).toBe(SessionReplayState.FORCED)
+    })
+
+    it('releases the events when capture is forced, so the forced replay is not left orphaned', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({
+        configuration: { ...ON_ERROR_ONLY, sessionReplaySampleRate: 100 },
+      })
+
+      sessionManager.setForcedReplay()
+
+      const session = sessionManager.findTrackedSession()!
+      expect(session.eventsWithheld).toBeFalse()
+      expect(session.sessionReplay).toBe(SessionReplayState.FORCED)
+    })
+
+    it('draws the type that withholds the replay too when only the on-error replay switch is on', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({
+        configuration: { ...ON_ERROR_ONLY, sessionReplayOnError: true },
+      })
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(
+        RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
+      )
+      expect(sessionManager.findTrackedSession()!.sessionReplay).toBe(SessionReplayState.BUFFERED_ON_ERROR)
+    })
+
+    it('keeps a stored on-error type across a page load rather than drawing again', () => {
+      setCookie(SESSION_STORE_KEY, `id=abcdef&rum=4&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
+
+      // a rate that would draw a plainly tracked session, so honouring the stored type is the only
+      // way this can still be an on-error one
+      const sessionManager = startRumSessionManagerWithDefaults({ configuration: { sessionSampleRate: 100 } })
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(
+        RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY
+      )
+      expect(sessionManager.findTrackedSession()!.eventsWithheld).toBeTrue()
+    })
+
+    it('keeps a released on-error session released across a page load', () => {
+      setCookie(
+        SESSION_STORE_KEY,
+        `id=abcdef&rum=5&hasError=1&created=${Date.now()}&expire=${Date.now() + DURATION}`,
+        DURATION
+      )
+
+      const sessionManager = startRumSessionManagerWithDefaults({ configuration: { sessionSampleRate: 100 } })
+
+      const session = sessionManager.findTrackedSession()!
+      expect(session.eventsWithheld).toBeFalse()
+      expect(session.sampledOnError).toBeTrue()
+      expect(session.sessionReplay).toBe(SessionReplayState.SAMPLED)
+    })
+
+    it('keeps marking the session as on-error once its events have been released', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({ configuration: ON_ERROR_ONLY })
+      sessionManager.setSessionHasError(sessionManager.findTrackedSession()!.id)
+
+      expect(sessionManager.findTrackedSession()!.sampledOnError).toBeTrue()
     })
   })
 

@@ -227,11 +227,21 @@ function serialize(state: SessionState): string {
 }
 
 function deserialize(value: string): SessionState | undefined {
+  /*
+   * `lock` is the one field that must NOT be carried the way unknown fields are. It is the modern
+   * bundle's cross-tab write lock, held only across a synchronous write sequence. Ferried forward
+   * it would outlive its owner: this build rewrites the cookie on every access and renews it for a
+   * year, and the modern bundle has no stale-lock recovery, so a carried lock can wedge its session
+   * store - every write retried and dropped, every new page's init failing on an empty cache - for
+   * as long as we keep the cookie alive. Dropping it here lets our rewrite clear a stale lock, and
+   * lets the modern corruption check detect (and retry) a write of ours that lands inside its lock
+   * window instead of silently accepting the rollback.
+   */
   const state: SessionState = {}
   const entries = value.split('&')
   for (let i = 0; i < entries.length; i++) {
     const match = /^([a-zA-Z]+)=([a-z0-9-]+)$/.exec(entries[i])
-    if (match) {
+    if (match && match[1] !== 'lock') {
       state[match[1]] = match[2]
     }
   }

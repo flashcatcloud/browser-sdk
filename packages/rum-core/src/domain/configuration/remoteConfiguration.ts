@@ -109,6 +109,11 @@ export interface RemoteConfigValues {
    */
   sessionReplayOnError?: boolean
   /**
+   * Whether the sessions `sessionSampleRate` did not draw still collect, uploaded only if the
+   * session errors. Same footing as the replay switch above.
+   */
+  sessionOnError?: boolean
+  /**
    * Which version of the settings these rates came from. Reported back on the next request so the
    * console can say how far a change has actually reached — a question the events cannot answer,
    * because a session that was not kept sends none, and the miss rate is set by the very rate being
@@ -269,6 +274,9 @@ function readStoredValues(parsed: unknown): RemoteConfigValues {
   }
   if (isSwitch(stored.sessionReplayOnError)) {
     values.sessionReplayOnError = stored.sessionReplayOnError
+  }
+  if (isSwitch(stored.sessionOnError)) {
+    values.sessionOnError = stored.sessionOnError
   }
   if (isBag(stored.custom)) {
     values.custom = stored.custom
@@ -497,6 +505,9 @@ function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) 
     // same reason a bad rate is: it must read as "not delivered", not as either position.
     if (isSwitch(response.rum.sessionReplayOnError)) {
       values.sessionReplayOnError = response.rum.sessionReplayOnError
+    }
+    if (isSwitch(response.rum.sessionOnError)) {
+      values.sessionOnError = response.rum.sessionOnError
     }
   }
   // The custom bag rides along untouched — the platform's job is delivery, its meaning belongs to

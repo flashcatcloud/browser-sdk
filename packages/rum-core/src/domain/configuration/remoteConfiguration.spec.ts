@@ -121,13 +121,17 @@ describe('remoteConfiguration', () => {
       start(configurationWith())
     })
 
-    it('keeps the replay-on-error switch the server reports, either way it is set', (done) => {
+    it('keeps the on-error switches the server reports, either way they are set', (done) => {
       interceptor.withMockXhr((xhr) => {
-        xhr.complete(200, body({ rum: { sessionReplaySampleRate: 10, sessionReplayOnError: false } }))
+        xhr.complete(
+          200,
+          body({ rum: { sessionReplaySampleRate: 10, sessionReplayOnError: false, sessionOnError: true } })
+        )
 
         expect(readRemoteConfig(setup)).toEqual({
           sessionReplaySampleRate: 10,
           sessionReplayOnError: false,
+          sessionOnError: true,
           version: 3,
         })
         done()

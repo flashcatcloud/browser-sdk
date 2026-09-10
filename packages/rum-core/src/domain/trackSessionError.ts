@@ -5,8 +5,8 @@ import { LifeCycleEventType } from './lifeCycle'
 import type { RumSessionManager } from './rumSessionManager'
 
 /**
- * Marks the session as having reported an error, which is what releases a replay withheld by
- * `sessionReplayOnError`.
+ * Marks the session as having reported an error, which is what releases what an on-error session
+ * withheld: a replay withheld by `sessionReplayOnError`, and the events withheld by `sessionOnError`.
  *
  * It listens after assembly rather than on the raw error, so an error discarded by `beforeSend` or
  * by a rate limiter does not release anything: a session billed for an error that cannot be found
@@ -30,7 +30,7 @@ export function startSessionErrorTracking(lifeCycle: LifeCycle, sessionManager: 
     // write also pushes the session's expiry out (`processSessionStoreOperations` expands every
     // state it persists), which would move where their sessions end.
     const session = sessionManager.findTrackedSession()
-    if (!session?.sampledOnErrorReplay || event.session?.id !== session.id) {
+    if (!session || event.session?.id !== session.id || (!session.sampledOnError && !session.sampledOnErrorReplay)) {
       return
     }
     hasReportedError = true

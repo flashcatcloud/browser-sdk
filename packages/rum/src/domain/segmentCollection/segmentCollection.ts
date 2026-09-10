@@ -8,7 +8,7 @@ import {
   setTimeout,
 } from '@flashcatcloud/browser-core'
 import type { LifeCycle, ViewHistory, RumSessionManager, RumConfiguration } from '@flashcatcloud/browser-rum-core'
-import { LifeCycleEventType } from '@flashcatcloud/browser-rum-core'
+import { LifeCycleEventType, WITHHELD_BUFFER_DURATION } from '@flashcatcloud/browser-rum-core'
 import type { BrowserRecord, CreationReason, SegmentContext } from '../../types'
 import { RecordType } from '../../types'
 import { discardSegmentData, removeSegment } from '../replayStats'
@@ -18,12 +18,6 @@ import { createSegment } from './segment'
 
 export const SEGMENT_DURATION_LIMIT = 5 * ONE_SECOND
 
-/**
- * How much history a withheld buffer may span before it is dropped and restarted from a fresh full
- * snapshot. This bounds two things at once: the memory a session that never errors holds on to, and
- * how far back an error session can show once its buffer is released.
- */
-export const BUFFER_CHECKOUT_TIME = 60 * ONE_SECOND
 /**
  * beacon payload max queue size implementation is 64kb
  * ensure that we leave room for logs, rum and potential other users
@@ -121,7 +115,7 @@ type SegmentCollectionState =
 /**
  * These two are internal and never reach the intake, so they are mapped back to a schema value where
  * the next segment records why it was created. `buffer_checkout` drops a withheld buffer that has
- * grown past {@link BUFFER_CHECKOUT_TIME}; `page_reactivated` cuts a segment when the page is
+ * grown past {@link WITHHELD_BUFFER_DURATION}; `page_reactivated` cuts a segment when the page is
  * switched back to, so the next one starts from the fresh full snapshot taken on the same event.
  */
 type InternalFlushReason = FlushReason | 'buffer_checkout' | 'page_reactivated'
@@ -382,7 +376,7 @@ export function doStartSegmentCollection(
           withheldForSessionId !== undefined
             ? setTimeout(() => {
                 requestFlush('buffer_checkout')
-              }, BUFFER_CHECKOUT_TIME)
+              }, WITHHELD_BUFFER_DURATION)
             : undefined,
         withheldForSessionId,
       }

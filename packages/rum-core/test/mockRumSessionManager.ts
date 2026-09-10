@@ -1,7 +1,9 @@
 import { Observable } from '@flashcatcloud/browser-core'
 import {
   RumTrackingType,
+  computeEventsWithheld,
   computeSessionReplayState,
+  withholdsEvents,
   withholdsReplay,
   type DrawnConfiguration,
   type RumSessionManager,
@@ -13,6 +15,8 @@ export interface RumSessionManagerMock extends RumSessionManager {
   setTrackedWithoutSessionReplay(): RumSessionManagerMock
   setTrackedWithSessionReplay(): RumSessionManagerMock
   setTrackedWithErrorSessionReplay(): RumSessionManagerMock
+  setTrackedOnError(): RumSessionManagerMock
+  setTrackedOnErrorWithSessionReplay(): RumSessionManagerMock
   setForcedReplay(): RumSessionManagerMock
   setSessionHasError(): RumSessionManagerMock
   setDrawnConfiguration(drawn: DrawnConfiguration): RumSessionManagerMock
@@ -23,6 +27,8 @@ const enum SessionStatus {
   TRACKED_WITH_SESSION_REPLAY,
   TRACKED_WITHOUT_SESSION_REPLAY,
   TRACKED_WITH_ERROR_SESSION_REPLAY,
+  TRACKED_ON_ERROR,
+  TRACKED_ON_ERROR_WITH_SESSION_REPLAY,
   NOT_TRACKED,
   EXPIRED,
 }
@@ -31,6 +37,8 @@ const TRACKING_TYPES: { [key in SessionStatus]?: RumTrackingType } = {
   [SessionStatus.TRACKED_WITH_SESSION_REPLAY]: RumTrackingType.TRACKED_WITH_SESSION_REPLAY,
   [SessionStatus.TRACKED_WITHOUT_SESSION_REPLAY]: RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY,
   [SessionStatus.TRACKED_WITH_ERROR_SESSION_REPLAY]: RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY,
+  [SessionStatus.TRACKED_ON_ERROR]: RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY,
+  [SessionStatus.TRACKED_ON_ERROR_WITH_SESSION_REPLAY]: RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY,
 }
 
 export function createRumSessionManagerMock(): RumSessionManagerMock {
@@ -49,6 +57,8 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
         id,
         // Derived the same way as in production, so the mock cannot drift from the real state machine
         sessionReplay: computeSessionReplayState(trackingType, hasError, forcedReplay),
+        eventsWithheld: computeEventsWithheld(trackingType, hasError, forcedReplay),
+        sampledOnError: withholdsEvents(trackingType),
         sampledOnErrorReplay: withholdsReplay(trackingType),
         anonymousId: 'device-123',
         drawnConfiguration,
@@ -77,6 +87,14 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
     },
     setTrackedWithErrorSessionReplay() {
       sessionStatus = SessionStatus.TRACKED_WITH_ERROR_SESSION_REPLAY
+      return this
+    },
+    setTrackedOnError() {
+      sessionStatus = SessionStatus.TRACKED_ON_ERROR
+      return this
+    },
+    setTrackedOnErrorWithSessionReplay() {
+      sessionStatus = SessionStatus.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
       return this
     },
     setForcedReplay() {

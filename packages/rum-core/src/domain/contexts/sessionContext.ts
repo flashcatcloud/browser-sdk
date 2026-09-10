@@ -39,11 +39,16 @@ export function startSessionContext(
     }
 
     // A session withholding its replay is recording, but nothing has been uploaded and nothing may
-    // ever be. Reporting `has_replay` here would offer a replay that does not exist.
+    // ever be. An event assembled now cannot know which of the two it will turn out to be: the
+    // segment covering it is dropped on the next view change and sent only if the error comes first,
+    // and it is assembled before either happens - the final update of a view is emitted before the
+    // view change that drops that view's segment. So it does not claim a replay. Whether the session
+    // was *sampled* for one is a different question, answerable here, and answered below.
     const isReplayWithheld = session.sessionReplay === SessionReplayState.BUFFERED_ON_ERROR
 
     let hasReplay
     let sampledForReplay
+    let sampledForError
     let sampledForErrorReplay
     let isActive
     if (eventType === RumEventType.VIEW) {
@@ -53,7 +58,14 @@ export function startSessionContext(
       // because a host bridge takes the records itself and no segment is ever built for them.
       const replayStats = recorderApi.getReplayStats(view.id)
       hasReplay = !isReplayWithheld && replayStats && replayStats.records_count > 0 ? true : undefined
-      sampledForReplay = session.sessionReplay === SessionReplayState.SAMPLED
+      // A session that withholds its events withholds its replay alongside them, so if these events
+      // are ever uploaded that replay is on its way with them. Reporting the state as it stands at
+      // assembly time would mark the whole released burst as a session that has no replay.
+      sampledForReplay =
+        session.sessionReplay === SessionReplayState.SAMPLED || (isReplayWithheld && session.eventsWithheld)
+      // Tells the backend that this session's detail only starts where the buffer reached, so the
+      // gap before it reads as "not collected" rather than as missing data.
+      sampledForError = session.sampledOnError || undefined
       // Tells a replay collected only because the session errored apart from one collected
       // unconditionally - the two cost differently and are answered by different questions.
       sampledForErrorReplay = session.sampledOnErrorReplay || undefined
@@ -62,14 +74,27 @@ export function startSessionContext(
       hasReplay = !isReplayWithheld && recorderApi.isRecording() ? true : undefined
     }
 
+    // These three are fork additions the generated event schema does not declare, so on the session
+    // object below they would only be checked against its `[k: string]: unknown` index signature - a
+    // typo in a name would compile and silently emit a field the backend never reads. Typing them
+    // here makes an excess or misspelled key fail the build instead.
+    const forkMarkers: {
+      sampled_for_replay: boolean | undefined
+      sampled_for_error: boolean | undefined
+      sampled_for_error_replay: boolean | undefined
+    } = {
+      sampled_for_replay: sampledForReplay,
+      sampled_for_error: sampledForError,
+      sampled_for_error_replay: sampledForErrorReplay,
+    }
+
     return {
       type: eventType,
       session: {
         id: session.id,
         type: SessionType.USER,
         has_replay: hasReplay,
-        sampled_for_replay: sampledForReplay,
-        sampled_for_error_replay: sampledForErrorReplay,
+        ...forkMarkers,
         is_active: isActive,
       },
       // FLASHCAT FORK - overrides the init values reported by the default context with the rates

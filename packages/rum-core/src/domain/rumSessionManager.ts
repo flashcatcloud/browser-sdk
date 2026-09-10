@@ -37,9 +37,10 @@ export interface RumSessionManager {
   setForcedReplay: () => void
   setForcedSession: () => void
   /**
-   * Marks the given session as having reported an error. For a session sampled by
-   * `sessionReplayOnError`, this is what releases the withheld replay. The id is required
-   * because the store write can be deferred by the lock, and it must not land on a later session.
+   * Marks the given session as having reported an error. This is what releases what an on-error
+   * session withheld: the replay for a `sessionReplayOnError` session, and the withheld events for a
+   * `sessionOnError` one. The id is required because the store write can be deferred by the lock, and
+   * it must not land on a later session.
    */
   setSessionHasError: (sessionId: string) => void
 }
@@ -87,9 +88,19 @@ export type RumSession = {
   id: string
   sessionReplay: SessionReplayState
   /**
-   * Whether the replay of this session is only kept if it reports an error. Unlike
-   * {@link sessionReplay} this stays true once the error has been reported, so a replay collected
-   * that way can be told apart from one collected unconditionally.
+   * Whether the session collects events but withholds them until it reports an error. Nothing is
+   * uploaded while this is true, and if the session never errors nothing ever is.
+   */
+  eventsWithheld: boolean
+  /**
+   * Whether the session is only kept because of `sessionOnError`. Unlike {@link eventsWithheld} this
+   * stays true once the error has been reported, so what is stored can be told apart from a plainly
+   * sampled session - its detail only starts where the buffer reached.
+   */
+  sampledOnError: boolean
+  /**
+   * Whether the replay of this session is only kept if it reports an error. Same idea as
+   * {@link sampledOnError}, for the replay rather than the events.
    */
   sampledOnErrorReplay: boolean
   anonymousId?: string
@@ -104,6 +115,8 @@ export const enum RumTrackingType {
   TRACKED_WITH_SESSION_REPLAY = '1',
   TRACKED_WITHOUT_SESSION_REPLAY = '2',
   TRACKED_WITH_ERROR_SESSION_REPLAY = '3',
+  TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY = '4',
+  TRACKED_ON_ERROR_WITH_SESSION_REPLAY = '5',
 }
 
 export const enum SessionReplayState {
@@ -302,8 +315,16 @@ export function startRumSessionManager(
       return
     }
 
-    const { sessionSampleRate } = resolveSampleRates(configuration, remote)
-    if (sessionSampleRate === 0) {
+    // FLASHCAT FORK - a rate of zero ends a running session only when nothing else would keep it.
+    // The exception is this session itself being an on-error one: `sessionOnError` collects exactly
+    // the sessions the plain rate misses, so a zero rate next to it is the switch's ordinary setting,
+    // not a stop. Ending such a session would discard the very thing the switch exists to keep, and
+    // leave the page blind from this fetch until the visitor's first interaction - which is what a
+    // fresh profile and every deploy would hit on their first configuration fetch. A plainly drawn
+    // session ('1'/'2'/'3') is still ended by the emergency stop even when the switch is on: the
+    // switch shapes what the NEXT draw keeps, it does not exempt a session already collected in full.
+    const { sessionSampleRate, sessionOnError } = resolveSampleRates(configuration, remote)
+    if (sessionSampleRate === 0 && !(sessionOnError && withholdsEvents(session.trackingType))) {
       sessionManager.expire()
     }
   }
@@ -363,6 +384,8 @@ export function startRumSessionManager(
       return {
         id: session.id,
         sessionReplay: computeSessionReplayState(session.trackingType, session.hasError, session.isReplayForced),
+        eventsWithheld: computeEventsWithheld(session.trackingType, session.hasError, session.isReplayForced),
+        sampledOnError: withholdsEvents(session.trackingType),
         sampledOnErrorReplay: withholdsReplay(session.trackingType),
         anonymousId: session.anonymousId,
         // FLASHCAT FORK - looked up at the same time as the session itself, so an event that
@@ -384,8 +407,9 @@ export function startRumSessionManager(
     // A session keeps the decision it was drawn with, so forcing a visitor that was not being
     // collected means ending their current (empty) session; the next activity draws again with
     // `forcedSession` set and starts a collected session with replay. A session already collected
-    // only needs replay forced on, which is the existing forced-replay path - and a session whose
-    // replay is withheld until it errors is released the same way, since the host asked for it now.
+    // only needs replay forced on, which is the existing forced-replay path - and a session that
+    // withholds its events or its replay until it errors is released the same way, since the host
+    // asked for it now: forcing the replay is what releases the events too.
     setForcedSession: () => {
       forcedSession = true
       const session = sessionManager.findSession()
@@ -393,7 +417,8 @@ export function startRumSessionManager(
         sessionManager.expire()
       } else if (
         session.trackingType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY ||
-        withholdsReplay(session.trackingType)
+        withholdsReplay(session.trackingType) ||
+        withholdsEvents(session.trackingType)
       ) {
         forceReplay()
       }
@@ -417,7 +442,17 @@ export function startRumSessionManager(
 }
 
 export function withholdsReplay(trackingType: RumTrackingType) {
-  return trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+  return (
+    trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY ||
+    trackingType === RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
+  )
+}
+
+export function withholdsEvents(trackingType: RumTrackingType) {
+  return (
+    trackingType === RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY ||
+    trackingType === RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
+  )
 }
 
 export function computeSessionReplayState(
@@ -440,6 +475,19 @@ export function computeSessionReplayState(
     return SessionReplayState.BUFFERED_ON_ERROR
   }
   return SessionReplayState.OFF
+}
+
+export function computeEventsWithheld(
+  trackingType: RumTrackingType,
+  hasError: boolean,
+  isReplayForced: boolean
+): boolean {
+  // Forcing capture asks for this user's whole session, so it releases the events too - otherwise
+  // the forced replay would be uploaded for a session that does not exist yet.
+  if (hasError || isReplayForced) {
+    return false
+  }
+  return withholdsEvents(trackingType)
 }
 
 /**
@@ -534,6 +582,8 @@ export function startRumSessionManagerStub(
         id: sessionId ?? STUB_SESSION_ID,
         sessionReplay,
         // The host records for us, or this page uploads what the plain rate drew: neither withholds.
+        eventsWithheld: false,
+        sampledOnError: false,
         sampledOnErrorReplay: false,
         anonymousId: bridge?.getAnonymousId(),
       }
@@ -573,23 +623,41 @@ function computeSessionState(
     // the decision it was created with: settings arriving mid-session never start or stop
     // collecting for a visitor already on the site.
     const remote = readRemoteConfig(configuration.remoteConfig)
-    const { sessionSampleRate, sessionReplaySampleRate, sessionReplayOnError } = resolveSampleRates(
+    const { sessionSampleRate, sessionReplaySampleRate, sessionOnError, sessionReplayOnError } = resolveSampleRates(
       configuration,
       remote
     )
 
-    reportDraw(configuration, remote, sessionSampleRate, sessionReplaySampleRate, onDraw)
-
-    if (!performDraw(sessionSampleRate)) {
-      trackingType = RumTrackingType.NOT_TRACKED
-    } else if (performDraw(sessionReplaySampleRate)) {
-      trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
-    } else if (sessionReplayOnError) {
-      // Only for sessions the plain replay draw missed, so a session is never counted by both.
-      trackingType = RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+    if (performDraw(sessionSampleRate)) {
+      if (performDraw(sessionReplaySampleRate)) {
+        trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
+      } else if (sessionReplayOnError) {
+        // Only for sessions the plain replay draw missed, so a session is never counted by both.
+        trackingType = RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+      } else {
+        trackingType = RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY
+      }
+    } else if (sessionOnError) {
+      // Only for sessions the plain session draw missed, so a session is never counted by both.
+      // Such a session never uploads its replay ahead of its events: whichever replay it draws, the
+      // replay is withheld alongside them, because until they are released the session does not
+      // exist yet and a replay sent then would have nothing to attach to.
+      trackingType =
+        performDraw(sessionReplaySampleRate) || sessionReplayOnError
+          ? RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
+          : RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY
     } else {
-      trackingType = RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY
+      trackingType = RumTrackingType.NOT_TRACKED
     }
+
+    // Reported after the ladder, not before, so an on-error session can report the rate the backend
+    // should extrapolate from. Such a session was kept despite the plain draw missing it, so it
+    // stands for itself, not for `100 / rate` like a plainly sampled one - reporting the plain rate
+    // would have the console's adoption panel count each error session as `100 / rate` sessions. A
+    // rate of 0 there is read as "one session, do not scale". A session merely withholding its
+    // replay (type '3') was still drawn by the plain rate and reports it unchanged.
+    const reportedSampleRate = withholdsEvents(trackingType) ? 0 : sessionSampleRate
+    reportDraw(configuration, remote, reportedSampleRate, sessionReplaySampleRate, onDraw)
   }
   return {
     trackingType,
@@ -598,7 +666,7 @@ function computeSessionState(
 }
 
 /**
- * FLASHCAT FORK - the rates a draw would use right now, and the on-error switch beside them: what
+ * FLASHCAT FORK - the rates a draw would use right now, and the on-error switches beside them: what
  * the console delivered, falling back to what the site passed to init, with the application's
  * `beforeSampling` given the last word on the rates (the switch is not offered to it: it is a
  * yes or a no the console already answered). This
@@ -614,6 +682,8 @@ function computeSessionState(
 function resolveSampleRates(configuration: RumConfiguration, remote: RemoteConfigValues) {
   let sessionSampleRate = remote.sessionSampleRate ?? configuration.sessionSampleRate
   let sessionReplaySampleRate = remote.sessionReplaySampleRate ?? configuration.sessionReplaySampleRate
+  let sessionOnError = remote.sessionOnError ?? configuration.sessionOnError
+  let sessionReplayOnError = remote.sessionReplayOnError ?? configuration.sessionReplayOnError
 
   if (configuration.beforeSampling) {
     try {
@@ -625,9 +695,18 @@ function resolveSampleRates(configuration: RumConfiguration, remote: RemoteConfi
       if (override) {
         if (isRate(override.sessionSampleRate)) {
           sessionSampleRate = override.sessionSampleRate
+          // The callback's documented contract is "0 never collects". A visitor it draws to 0 must
+          // not be kept by the on-error switch either, or "never collect" would quietly become
+          // "collect on error". A rate it leaves alone keeps the switch.
+          if (override.sessionSampleRate === 0) {
+            sessionOnError = false
+          }
         }
         if (isRate(override.sessionReplaySampleRate)) {
           sessionReplaySampleRate = override.sessionReplaySampleRate
+          if (override.sessionReplaySampleRate === 0) {
+            sessionReplayOnError = false
+          }
         }
       }
     } catch (e) {
@@ -638,7 +717,8 @@ function resolveSampleRates(configuration: RumConfiguration, remote: RemoteConfi
   return {
     sessionSampleRate,
     sessionReplaySampleRate,
-    sessionReplayOnError: remote.sessionReplayOnError ?? configuration.sessionReplayOnError,
+    sessionOnError,
+    sessionReplayOnError,
   }
 }
 
@@ -784,7 +864,9 @@ function hasValidRumSession(trackingType?: string): trackingType is RumTrackingT
     trackingType === RumTrackingType.NOT_TRACKED ||
     trackingType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY ||
     trackingType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY ||
-    trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+    trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY ||
+    trackingType === RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY ||
+    trackingType === RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
   )
 }
 
@@ -792,6 +874,8 @@ function isTypeTracked(rumSessionType: RumTrackingType | undefined) {
   return (
     rumSessionType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY ||
     rumSessionType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY ||
-    rumSessionType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+    rumSessionType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY ||
+    rumSessionType === RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY ||
+    rumSessionType === RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
   )
 }
