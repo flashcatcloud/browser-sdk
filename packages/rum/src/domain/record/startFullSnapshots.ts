@@ -97,5 +97,19 @@ export function startFullSnapshots(
       unsubscribeViewCreated()
       unsubscribeReactivated()
     },
+    /**
+     * Re-serializes the document so that what follows is replayable on its own. Used when a withheld
+     * replay buffer is dropped: the records kept afterwards need a full snapshot to start from.
+     */
+    takeSubsequentFullSnapshot: () => {
+      flushMutations()
+      fullSnapshotCallback(
+        takeFullSnapshot(timeStampNow(), {
+          shadowRootsController,
+          status: SerializationContextStatus.SUBSEQUENT_FULL_SNAPSHOT,
+          elementsScrollPositions,
+        })
+      )
+    },
   }
 }

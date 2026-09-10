@@ -1,0 +1,123 @@
+import type { Context } from '@flashcatcloud/browser-core'
+import { registerCleanupTask } from '@flashcatcloud/browser-core/test'
+import type { RumEvent } from '../rumEvent.types'
+import { createRumSessionManagerMock } from '../../test'
+import { LifeCycle, LifeCycleEventType } from './lifeCycle'
+import { startSessionErrorTracking } from './trackSessionError'
+
+describe('startSessionErrorTracking', () => {
+  let lifeCycle: LifeCycle
+  let sessionManager: ReturnType<typeof createRumSessionManagerMock>
+  let setSessionHasErrorSpy: jasmine.Spy
+
+  function collect(type: string, source = 'source') {
+    // only error events carry an `error` object; anything else that did would hide a guard that
+    // reads it before checking the type
+    const event = type === 'error' ? { type, session: { id: 'session-id' }, error: { source } } : { type }
+    lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, event as unknown as RumEvent & Context)
+  }
+
+  beforeEach(() => {
+    lifeCycle = new LifeCycle()
+    sessionManager = createRumSessionManagerMock().setTrackedWithErrorSessionReplay()
+    setSessionHasErrorSpy = spyOn(sessionManager, 'setSessionHasError').and.callThrough()
+    const { stop } = startSessionErrorTracking(lifeCycle, sessionManager)
+    registerCleanupTask(stop)
+  })
+
+  it('ignores an error from an earlier session without consuming the current session mark', () => {
+    lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, {
+      type: 'error',
+      session: { id: 'previous-session' },
+      error: { source: 'custom' },
+    } as unknown as RumEvent & Context)
+    expect(setSessionHasErrorSpy).not.toHaveBeenCalled()
+    collect('error')
+    expect(setSessionHasErrorSpy).toHaveBeenCalledOnceWith('session-id')
+  })
+
+  it('does not attribute an error without a session id to the current session', () => {
+    lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, {
+      type: 'error',
+      error: { source: 'custom' },
+    } as unknown as RumEvent & Context)
+    expect(setSessionHasErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('marks the session on the first collected error', () => {
+    collect('error')
+
+    // named, not just counted: the mark is refused if it does not name the session it belongs to
+    expect(setSessionHasErrorSpy).toHaveBeenCalledOnceWith('session-id')
+  })
+
+  it('leaves a session that withholds nothing alone, so an ordinary session store is never written', () => {
+    sessionManager.setTrackedWithSessionReplay()
+
+    collect('error')
+
+    expect(setSessionHasErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('marks a session that withholds only its events, which has no replay to release', () => {
+    sessionManager.setTrackedOnError()
+
+    collect('error')
+
+    expect(setSessionHasErrorSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves an untracked session alone', () => {
+    sessionManager.setNotTracked()
+
+    collect('error')
+
+    expect(setSessionHasErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not mark the session on other event types', () => {
+    collect('view')
+    collect('resource')
+    collect('action')
+
+    expect(setSessionHasErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('ignores the SDK own failures, which are not the application reporting an error', () => {
+    collect('error', 'agent')
+
+    expect(setSessionHasErrorSpy).not.toHaveBeenCalled()
+  })
+
+  it('still marks the session on a network error, which is the application reporting one', () => {
+    collect('error', 'network')
+
+    expect(setSessionHasErrorSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('marks the session only once, however many errors follow', () => {
+    collect('error')
+    collect('error')
+    collect('error')
+
+    expect(setSessionHasErrorSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('marks a renewed session again, since it is a different session', () => {
+    collect('error')
+    lifeCycle.notify(LifeCycleEventType.SESSION_RENEWED)
+    collect('error')
+
+    expect(setSessionHasErrorSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops marking once stopped', () => {
+    const { stop } = startSessionErrorTracking(lifeCycle, sessionManager)
+    stop()
+    setSessionHasErrorSpy.calls.reset()
+    // the suite's own tracker is still running, so exactly one call is expected, not two
+    collect('error')
+
+    expect(setSessionHasErrorSpy).toHaveBeenCalledTimes(1)
+  })
+})

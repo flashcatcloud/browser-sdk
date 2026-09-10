@@ -29,6 +29,31 @@ describe('session store', () => {
     deleteSessionCookie()
   })
 
+  for (const [rum, flag, tracked] of [
+    ['3', '', true],
+    ['4', '', false],
+    ['5', '', false],
+    ['4', '&hasError=1', true],
+    ['5', '&hasError=1', true],
+    ['4', '&forcedReplay=1', true],
+    ['5', '&forcedReplay=1', true],
+    ['0', '&hasError=1', false],
+  ] as const) {
+    it(`respects the shared tracking decision rum=${rum}${flag}`, () => {
+      document.cookie = `${SESSION_COOKIE_NAME}=id=shared-session&rum=${rum}${flag}&created=${Date.now()}&expire=${Date.now() + ONE_MINUTE};path=/`
+      expect(createSessionStore(100).getOrCreateSession().isTracked).toBe(tracked)
+      expect(toSessionState(readRawCookie()).rum).toBe(rum)
+    })
+  }
+
+  it('does not carry release marks into a renewed legacy session', () => {
+    document.cookie = `${SESSION_COOKIE_NAME}=id=old-session&rum=5&hasError=1&forcedReplay=1&created=${Date.now() - ONE_MINUTE}&expire=${Date.now() - 1};path=/`
+    createSessionStore(100).getOrCreateSession()
+    const stored = toSessionState(readRawCookie())
+    expect(stored.hasError).toBeUndefined()
+    expect(stored.forcedReplay).toBeUndefined()
+  })
+
   it('creates a session with a lowercase uuid', () => {
     const session = createSessionStore(100).getOrCreateSession()
 
