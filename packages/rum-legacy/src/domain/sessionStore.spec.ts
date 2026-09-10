@@ -369,6 +369,18 @@ describe('session store', () => {
       expect(toSessionState(readRawCookie()).anonymousId).toBe('11111111-bbbb-0000-bbbb-000000000000')
     })
 
+    it("drops the modern bundle's write lock instead of carrying it", () => {
+      document.cookie = `${SESSION_COOKIE_NAME}=id=00000000-aaaa-0000-aaaa-000000000000&created=${Date.now()}&expire=${Date.now() + 60000}&rum=2&lock=11111111-bbbb-0000-bbbb-000000000000;path=/`
+
+      createSessionStore(100).getOrCreateSession()
+
+      // A carried lock would outlive its owner - this build renews the cookie for a year on every
+      // access, and the modern bundle has no stale-lock recovery. Dropping it lets our rewrite
+      // clear the lock; the other fields of the session are untouched.
+      expect(readRawCookie()).not.toContain('lock=')
+      expect(toSessionState(readRawCookie()).id).toBe('00000000-aaaa-0000-aaaa-000000000000')
+    })
+
     it('ignores unknown fields injected into the session cookie', () => {
       document.cookie = `${SESSION_COOKIE_NAME}=id=00000000-aaaa-0000-aaaa-000000000000&created=${Date.now()}&expire=${Date.now() + 60000}&rum=2&evil=payload;path=/`
 
