@@ -471,6 +471,26 @@ describe('startWithheldEventBuffer', () => {
     expect(released).toContain(laterResource)
   })
 
+  it('does not blacklist a session an older bundle rewrote under the same id when the expiry arrives first', () => {
+    collect(RumEventType.VIEW, { session: { id: 'session-id' }, date: 1 })
+    collect(RumEventType.RESOURCE, { session: { id: 'session-id' }, date: 2 })
+
+    // The store poll notices the foreign rewrite before any event of the plain session arrives:
+    // the session expires with nothing tracked anymore, which discards the buffer and blacklists
+    // its id...
+    sessionManager.setNotTracked()
+    lifeCycle.notify(LifeCycleEventType.SESSION_EXPIRED)
+
+    // ...and the store then renews it under the SAME id, as the plain session the older bundle
+    // redrew it into
+    sessionManager.setTrackedWithoutSessionReplay()
+    const resourceAfter = collect(RumEventType.RESOURCE, { session: { id: 'session-id' }, date: 3 })
+
+    // The id is blacklisted, but the session wearing it is live and the backend goes on storing
+    // it: its events must not be dropped for the rest of the session.
+    expect(forwarded).toEqual([resourceAfter])
+  })
+
   it('releases the views oldest first, since a session is built out of the first one to arrive', () => {
     collect(RumEventType.VIEW, { date: 1000, view: { id: 'view-1' } })
     collect(RumEventType.RESOURCE, { view: { id: 'view-1' } })

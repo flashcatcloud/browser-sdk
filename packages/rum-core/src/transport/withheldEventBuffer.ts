@@ -99,9 +99,19 @@ export function startWithheldEventBuffer(
     const eventSessionId = event.session?.id
     const isFrom = (sessionId: string | undefined) => eventSessionId === undefined || eventSessionId === sessionId
 
-    if (eventSessionId !== undefined && discardedSessionIds.indexOf(eventSessionId) !== -1) {
+    if (
+      eventSessionId !== undefined &&
+      discardedSessionIds.indexOf(eventSessionId) !== -1 &&
+      session?.id !== eventSessionId
+    ) {
       // Its session ended without ever reporting an error and everything held for it was thrown
       // away. Letting a straggler through would store the very session the withholding avoided.
+      // The blacklist is only enforced against a session that is not the current one: a blacklisted
+      // id that is nonetheless live can only come from an older bundle that redrew the session
+      // under the same id - the store poll then expires and blacklists it before any event of the
+      // plain session arrives, so the branch below never gets to speak for it. That session never
+      // died and the backend goes on storing it, so its events keep uploading. A session that
+      // truly ended comes back with a new id, so a real straggler still matches here.
       return
     }
 
