@@ -30,6 +30,9 @@ const EXPIRED = '1'
 const NOT_TRACKED = '0'
 const TRACKED_WITH_SESSION_REPLAY = '1'
 const TRACKED_WITHOUT_SESSION_REPLAY = '2'
+const TRACKED_WITH_ERROR_SESSION_REPLAY = '3'
+const TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY = '4'
+const TRACKED_ON_ERROR_WITH_SESSION_REPLAY = '5'
 
 /**
  * How long a session may be reused without touching the cookie again.
@@ -133,7 +136,7 @@ export function createSessionStore(sessionSampleRate: number) {
 }
 
 function toSession(state: SessionState): LegacySession {
-  // Both tracked values count. This build never writes '1' itself, but both builds share one cookie
+  // Honor collected and released decisions. This build writes only '0'/'2', but shares one cookie
   // jar per domain, and IE enterprise site lists routinely put some urls of a site in compatibility
   // mode and others not. Reading a session the modern bundle started as untracked would silence
   // this one for the rest of that session's lifetime.
@@ -144,7 +147,13 @@ function toSession(state: SessionState): LegacySession {
 }
 
 function isTracked(state: SessionState): boolean {
-  return state.rum === TRACKED_WITHOUT_SESSION_REPLAY || state.rum === TRACKED_WITH_SESSION_REPLAY
+  return (
+    state.rum === TRACKED_WITHOUT_SESSION_REPLAY ||
+    state.rum === TRACKED_WITH_SESSION_REPLAY ||
+    state.rum === TRACKED_WITH_ERROR_SESSION_REPLAY ||
+    ((state.rum === TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY || state.rum === TRACKED_ON_ERROR_WITH_SESSION_REPLAY) &&
+      (state.hasError === '1' || state.forcedReplay === '1'))
+  )
 }
 
 /**
@@ -193,7 +202,7 @@ function isExpired(state: SessionState, now: number): boolean {
 // `isExpired` belongs to the modern bundle's vocabulary, not to ours, but it has to be listed here
 // all the same: carried forward as an unknown field it would mark every session this build writes
 // as expired, and the modern bundle would start a new one on every page load.
-const KNOWN_FIELDS = ['id', 'created', 'expire', 'rum', 'isExpired']
+const KNOWN_FIELDS = ['id', 'created', 'expire', 'rum', 'isExpired', 'hasError', 'forcedReplay']
 
 function serialize(state: SessionState): string {
   const entries: string[] = []
@@ -218,11 +227,21 @@ function serialize(state: SessionState): string {
 }
 
 function deserialize(value: string): SessionState | undefined {
+  /*
+   * `lock` is the one field that must NOT be carried the way unknown fields are. It is the modern
+   * bundle's cross-tab write lock, held only across a synchronous write sequence. Ferried forward
+   * it would outlive its owner: this build rewrites the cookie on every access and renews it for a
+   * year, and the modern bundle has no stale-lock recovery, so a carried lock can wedge its session
+   * store - every write retried and dropped, every new page's init failing on an empty cache - for
+   * as long as we keep the cookie alive. Dropping it here lets our rewrite clear a stale lock, and
+   * lets the modern corruption check detect (and retry) a write of ours that lands inside its lock
+   * window instead of silently accepting the rollback.
+   */
   const state: SessionState = {}
   const entries = value.split('&')
   for (let i = 0; i < entries.length; i++) {
     const match = /^([a-zA-Z]+)=([a-z0-9-]+)$/.exec(entries[i])
-    if (match) {
+    if (match && match[1] !== 'lock') {
       state[match[1]] = match[2]
     }
   }

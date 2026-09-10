@@ -29,6 +29,7 @@ import { startErrorCollection } from '../domain/error/errorCollection'
 import { startResourceCollection } from '../domain/resource/resourceCollection'
 import { startViewCollection } from '../domain/view/viewCollection'
 import { startRumSessionManager, startRumSessionManagerStub } from '../domain/rumSessionManager'
+import { startSessionErrorTracking } from '../domain/trackSessionError'
 import { startRumBatch } from '../transport/startRumBatch'
 import { startRumEventBridge } from '../transport/startRumEventBridge'
 import { startUrlContexts } from '../domain/contexts/urlContexts'
@@ -103,6 +104,11 @@ export function startRum(
   }
 
   const pageMayExitObservable = createPageMayExitObservable(configuration)
+  // Subscribed before the batch below, and it has to stay that way. The batch flushes on this same
+  // observable, and observers run in the order they subscribed - so the withheld event buffer, which
+  // releases on the lifecycle notification raised here, has to get its events into the batch before
+  // the flush that is the page's last chance to send them. The same holds for the session expiry
+  // relay in `startRumSessionManager`, which the session manager registers just below.
   const pageMayExitSubscription = pageMayExitObservable.subscribe((event) => {
     lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, event)
   })
@@ -121,6 +127,12 @@ export function startRum(
     : startRumSessionManager(configuration, lifeCycle, trackingConsentState)
   cleanupTasks.push(session.stop)
 
+  // Subscribed before the batch below, and it has to stay that way: the withheld event buffer runs
+  // on the same event, and only sees a session as released if this has already marked it. Reorder
+  // them and the release waits for whatever event happens to come next.
+  const sessionErrorTracking = startSessionErrorTracking(lifeCycle, session)
+  cleanupTasks.push(() => sessionErrorTracking.stop())
+
   if (!canUseEventBridge()) {
     // FLASHCAT FORK - keep the console's sampling rates fresh, at the rhythm the sessions read
     // them: once now and once per session renewal. It is skipped under an event bridge, where the
@@ -135,7 +147,7 @@ export function startRum(
       telemetry.observable,
       reportError,
       pageMayExitObservable,
-      session.expireObservable,
+      session,
       createEncoder
     )
     cleanupTasks.push(() => batch.stop())
