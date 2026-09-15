@@ -46,6 +46,18 @@ describe('session store', () => {
     })
   }
 
+  for (const [rum, sampledOnError] of [
+    ['2', false],
+    ['3', false],
+    ['4', true],
+    ['5', true],
+  ] as const) {
+    it(`tells whether the session was kept only because it errored rum=${rum}`, () => {
+      document.cookie = `${SESSION_COOKIE_NAME}=id=shared-session&rum=${rum}&hasError=1&created=${Date.now()}&expire=${Date.now() + ONE_MINUTE};path=/`
+      expect(createSessionStore(100).getOrCreateSession().sampledOnError).toBe(sampledOnError)
+    })
+  }
+
   it('does not carry release marks into a renewed legacy session', () => {
     document.cookie = `${SESSION_COOKIE_NAME}=id=old-session&rum=5&hasError=1&forcedReplay=1&created=${Date.now() - ONE_MINUTE}&expire=${Date.now() - 1};path=/`
     createSessionStore(100).getOrCreateSession()

@@ -280,6 +280,44 @@ describe('session context', () => {
     expect(defaultRumEventAttributes._dd).toBeUndefined()
   })
 
+  it('should report a zero session sample rate for an on-error session over the rate it was drawn at', () => {
+    sessionManager.setTrackedOnError().setDrawnConfiguration({
+      version: 12,
+      sessionSampleRate: 20,
+      sessionReplaySampleRate: 25,
+      traceSampleRate: 100,
+      defaultPrivacyLevel: 'mask',
+    })
+
+    const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'action',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(defaultRumEventAttributes._dd).toEqual({
+      configuration: {
+        session_sample_rate: 0,
+        session_replay_sample_rate: 25,
+        rc_version: 12,
+      } as NonNullable<DefaultRumEventAttributes['_dd']>['configuration'],
+    })
+  })
+
+  it('should report a zero session sample rate for an on-error session whose draw record is gone', () => {
+    // A reload after storage was cleared, or the next subdomain: the session cookie still says
+    // on-error, but there is no record to read the draw from.
+    sessionManager.setTrackedOnError()
+
+    const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'action',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(defaultRumEventAttributes._dd).toEqual({
+      configuration: { session_sample_rate: 0 } as NonNullable<DefaultRumEventAttributes['_dd']>['configuration'],
+    })
+  })
+
   it('should discard the event if no session', () => {
     sessionManager.setNotTracked()
     const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {

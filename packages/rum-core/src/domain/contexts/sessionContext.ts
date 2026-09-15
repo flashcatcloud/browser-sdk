@@ -88,6 +88,16 @@ export function startSessionContext(
       sampled_for_error_replay: sampledForErrorReplay,
     }
 
+    // A session kept only because it errored reports a session rate of 0 over whatever it was drawn
+    // at: it stands for itself, not for `100 / rate` sessions like a plainly sampled one, and 0 is what
+    // the backend reads as "one session, do not scale". Decided from the tracking type rather than
+    // stored with the draw, because the two do not live equally long: the type rides in the session
+    // cookie to every page of the session, while the draw record is one per-origin storage slot that a
+    // subdomain hop or a cleared storage leaves behind - and without it the event would fall back to
+    // the init rate and be counted as `100 / rate` sessions again.
+    const drawn = session.drawnConfiguration && drawnAttributes(session.drawnConfiguration)
+    const configuration = session.sampledOnError ? { ...drawn, session_sample_rate: 0 } : drawn
+
     return {
       type: eventType,
       session: {
@@ -104,9 +114,7 @@ export function startSessionContext(
       // draw that kept the session, and the version lets an auditor recover the exact settings from
       // the console's version history. `rc_version` is a FlashCat addition on top of the shared
       // schema; our intake reads it, others ignore it.
-      ...(session.drawnConfiguration
-        ? { _dd: { configuration: drawnAttributes(session.drawnConfiguration) } }
-        : undefined),
+      ...(configuration ? { _dd: { configuration } } : undefined),
     }
   })
 }

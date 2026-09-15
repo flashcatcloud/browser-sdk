@@ -46,6 +46,8 @@ export const COOKIE_ACCESS_DELAY = 1000
 export interface LegacySession {
   id: string
   isTracked: boolean
+  /** Whether the session was kept only because it errored, see `sessionOnError` in the modern bundle. */
+  sampledOnError: boolean
 }
 
 interface SessionState {
@@ -143,6 +145,8 @@ function toSession(state: SessionState): LegacySession {
   return {
     id: state.id!,
     isTracked: isTracked(state),
+    sampledOnError:
+      state.rum === TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY || state.rum === TRACKED_ON_ERROR_WITH_SESSION_REPLAY,
   }
 }
 
