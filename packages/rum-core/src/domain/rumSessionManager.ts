@@ -59,7 +59,9 @@ export interface StartedRumSessionManager extends RumSessionManager {
  * the draw (after the remote values and `beforeSampling` had their say) and the remote settings
  * version they came from. Events carry these instead of the init values, so server-side
  * extrapolation and audits line up with the draw that kept the session — a session is never
- * re-judged, so the metadata must be from its creation, not from whatever arrived since.
+ * re-judged, so the metadata must be from its creation, not from whatever arrived since. The one
+ * exception is the session rate of a session kept only because it errored: its events report 0
+ * whatever it was drawn at, decided from the tracking type - see sessionContext.
  */
 export interface DrawnConfiguration {
   version?: number
