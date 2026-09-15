@@ -318,6 +318,36 @@ describe('session context', () => {
     })
   })
 
+  it('should report a zero session sample rate for an on-error session that also withholds its replay', () => {
+    sessionManager.setTrackedOnErrorWithSessionReplay()
+
+    const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'action',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(defaultRumEventAttributes._dd!.configuration!.session_sample_rate).toBe(0)
+  })
+
+  it('should report the drawn session sample rate for a session that withholds only its replay', () => {
+    // The plain session draw kept this session; only its replay waits for an error. It stands for
+    // `100 / rate` sessions like any other plainly sampled one.
+    sessionManager.setTrackedWithErrorSessionReplay().setDrawnConfiguration({
+      version: 12,
+      sessionSampleRate: 20,
+      sessionReplaySampleRate: 25,
+      traceSampleRate: 100,
+      defaultPrivacyLevel: 'mask',
+    })
+
+    const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'action',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(defaultRumEventAttributes._dd!.configuration!.session_sample_rate).toBe(20)
+  })
+
   it('should discard the event if no session', () => {
     sessionManager.setNotTracked()
     const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {
