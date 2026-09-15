@@ -97,6 +97,7 @@ export function makeRumLegacyPublicApi() {
         type,
         configuration: assemblyConfiguration,
         sessionId: session.id,
+        sampledOnError: session.sampledOnError,
         view,
         date,
         properties: withIdentityContexts(properties),

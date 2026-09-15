@@ -571,7 +571,7 @@ describe('rum session manager', () => {
       })
     })
 
-    it('reports a zero session sample rate for a session kept only because it errors', () => {
+    it('records the rate an on-error session was actually drawn at', () => {
       // 99 is above any rate below 100, so the plain draw misses and the switch keeps the session
       spyOn(Math, 'random').and.returnValue(0.99)
       storeRemote({ version: 7, sessionSampleRate: 50, sessionReplaySampleRate: 0 })
@@ -589,9 +589,10 @@ describe('rum session manager', () => {
       expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(
         RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY
       )
-      // It was kept by the switch, not by the 50% draw it missed, so it stands for one session, not
-      // 100/50. Reporting the plain rate would have the adoption panel count it as two.
-      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration!.sessionSampleRate).toBe(0)
+      // The record keeps the draw as it happened. That the session stands for itself is reported by
+      // the session context from the tracking type, which outlives the record - see sessionContext.
+      expect(rumSessionManager.findTrackedSession()!.drawnConfiguration!.sessionSampleRate).toBe(50)
+      expect(rumSessionManager.findTrackedSession()!.sampledOnError).toBeTrue()
     })
 
     it('reports the rate beforeSampling decided, not the delivered one', () => {
