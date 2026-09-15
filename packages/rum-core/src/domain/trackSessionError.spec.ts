@@ -10,14 +10,15 @@ describe('startSessionErrorTracking', () => {
   let lifeCycle: LifeCycle
   let sessionManager: ReturnType<typeof createRumSessionManagerMock>
   let setSessionHasErrorSpy: jasmine.Spy
-  let recording: boolean
+  /** Records the recorder still holds for the error's view, or undefined when it never recorded it. */
+  let viewRecords: number | undefined
   let recorderApi: RecorderApi
 
   function collect(type: string, source = 'source') {
     // only error events carry an `error` object; anything else that did would hide a guard that
     // reads it before checking the type
     const event = (type === 'error'
-      ? { type, session: { id: 'session-id' }, error: { source } }
+      ? { type, session: { id: 'session-id' }, view: { id: 'view-id' }, error: { source } }
       : { type }) as unknown as RumEvent & Context
     lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, event)
     return event
@@ -27,8 +28,15 @@ describe('startSessionErrorTracking', () => {
     lifeCycle = new LifeCycle()
     sessionManager = createRumSessionManagerMock().setTrackedWithErrorSessionReplay()
     setSessionHasErrorSpy = spyOn(sessionManager, 'setSessionHasError').and.callThrough()
-    recording = true
-    recorderApi = { ...noopRecorderApi, isRecording: () => recording }
+    viewRecords = 3
+    recorderApi = {
+      ...noopRecorderApi,
+      // only the error's own view has stats, so a claim read off any other view would not be made
+      getReplayStats: (viewId) =>
+        viewId === 'view-id' && viewRecords !== undefined
+          ? { records_count: viewRecords, segments_count: 1, segments_total_raw_size: 10 }
+          : undefined,
+    }
     const { stop } = startSessionErrorTracking(lifeCycle, sessionManager, recorderApi)
     registerCleanupTask(stop)
   })
@@ -66,8 +74,17 @@ describe('startSessionErrorTracking', () => {
     expect(error.session.has_replay).toBeTrue()
   })
 
-  it('claims no replay on the releasing error when the recorder is not running', () => {
-    recording = false
+  it('claims no replay on the releasing error when its view kept no records, even while recording', () => {
+    // every withheld segment of the view was dropped, which gives its records back
+    viewRecords = 0
+
+    const error = collect('error')
+
+    expect(error.session.has_replay).toBeUndefined()
+  })
+
+  it('claims no replay on the releasing error when its view was never recorded', () => {
+    viewRecords = undefined
 
     const error = collect('error')
 

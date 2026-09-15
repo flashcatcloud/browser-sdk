@@ -42,7 +42,11 @@ export function startSessionErrorTracking(
     // The error was assembled while its replay was still withheld, so it could not claim one then -
     // see sessionContext. It is the event the replay is released for and the one the console opens
     // the replay from, so it claims it here, before the batch (which subscribes after this) takes it.
-    if (session.sessionReplay === SessionReplayState.BUFFERED_ON_ERROR && recorderApi.isRecording()) {
+    // Judged by what its view still holds rather than by the recorder running: records are counted as
+    // they are taken and given back when a withheld segment is dropped, so a view whose history was
+    // all dropped claims nothing.
+    const viewRecords = recorderApi.getReplayStats(event.view.id)?.records_count ?? 0
+    if (session.sessionReplay === SessionReplayState.BUFFERED_ON_ERROR && viewRecords > 0) {
       ;(event.session as { has_replay?: boolean }).has_replay = true
     }
     hasReportedError = true
