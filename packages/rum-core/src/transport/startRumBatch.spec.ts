@@ -10,7 +10,7 @@ import {
   noop,
 } from '@flashcatcloud/browser-core'
 import { getSessionState, interceptRequests, mockClock, registerCleanupTask } from '@flashcatcloud/browser-core/test'
-import { createRumSessionManagerMock, mockRumConfiguration } from '../../test'
+import { createRumSessionManagerMock, mockRumConfiguration, noopRecorderApi } from '../../test'
 import { LifeCycle, LifeCycleEventType } from '../domain/lifeCycle'
 import { startSessionErrorTracking } from '../domain/trackSessionError'
 import { startRumSessionManager } from '../domain/rumSessionManager'
@@ -36,7 +36,8 @@ describe('withheld events through the real batch', () => {
         noop,
         new Observable(),
         session,
-        createIdentityEncoder
+        createIdentityEncoder,
+        noopRecorderApi
       )
       registerCleanupTask(() => {
         batch.stop()
@@ -74,7 +75,7 @@ describe('withheld events through the real batch', () => {
       const lifeCycle = new LifeCycle()
       const session = createRumSessionManagerMock().setTrackedOnError()
       const requests = interceptRequests()
-      const tracker = startSessionErrorTracking(lifeCycle, session)
+      const tracker = startSessionErrorTracking(lifeCycle, session, noopRecorderApi)
       const batch = startRumBatch(
         mockRumConfiguration(),
         lifeCycle,
@@ -82,7 +83,8 @@ describe('withheld events through the real batch', () => {
         noop,
         new Observable(),
         session,
-        createIdentityEncoder
+        createIdentityEncoder,
+        noopRecorderApi
       )
       registerCleanupTask(() => {
         tracker.stop()

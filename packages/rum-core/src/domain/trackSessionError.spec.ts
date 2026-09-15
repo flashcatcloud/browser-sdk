@@ -1,7 +1,8 @@
 import type { Context } from '@flashcatcloud/browser-core'
 import { registerCleanupTask } from '@flashcatcloud/browser-core/test'
 import type { RumEvent } from '../rumEvent.types'
-import { createRumSessionManagerMock } from '../../test'
+import { createRumSessionManagerMock, noopRecorderApi } from '../../test'
+import type { RecorderApi } from '../boot/rumPublicApi'
 import { LifeCycle, LifeCycleEventType } from './lifeCycle'
 import { startSessionErrorTracking } from './trackSessionError'
 
@@ -9,19 +10,26 @@ describe('startSessionErrorTracking', () => {
   let lifeCycle: LifeCycle
   let sessionManager: ReturnType<typeof createRumSessionManagerMock>
   let setSessionHasErrorSpy: jasmine.Spy
+  let recording: boolean
+  let recorderApi: RecorderApi
 
   function collect(type: string, source = 'source') {
     // only error events carry an `error` object; anything else that did would hide a guard that
     // reads it before checking the type
-    const event = type === 'error' ? { type, session: { id: 'session-id' }, error: { source } } : { type }
-    lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, event as unknown as RumEvent & Context)
+    const event = (type === 'error'
+      ? { type, session: { id: 'session-id' }, error: { source } }
+      : { type }) as unknown as RumEvent & Context
+    lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, event)
+    return event
   }
 
   beforeEach(() => {
     lifeCycle = new LifeCycle()
     sessionManager = createRumSessionManagerMock().setTrackedWithErrorSessionReplay()
     setSessionHasErrorSpy = spyOn(sessionManager, 'setSessionHasError').and.callThrough()
-    const { stop } = startSessionErrorTracking(lifeCycle, sessionManager)
+    recording = true
+    recorderApi = { ...noopRecorderApi, isRecording: () => recording }
+    const { stop } = startSessionErrorTracking(lifeCycle, sessionManager, recorderApi)
     registerCleanupTask(stop)
   })
 
@@ -49,6 +57,37 @@ describe('startSessionErrorTracking', () => {
 
     // named, not just counted: the mark is refused if it does not name the session it belongs to
     expect(setSessionHasErrorSpy).toHaveBeenCalledOnceWith('session-id')
+  })
+
+  it('claims the replay on the error that releases a withheld one', () => {
+    // the error was assembled while the replay was withheld, so nothing else will ever claim it
+    const error = collect('error')
+
+    expect(error.session.has_replay).toBeTrue()
+  })
+
+  it('claims no replay on the releasing error when the recorder is not running', () => {
+    recording = false
+
+    const error = collect('error')
+
+    expect(error.session.has_replay).toBeUndefined()
+  })
+
+  it('claims no replay on the releasing error of a session that withholds only its events', () => {
+    sessionManager.setTrackedOnError()
+
+    const error = collect('error')
+
+    expect(error.session.has_replay).toBeUndefined()
+  })
+
+  it('leaves the replay claim of an error from a session that withholds nothing to the assembly', () => {
+    sessionManager.setTrackedWithSessionReplay()
+
+    const error = collect('error')
+
+    expect(error.session.has_replay).toBeUndefined()
   })
 
   it('leaves a session that withholds nothing alone, so an ordinary session store is never written', () => {
@@ -112,7 +151,7 @@ describe('startSessionErrorTracking', () => {
   })
 
   it('stops marking once stopped', () => {
-    const { stop } = startSessionErrorTracking(lifeCycle, sessionManager)
+    const { stop } = startSessionErrorTracking(lifeCycle, sessionManager, recorderApi)
     stop()
     setSessionHasErrorSpy.calls.reset()
     // the suite's own tracker is still running, so exactly one call is expected, not two

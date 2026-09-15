@@ -39,9 +39,21 @@
     to withhold — which would otherwise begin recording before the consent call.
   - On a single-page app, the released replay reaches back only to the start of the view the error
     happened in, while the released events reach back the full minute across views.
-  - With the opt-in `compressIntakeRequests`, closing the tab within a few seconds of a session's first
-    error can lose that release: the burst is then too large for `sendBeacon` and the exit fetch is
-    cancelled by the unload. The default (uncompressed) path is not affected.
+  - Leaving the page within a few seconds of a session's first error can lose part of a large release
+    (roughly above 64 KiB, such as a busy minute of requests), compressed or not: a browser only
+    guarantees a bounded amount of data at page exit. The views and the errors are sent first, so what
+    is lost is the oldest of the other events, and possibly the page's final view update.
+  - On a page with a very large DOM that changes constantly, a withheld replay re-takes a full snapshot
+    each time its buffer overflows. Every visitor the plain replay rate did not draw pays that main
+    thread cost, and the replay released before the error gets shorter. Prefer `sessionOnError` alone
+    on such pages.
+  - Withdrawing tracking consent after a session has reported its error still uploads what was withheld
+    for it, all of which was collected while consent stood.
+
+- 🐛 With `remoteConfigurationEnabled` on and an init `sessionReplaySampleRate` of 0 (or none), a Session
+  Replay rate set in the console now takes effect: recording starts, and replays are uploaded and
+  billed. Before, the rate was delivered but never started the recorder. Pass
+  `startSessionReplayRecordingManually: true` to keep recording off until you start it yourself.
 
 ## v0.2.2
 

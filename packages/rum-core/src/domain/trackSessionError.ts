@@ -1,7 +1,9 @@
 import { ErrorSource } from '@flashcatcloud/browser-core'
+import type { RecorderApi } from '../boot/rumPublicApi'
 import { RumEventType } from '../rawRumEvent.types'
 import type { LifeCycle } from './lifeCycle'
 import { LifeCycleEventType } from './lifeCycle'
+import { SessionReplayState } from './rumSessionManager'
 import type { RumSessionManager } from './rumSessionManager'
 
 /**
@@ -12,7 +14,11 @@ import type { RumSessionManager } from './rumSessionManager'
  * by a rate limiter does not release anything: a session billed for an error that cannot be found
  * afterwards would be worse than no replay at all.
  */
-export function startSessionErrorTracking(lifeCycle: LifeCycle, sessionManager: RumSessionManager) {
+export function startSessionErrorTracking(
+  lifeCycle: LifeCycle,
+  sessionManager: RumSessionManager,
+  recorderApi: RecorderApi
+) {
   let hasReportedError = false
 
   const eventSubscription = lifeCycle.subscribe(LifeCycleEventType.RUM_EVENT_COLLECTED, (event) => {
@@ -32,6 +38,12 @@ export function startSessionErrorTracking(lifeCycle: LifeCycle, sessionManager: 
     const session = sessionManager.findTrackedSession()
     if (!session || event.session?.id !== session.id || (!session.sampledOnError && !session.sampledOnErrorReplay)) {
       return
+    }
+    // The error was assembled while its replay was still withheld, so it could not claim one then -
+    // see sessionContext. It is the event the replay is released for and the one the console opens
+    // the replay from, so it claims it here, before the batch (which subscribes after this) takes it.
+    if (session.sessionReplay === SessionReplayState.BUFFERED_ON_ERROR && recorderApi.isRecording()) {
+      ;(event.session as { has_replay?: boolean }).has_replay = true
     }
     hasReportedError = true
     sessionManager.setSessionHasError(session.id)
