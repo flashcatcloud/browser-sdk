@@ -9,6 +9,7 @@ import {
   relativeNow,
   setTimeout,
 } from '@flashcatcloud/browser-core'
+import type { RecorderApi } from '../boot/rumPublicApi'
 import type { LifeCycle } from '../domain/lifeCycle'
 import { LifeCycleEventType } from '../domain/lifeCycle'
 import type { RumSessionManager } from '../domain/rumSessionManager'
@@ -74,6 +75,7 @@ interface WithheldEvent {
 export function startWithheldEventBuffer(
   lifeCycle: LifeCycle,
   sessionManager: RumSessionManager,
+  recorderApi: RecorderApi,
   forward: (event: RumEvent & Context) => void
 ) {
   /** Latest event per view, in insertion order. */
@@ -354,8 +356,12 @@ export function startWithheldEventBuffer(
     views.forEach((view) => orderedViews.push(view))
     orderedViews.sort((left, right) => left.date - right.date)
 
-    orderedViews.forEach(forward)
-    releasable.forEach((held) => forward(held.event))
+    orderedViews.forEach(forwardReleased)
+    // The errors right behind the views, then the rest oldest first. A release at page exit leaves in
+    // as many requests as the page still gets to send, and only the first ones are sure to go: the
+    // error is what the session is kept for, so it must not ride in the last of them.
+    releasable.filter((held) => held.event.type === RumEventType.ERROR).forEach((held) => forwardReleased(held.event))
+    releasable.filter((held) => held.event.type !== RumEventType.ERROR).forEach((held) => forwardReleased(held.event))
 
     addTelemetryDebug('Error session event buffer released', {
       'buffer.views_count': views.size,
@@ -365,6 +371,20 @@ export function startWithheldEventBuffer(
     })
 
     clearBuffer()
+  }
+
+  /**
+   * Forwards a released event, claiming the replay its view kept. It was assembled while the replay
+   * was withheld and could not claim one then - see sessionContext. A view's records survive only in
+   * a segment still held, since a dropped one rolls its stats back, so they are exactly what is
+   * released alongside it.
+   */
+  function forwardReleased(event: RumEvent & Context) {
+    const stats = recorderApi.getReplayStats(event.view.id)
+    if (event.session && stats && stats.records_count > 0) {
+      ;(event.session as { has_replay?: boolean }).has_replay = true
+    }
+    forward(event)
   }
 
   /** Throws the buffer away, and remembers whose it was so its stragglers go the same way. */

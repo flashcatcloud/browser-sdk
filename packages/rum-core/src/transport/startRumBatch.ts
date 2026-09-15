@@ -12,6 +12,7 @@ import {
   isTelemetryReplicationAllowed,
   startBatchWithReplica,
 } from '@flashcatcloud/browser-core'
+import type { RecorderApi } from '../boot/rumPublicApi'
 import type { RumConfiguration } from '../domain/configuration'
 import type { LifeCycle } from '../domain/lifeCycle'
 import type { RumSessionManager } from '../domain/rumSessionManager'
@@ -25,7 +26,8 @@ export function startRumBatch(
   reportError: (error: RawError) => void,
   pageMayExitObservable: Observable<PageMayExitEvent>,
   sessionManager: RumSessionManager,
-  createEncoder: (streamId: DeflateEncoderStreamId) => Encoder
+  createEncoder: (streamId: DeflateEncoderStreamId) => Encoder,
+  recorderApi: RecorderApi
 ) {
   const replica = configuration.replica
 
@@ -47,7 +49,7 @@ export function startRumBatch(
 
   // Events reach the batch through the buffer, which either forwards them straight away or withholds
   // them until the session reports an error. A session that never errors uploads nothing at all.
-  const withheldEventBuffer = startWithheldEventBuffer(lifeCycle, sessionManager, (serverRumEvent) => {
+  const withheldEventBuffer = startWithheldEventBuffer(lifeCycle, sessionManager, recorderApi, (serverRumEvent) => {
     if (serverRumEvent.type === RumEventType.VIEW) {
       batch.upsert(serverRumEvent, serverRumEvent.view.id)
     } else {

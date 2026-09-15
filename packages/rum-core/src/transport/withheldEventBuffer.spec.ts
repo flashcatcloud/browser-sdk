@@ -2,7 +2,8 @@ import type { Context } from '@flashcatcloud/browser-core'
 import { ONE_SECOND, PageExitReason } from '@flashcatcloud/browser-core'
 import type { Clock } from '@flashcatcloud/browser-core/test'
 import { mockClock, registerCleanupTask } from '@flashcatcloud/browser-core/test'
-import { createRumSessionManagerMock } from '../../test'
+import { createRumSessionManagerMock, noopRecorderApi } from '../../test'
+import type { RecorderApi } from '../boot/rumPublicApi'
 import { RumEventType } from '../rawRumEvent.types'
 import type { RumEvent } from '../rumEvent.types'
 import { LifeCycle, LifeCycleEventType } from '../domain/lifeCycle'
@@ -22,6 +23,8 @@ describe('startWithheldEventBuffer', () => {
   let sessionManager: ReturnType<typeof createRumSessionManagerMock>
   let forwarded: Array<RumEvent & Context>
   let stopBuffer: () => void
+  /** Records captured per view by the recorder, as its replay stats report them. */
+  let recordsByView: { [viewId: string]: number }
 
   function collect(type: RumEventType, overrides: Context = {}) {
     const event = {
@@ -47,7 +50,15 @@ describe('startWithheldEventBuffer', () => {
     lifeCycle = new LifeCycle()
     forwarded = []
     sessionManager = createRumSessionManagerMock().setTrackedOnError()
-    const { stop } = startWithheldEventBuffer(lifeCycle, sessionManager, (event) => forwarded.push(event))
+    recordsByView = {}
+    const recorderApi: RecorderApi = {
+      ...noopRecorderApi,
+      getReplayStats: (viewId) =>
+        viewId in recordsByView
+          ? { records_count: recordsByView[viewId], segments_count: 1, segments_total_raw_size: 100 }
+          : undefined,
+    }
+    const { stop } = startWithheldEventBuffer(lifeCycle, sessionManager, recorderApi, (event) => forwarded.push(event))
     stopBuffer = stop
     registerCleanupTask(() => {
       stop()
@@ -129,11 +140,13 @@ describe('startWithheldEventBuffer', () => {
     collect(RumEventType.ERROR)
 
     const released = releasedAfterJitter()
+    // The errors right behind the views, then the rest oldest first: only the first requests of a
+    // release at page exit are sure to leave, and the error is what the session is kept for.
     expect(released.map((event) => event.type)).toEqual([
       RumEventType.VIEW,
+      RumEventType.ERROR,
       RumEventType.RESOURCE,
       RumEventType.ACTION,
-      RumEventType.ERROR,
     ])
   })
 
@@ -265,7 +278,7 @@ describe('startWithheldEventBuffer', () => {
 
     lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, { reason: PageExitReason.UNLOADING })
 
-    expect(forwarded.map((event) => event.type)).toEqual([RumEventType.VIEW, RumEventType.RESOURCE, RumEventType.ERROR])
+    expect(forwarded.map((event) => event.type)).toEqual([RumEventType.VIEW, RumEventType.ERROR, RumEventType.RESOURCE])
   })
 
   it('drops long tasks before actions when it runs out of room', () => {
@@ -510,6 +523,26 @@ describe('startWithheldEventBuffer', () => {
     expect(releasedViewDates).toEqual([1000, 2000, 3000])
   })
 
+  it('claims the replay a released view kept, on the view and on its events', () => {
+    recordsByView = { 'view-1': 12, 'view-2': 0 }
+    collect(RumEventType.VIEW, { date: 1000, view: { id: 'view-1' } })
+    collect(RumEventType.RESOURCE, { view: { id: 'view-1' } })
+    collect(RumEventType.VIEW, { date: 2000, view: { id: 'view-2' } })
+    sessionManager.setSessionHasError()
+    collect(RumEventType.ERROR, { view: { id: 'view-2' } })
+
+    const released = releasedAfterJitter()
+    const hasReplay = (type: RumEventType, viewId: string) =>
+      (released.find((event) => event.type === type && event.view.id === viewId)!.session as { has_replay?: boolean })
+        .has_replay
+
+    expect(hasReplay(RumEventType.VIEW, 'view-1')).toBeTrue()
+    expect(hasReplay(RumEventType.RESOURCE, 'view-1')).toBeTrue()
+    // a view whose records were all dropped with their segments has no replay to offer
+    expect(hasReplay(RumEventType.VIEW, 'view-2')).toBeUndefined()
+    expect(hasReplay(RumEventType.ERROR, 'view-2')).toBeUndefined()
+  })
+
   it('spreads the release over the window it computed for this session', () => {
     const delay = computeReleaseDelay('session-id')
     // the fixture itself has to have something to spread, or this proves nothing
@@ -605,7 +638,7 @@ describe('startWithheldEventBuffer', () => {
 
     lifeCycle.notify(LifeCycleEventType.SESSION_EXPIRED)
 
-    expect(forwarded.map((event) => event.type)).toEqual([RumEventType.VIEW, RumEventType.RESOURCE, RumEventType.ERROR])
+    expect(forwarded.map((event) => event.type)).toEqual([RumEventType.VIEW, RumEventType.ERROR, RumEventType.RESOURCE])
   })
 
   it('discards an unreleased buffer when stopping', () => {
