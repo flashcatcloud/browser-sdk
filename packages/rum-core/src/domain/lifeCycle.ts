@@ -49,6 +49,8 @@ export const enum LifeCycleEventType {
   // at the end leaves upstream's numbering alone and keeps this file out of the way of the next
   // upstream merge.
   REMOTE_CONFIGURATION_STORED,
+  /** A local or shared session mark has released conditional collection. */
+  SESSION_RELEASED,
 }
 
 // This is a workaround for an issue occurring when the Browser SDK is included in a TypeScript
@@ -81,6 +83,7 @@ declare const LifeCycleEventTypeAsConst: {
   RAW_RUM_EVENT_COLLECTED: LifeCycleEventType.RAW_RUM_EVENT_COLLECTED
   RUM_EVENT_COLLECTED: LifeCycleEventType.RUM_EVENT_COLLECTED
   RAW_ERROR_COLLECTED: LifeCycleEventType.RAW_ERROR_COLLECTED
+  SESSION_RELEASED: LifeCycleEventType.SESSION_RELEASED
   REMOTE_CONFIGURATION_STORED: LifeCycleEventType.REMOTE_CONFIGURATION_STORED
 }
 
@@ -106,6 +109,7 @@ export interface LifeCycleEventMap {
     error: RawError
     customerContext?: Context
   }
+  [LifeCycleEventTypeAsConst.SESSION_RELEASED]: { sessionId: string; reason: 'error' | 'force' }
   [LifeCycleEventTypeAsConst.REMOTE_CONFIGURATION_STORED]: void
 }
 

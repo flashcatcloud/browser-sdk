@@ -18,6 +18,43 @@
 
 ---
 
+## Unreleased
+
+- ✨ Two new init options keep only the sessions that report an error, for customers who want every
+  error investigated without storing and paying for every session. `sessionOnError` keeps the
+  events of a session the plain `sessionSampleRate` draw missed: it records from the start, uploads
+  nothing, and is never stored unless it reports an error — on the first error the withheld history,
+  up to the last minute of it, is uploaded and collection continues. `sessionReplayOnError` does the
+  same for the Session Replay of a session the plain `sessionReplaySampleRate` draw missed. Both are
+  switches, default off, and apply only to what the plain rate did not already draw, so a session is
+  never counted twice. Both can also be set from the console when `remoteConfigurationEnabled` is on.
+  View events of such a session carry `sampled_for_error` / `sampled_for_error_replay` so a stored
+  error session can be told apart from an ordinary one.
+
+  Known limitations of the on-error switches:
+
+  - A site that gates recording on consent by calling `startSessionReplayRecording()` itself must set
+    `startSessionReplayRecordingManually: true` explicitly. With `remoteConfigurationEnabled` on and an
+    init replay rate of 0, the recorder now starts on its own so a console-delivered rate has something
+    to withhold — which would otherwise begin recording before the consent call.
+  - On a single-page app, the released replay reaches back only to the start of the view the error
+    happened in, while the released events reach back the full minute across views.
+  - Leaving the page within a few seconds of a session's first error can lose part of a large release
+    (roughly above 64 KiB, such as a busy minute of requests), compressed or not: a browser only
+    guarantees a bounded amount of data at page exit. The views and the errors are sent first, so what
+    is lost is the oldest of the other events, and possibly the page's final view update.
+  - On a page with a very large DOM that changes constantly, a withheld replay re-takes a full snapshot
+    each time its buffer overflows. Every visitor the plain replay rate did not draw pays that main
+    thread cost, and the replay released before the error gets shorter. Prefer `sessionOnError` alone
+    on such pages.
+  - Withdrawing tracking consent after a session has reported its error still uploads what was withheld
+    for it, all of which was collected while consent stood.
+
+- 🐛 With `remoteConfigurationEnabled` on and an init `sessionReplaySampleRate` of 0 (or none), a Session
+  Replay rate set in the console now takes effect: recording starts, and replays are uploaded and
+  billed. Before, the rate was delivered but never started the recorder. Pass
+  `startSessionReplayRecordingManually: true` to keep recording off until you start it yourself.
+
 ## v0.2.3
 
 - ✨ A session sample rate published from the console that rises above 0 now ends the running

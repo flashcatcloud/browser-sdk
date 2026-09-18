@@ -38,16 +38,65 @@ export function startSessionContext(
       return DISCARDED
     }
 
+    // A session withholding its replay is recording, but nothing has been uploaded and nothing may
+    // ever be. An event assembled now cannot know which of the two it will turn out to be: the
+    // segment covering it is dropped on the next view change and sent only if the error comes first,
+    // and it is assembled before either happens - the final update of a view is emitted before the
+    // view change that drops that view's segment. So it does not claim a replay. Whether the session
+    // was *sampled* for one is a different question, answerable here, and answered below.
+    const isReplayWithheld = session.sessionReplay === SessionReplayState.BUFFERED_ON_ERROR
+
     let hasReplay
     let sampledForReplay
+    let sampledForError
+    let sampledForErrorReplay
     let isActive
     if (eventType === RumEventType.VIEW) {
-      hasReplay = recorderApi.getReplayStats(view.id) ? true : undefined
-      sampledForReplay = session.sessionReplay === SessionReplayState.SAMPLED
+      // Records rather than merely a stats entry: a withheld buffer that was dropped rolls back what
+      // it held, which leaves a view with an empty stats entry and no replay at all - and offering a
+      // replay that was never uploaded is worse than not offering one. Records, not segments,
+      // because a host bridge takes the records itself and no segment is ever built for them.
+      const replayStats = recorderApi.getReplayStats(view.id)
+      hasReplay = !isReplayWithheld && replayStats && replayStats.records_count > 0 ? true : undefined
+      // A session that withholds its events withholds its replay alongside them, so if these events
+      // are ever uploaded that replay is on its way with them. Reporting the state as it stands at
+      // assembly time would mark the whole released burst as a session that has no replay.
+      sampledForReplay =
+        session.sessionReplay === SessionReplayState.SAMPLED || (isReplayWithheld && session.eventsWithheld)
+      // Tells the backend that this session's detail only starts where the buffer reached, so the
+      // gap before it reads as "not collected" rather than as missing data.
+      sampledForError = session.sampledOnError || undefined
+      // Tells a replay collected only because the session errored apart from one collected
+      // unconditionally - the two cost differently and are answered by different questions.
+      sampledForErrorReplay = session.sampledOnErrorReplay || undefined
       isActive = view.sessionIsActive ? undefined : false
     } else {
-      hasReplay = recorderApi.isRecording() ? true : undefined
+      hasReplay = !isReplayWithheld && recorderApi.isRecording() ? true : undefined
     }
+
+    // These three are fork additions the generated event schema does not declare, so on the session
+    // object below they would only be checked against its `[k: string]: unknown` index signature - a
+    // typo in a name would compile and silently emit a field the backend never reads. Typing them
+    // here makes an excess or misspelled key fail the build instead.
+    const forkMarkers: {
+      sampled_for_replay: boolean | undefined
+      sampled_for_error: boolean | undefined
+      sampled_for_error_replay: boolean | undefined
+    } = {
+      sampled_for_replay: sampledForReplay,
+      sampled_for_error: sampledForError,
+      sampled_for_error_replay: sampledForErrorReplay,
+    }
+
+    // A session kept only because it errored reports a session rate of 0 over whatever it was drawn
+    // at: it stands for itself, not for `100 / rate` sessions like a plainly sampled one, and 0 is what
+    // the backend reads as "one session, do not scale". Decided from the tracking type rather than
+    // stored with the draw, because the two do not live equally long: the type rides in the session
+    // cookie to every page of the session, while the draw record is one per-origin storage slot that a
+    // subdomain hop or a cleared storage leaves behind - and without it the event would fall back to
+    // the init rate and be counted as `100 / rate` sessions again.
+    const drawn = session.drawnConfiguration && drawnAttributes(session.drawnConfiguration)
+    const configuration = session.sampledOnError ? { ...drawn, session_sample_rate: 0 } : drawn
 
     return {
       type: eventType,
@@ -55,7 +104,7 @@ export function startSessionContext(
         id: session.id,
         type: SessionType.USER,
         has_replay: hasReplay,
-        sampled_for_replay: sampledForReplay,
+        ...forkMarkers,
         is_active: isActive,
       },
       // FLASHCAT FORK - overrides the init values reported by the default context with the rates
@@ -65,9 +114,7 @@ export function startSessionContext(
       // draw that kept the session, and the version lets an auditor recover the exact settings from
       // the console's version history. `rc_version` is a FlashCat addition on top of the shared
       // schema; our intake reads it, others ignore it.
-      ...(session.drawnConfiguration
-        ? { _dd: { configuration: drawnAttributes(session.drawnConfiguration) } }
-        : undefined),
+      ...(configuration ? { _dd: { configuration } } : undefined),
     }
   })
 }

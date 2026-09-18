@@ -157,6 +157,47 @@ describe('startRecording', () => {
     expect(requests[0].metadata.records_count).toBe(1 + recordsPerFullSnapshot())
   })
 
+  it('sends the withheld replay once its session reports an error', async () => {
+    sessionManager.setTrackedWithErrorSessionReplay()
+    setupStartRecording()
+
+    document.body.dispatchEvent(createNewEvent('click', { clientX: 1, clientY: 2 }))
+    // a page exit while the session is still waiting for an error keeps the buffer rather than
+    // sending it, so what follows joins the same segment
+    flushSegment(lifeCycle)
+    document.body.dispatchEvent(createNewEvent('click', { clientX: 3, clientY: 4 }))
+
+    sessionManager.setSessionHasError()
+    flushSegment(lifeCycle)
+
+    const requests = await readSentRequests(1)
+    expect(requestSendSpy).toHaveBeenCalledTimes(1)
+    // one segment, held since the recording started, carrying everything from before the error
+    expect(requests[0].metadata.creation_reason).toBe('init')
+    expect(requests[0].metadata.records_count).toBe(2 + recordsPerFullSnapshot())
+  })
+
+  it('drops a withheld replay when the session stops withholding without having errored', async () => {
+    sessionManager.setTrackedWithErrorSessionReplay()
+    setupStartRecording()
+
+    document.body.dispatchEvent(createNewEvent('click', { clientX: 1, clientY: 2 }))
+
+    // an older SDK sharing the same session store does not know this tracking type and redraws it.
+    // The session stops withholding, but it never reported an error, so what it held is not owed a
+    // trip to the intake.
+    sessionManager.setTrackedWithSessionReplay()
+    changeView(lifeCycle)
+
+    document.body.dispatchEvent(createNewEvent('click', { clientX: 3, clientY: 4 }))
+    flushSegment(lifeCycle)
+
+    const requests = await readSentRequests(1)
+    // 'init' would be the withheld segment; the first one to reach the intake is the one created
+    // after the session stopped withholding
+    expect(requests[0].metadata.creation_reason).toBe('view_change')
+  })
+
   it('restarts sending segments when the session is renewed', async () => {
     sessionManager.setNotTracked()
     setupStartRecording()

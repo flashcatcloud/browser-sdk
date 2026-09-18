@@ -209,7 +209,39 @@ export interface RumInitConfiguration extends InitConfiguration {
    */
   sessionReplaySampleRate?: number | undefined
   /**
-   * If the session is sampled for Session Replay, only start the recording when `startSessionReplayRecording()` is called, instead of at the beginning of the session. Default: if startSessionReplayRecording is 0, true; otherwise, false.
+   * Whether the tracked sessions that `sessionReplaySampleRate` did not draw still record a replay,
+   * uploaded only if the session reports an error. Default: false.
+   *
+   * Such a session records from the start and keeps at most the last minute of it in memory. If it
+   * never reports an error, nothing is uploaded and the session is not billed. On the first error,
+   * the withheld minute is uploaded and recording continues normally for the rest of the session.
+   *
+   * The withheld replay does not span a view change: what is released reaches back to the start of
+   * the view the error happened in, not a full minute across earlier views. The session's events
+   * (see `sessionOnError`) do reach back the full minute across views.
+   */
+  sessionReplayOnError?: boolean | undefined
+  /**
+   * Whether the sessions that `sessionSampleRate` did not draw still collect events, uploaded only
+   * if the session reports an error. Default: false. It only applies to what the plain rate missed,
+   * so with the default `sessionSampleRate` of 100 there is nothing left for it to apply to.
+   *
+   * Such a session collects from the start and keeps at most the last minute of it in memory. If it
+   * never reports an error, nothing is uploaded and the session is not stored. On the first error,
+   * the withheld minute is uploaded and collection continues normally.
+   *
+   * A session kept this way never uploads its replay ahead of its events: until the events are
+   * released the session does not exist yet, and a replay sent then would have nothing to attach to.
+   */
+  sessionOnError?: boolean | undefined
+  /**
+   * If the session is sampled for Session Replay, only start the recording when `startSessionReplayRecording()` is called, instead of at the beginning of the session.
+   *
+   * Default when left unset: `true` only if `sessionReplaySampleRate` is 0, `sessionReplayOnError` is
+   * off, and `remoteConfigurationEnabled` is not set; `false` otherwise. A session kept by
+   * `sessionReplayOnError`, or one whose replay rate may be raised from the console, has to be
+   * recording before the error happens, so the recording must start on its own rather than wait for a
+   * manual call.
    * See [Session Replay Usage](https://docs.datadoghq.com/real_user_monitoring/session_replay/browser/#usage) for further information.
    */
   startSessionReplayRecordingManually?: boolean | undefined
@@ -309,6 +341,8 @@ export interface RumConfiguration extends Configuration {
   defaultPrivacyLevel: DefaultPrivacyLevel
   enablePrivacyForActionName: boolean
   sessionReplaySampleRate: number
+  sessionReplayOnError: boolean
+  sessionOnError: boolean
   startSessionReplayRecordingManually: boolean
   sessionReplayDirectUpload: boolean
   trackUserInteractions: boolean
@@ -393,16 +427,65 @@ export function validateAndBuildRumConfiguration(
   const profilingEnabled = isExperimentalFeatureEnabled(ExperimentalFeature.PROFILING)
 
   const sessionReplaySampleRate = initConfiguration.sessionReplaySampleRate ?? 0
+  const sessionReplayOnError = !!initConfiguration.sessionReplayOnError
+  const sessionOnError = !!initConfiguration.sessionOnError
+
+  // Each of the cases below is a combination the customer can set that cannot apply to a single
+  // session. It is valid, so validation lets it through - but silence would leave someone waiting
+  // for data that is never coming.
+  //
+  // Only judged against the init rates when the console cannot change them: under remote
+  // configuration these values are a fallback until the first fetch lands, so the console may
+  // deliver the very rate that leaves the switch room to apply. Warning on the init values there
+  // would fire on the documented remote-config setup - a site that omits the rate and lets the
+  // console own it - which is exactly not a misconfiguration.
+  if (!initConfiguration.remoteConfigurationEnabled) {
+    if (sessionOnError && (initConfiguration.sessionSampleRate ?? 100) === 100) {
+      display.warn(
+        'sessionOnError only applies to sessions sessionSampleRate did not draw, and that rate is 100: it will never apply.'
+      )
+    }
+    if (sessionReplayOnError) {
+      if (sessionReplaySampleRate === 100) {
+        display.warn(
+          'sessionReplayOnError only applies to sessions sessionReplaySampleRate did not draw, and that rate is 100: it will never apply.'
+        )
+      }
+      if ((initConfiguration.sessionSampleRate ?? 100) === 0 && !sessionOnError) {
+        display.warn(
+          'sessionReplayOnError has no effect while sessionSampleRate is 0 and sessionOnError is off: no session is tracked.'
+        )
+      }
+    }
+  }
+
+  // A session kept on error withholds whichever replay it draws, so the same trap is reachable
+  // through the plain replay rate as well - and there it is worse than silence, since the released
+  // views would report a replay for a recording that never ran.
+  if (
+    initConfiguration.startSessionReplayRecordingManually &&
+    (sessionReplayOnError ||
+      (sessionOnError && sessionReplaySampleRate > 0 && (initConfiguration.sessionSampleRate ?? 100) < 100))
+  ) {
+    display.warn(
+      'A replay kept until the session errors has to be recording before that error, and startSessionReplayRecordingManually keeps it stopped until you start it: there would be nothing to release.'
+    )
+  }
 
   return {
     applicationId: initConfiguration.applicationId,
     version: initConfiguration.version || undefined,
     actionNameAttribute: initConfiguration.actionNameAttribute,
     sessionReplaySampleRate,
+    sessionReplayOnError,
+    sessionOnError,
     startSessionReplayRecordingManually:
       initConfiguration.startSessionReplayRecordingManually !== undefined
         ? !!initConfiguration.startSessionReplayRecordingManually
-        : sessionReplaySampleRate === 0,
+        : // An error-sampled session has to be recording before the error happens, otherwise there is
+          // nothing to withhold and release. Remote configuration may enable replay on a later
+          // session, so keep the automatic start intent even when init disables replay.
+          sessionReplaySampleRate === 0 && !sessionReplayOnError && !initConfiguration.remoteConfigurationEnabled,
     sessionReplayDirectUpload: !!initConfiguration.sessionReplayDirectUpload,
     traceSampleRate: initConfiguration.traceSampleRate ?? 100,
     rulePsr: isNumber(initConfiguration.traceSampleRate) ? initConfiguration.traceSampleRate / 100 : undefined,
@@ -493,6 +576,9 @@ export function serializeRumConfiguration(configuration: RumInitConfiguration) {
 
   return {
     session_replay_sample_rate: configuration.sessionReplaySampleRate,
+    // `session_replay_on_error` and `session_on_error` are deliberately not reported yet: the telemetry
+    // configuration type is generated from the rum-events-format schema, so adding it needs a schema
+    // change first, and that is a separate repository.
     start_session_replay_recording_manually: configuration.startSessionReplayRecordingManually,
     trace_sample_rate: configuration.traceSampleRate,
     trace_context_injection: configuration.traceContextInjection,

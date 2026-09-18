@@ -121,6 +121,34 @@ describe('remoteConfiguration', () => {
       start(configurationWith())
     })
 
+    it('keeps the on-error switches the server reports, either way they are set', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(
+          200,
+          body({ rum: { sessionReplaySampleRate: 10, sessionReplayOnError: false, sessionOnError: true } })
+        )
+
+        expect(readRemoteConfig(setup)).toEqual({
+          sessionReplaySampleRate: 10,
+          sessionReplayOnError: false,
+          sessionOnError: true,
+          version: 3,
+        })
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('drops a switch that is not a boolean, so it reads as not delivered', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: { sessionSampleRate: 50, sessionReplayOnError: 'true' as unknown as boolean } }))
+
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 50, version: 3 })
+        done()
+      })
+      start(configurationWith())
+    })
+
     it('drops a privacy level it does not recognise rather than passing it on', (done) => {
       // A typo must not reach the recorders: an unknown value there falls through to recording
       // everything, which is the one outcome nobody asks for by accident.
