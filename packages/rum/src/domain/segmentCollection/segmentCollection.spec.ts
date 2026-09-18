@@ -1,7 +1,7 @@
 import type { ClocksState, HttpRequest, TimeStamp } from '@flashcatcloud/browser-core'
-import { DeflateEncoderStreamId, PageExitReason } from '@flashcatcloud/browser-core'
+import { DeflateEncoderStreamId, noop, PageExitReason } from '@flashcatcloud/browser-core'
 import type { ViewHistory, ViewHistoryEntry, RumConfiguration } from '@flashcatcloud/browser-rum-core'
-import { LifeCycle, LifeCycleEventType } from '@flashcatcloud/browser-rum-core'
+import { LifeCycle, LifeCycleEventType, WITHHELD_BUFFER_DURATION } from '@flashcatcloud/browser-rum-core'
 import type { Clock } from '@flashcatcloud/browser-core/test'
 import { mockClock, registerCleanupTask, restorePageVisibility } from '@flashcatcloud/browser-core/test'
 import { createRumSessionManagerMock } from '../../../../rum-core/test'
@@ -9,6 +9,7 @@ import type { BrowserRecord, SegmentContext } from '../../types'
 import { RecordType } from '../../types'
 import { MockWorker, readMetadataFromReplayPayload } from '../../../test'
 import { createDeflateEncoder } from '../deflate'
+import * as replayStats from '../replayStats'
 import {
   computeSegmentContext,
   doStartSegmentCollection,
@@ -70,7 +71,8 @@ describe('startSegmentCollection', () => {
       lifeCycle,
       () => context,
       httpRequestSpy,
-      createDeflateEncoder(configuration, worker, DeflateEncoderStreamId.REPLAY)
+      createDeflateEncoder(configuration, worker, DeflateEncoderStreamId.REPLAY),
+      { getWithholdingSessionId: () => undefined, isReleased: () => false, restartFromFullSnapshot: noop }
     ))
 
     registerCleanupTask(() => {
@@ -328,4 +330,528 @@ describe('computeSegmentContext', () => {
       },
     } as any
   }
+})
+
+describe('startSegmentCollection withholding (error session replay)', () => {
+  let clock: Clock
+  let lifeCycle: LifeCycle
+  let worker: MockWorker
+  let httpRequestSpy: {
+    sendOnExit: jasmine.Spy<HttpRequest['sendOnExit']>
+    send: jasmine.Spy<HttpRequest['send']>
+  }
+  let addRecord: (record: BrowserRecord) => void
+  let withholdingSessionId: string | undefined
+  let releasedSessionId: string | undefined
+  let restartFromFullSnapshotSpy: jasmine.Spy<() => void>
+  let stopCollection: () => void
+
+  function reportError() {
+    releasedSessionId = withholdingSessionId
+    withholdingSessionId = undefined
+  }
+
+  beforeEach(() => {
+    clock = mockClock()
+    lifeCycle = new LifeCycle()
+    worker = new MockWorker()
+    httpRequestSpy = { sendOnExit: jasmine.createSpy(), send: jasmine.createSpy() }
+    withholdingSessionId = CONTEXT.session.id
+    releasedSessionId = undefined
+    restartFromFullSnapshotSpy = jasmine.createSpy()
+    replayStats.resetReplayStats()
+
+    const { stop, addRecord: add } = doStartSegmentCollection(
+      lifeCycle,
+      () => CONTEXT,
+      httpRequestSpy,
+      createDeflateEncoder({} as RumConfiguration, worker, DeflateEncoderStreamId.REPLAY),
+      {
+        getWithholdingSessionId: () => withholdingSessionId,
+        isReleased: (sessionId) => releasedSessionId === sessionId,
+        restartFromFullSnapshot: restartFromFullSnapshotSpy,
+      }
+    )
+    addRecord = add
+    stopCollection = stop
+
+    registerCleanupTask(() => {
+      stop()
+      clock.cleanup()
+      replayStats.resetReplayStats()
+    })
+  })
+
+  it('releases a checkout still being encoded without reusing its segment index', async () => {
+    addRecord({ ...RECORD, type: RecordType.FullSnapshot, data: {} } as BrowserRecord)
+    worker.processAllMessages()
+    clock.tick(WITHHELD_BUFFER_DURATION)
+    reportError()
+    lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, { type: 'error' } as any)
+    addRecord(RECORD)
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+    const metadata = await Promise.all(
+      httpRequestSpy.send.calls.allArgs().map(([payload]) => readMetadataFromReplayPayload(payload))
+    )
+    expect(metadata.map((segment) => segment.index_in_view)).toEqual([0, 1])
+    expect(metadata[0]?.has_full_snapshot).toBeTrue()
+  })
+
+  it('remembers a release if recording ends before the worker answers', () => {
+    addRecord(RECORD)
+    worker.processAllMessages()
+    clock.tick(WITHHELD_BUFFER_DURATION)
+    reportError()
+    lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, { type: 'error' } as any)
+    stopCollection()
+    releasedSessionId = undefined
+    worker.processAllMessages()
+    expect(httpRequestSpy.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('drains records and a stop queued behind a released flush', async () => {
+    addRecord(RECORD)
+    worker.processAllMessages()
+    clock.tick(WITHHELD_BUFFER_DURATION)
+    addRecord(RECORD)
+    reportError()
+    stopCollection()
+    releasedSessionId = undefined
+    worker.processAllMessages()
+    const metadata = await Promise.all(
+      httpRequestSpy.send.calls.allArgs().map(([payload]) => readMetadataFromReplayPayload(payload))
+    )
+    expect(metadata.map((segment) => segment.index_in_view)).toEqual([0, 1])
+    expect(metadata.map((segment) => segment.records_count)).toEqual([1, 1])
+  })
+
+  it('preserves encoder ordering when a new recording starts before the old flush completes', async () => {
+    const sharedWorker = new MockWorker()
+    const sharedEncoder = createDeflateEncoder({} as RumConfiguration, sharedWorker, DeflateEncoderStreamId.REPLAY)
+    const sent: Array<Parameters<HttpRequest['send']>[0]> = []
+    let released = false
+    const request = { send: (payload: Parameters<HttpRequest['send']>[0]) => sent.push(payload), sendOnExit: noop }
+    const first = doStartSegmentCollection(lifeCycle, () => CONTEXT, request, sharedEncoder, {
+      getWithholdingSessionId: () => (released ? undefined : CONTEXT.session.id),
+      isReleased: () => released,
+      restartFromFullSnapshot: noop,
+    })
+    first.addRecord(RECORD)
+    clock.tick(WITHHELD_BUFFER_DURATION)
+    first.addRecord(RECORD)
+    released = true
+    first.stop()
+    const second = doStartSegmentCollection(
+      new LifeCycle(),
+      () => ({ ...CONTEXT, session: { id: 'next-session' }, view: { id: 'next-view' } }),
+      request,
+      sharedEncoder,
+      {
+        getWithholdingSessionId: () => undefined,
+        isReleased: () => false,
+        restartFromFullSnapshot: noop,
+      }
+    )
+    second.addRecord(RECORD)
+    second.stop()
+    sharedWorker.processAllMessages()
+    const segments = await Promise.all(
+      sent.map(
+        async (payload) =>
+          JSON.parse(await ((payload.data as FormData).get('segment') as Blob).text()) as {
+            session: { id: string }
+            records: BrowserRecord[]
+            index_in_view: number
+          }
+      )
+    )
+    expect(segments.map((segment) => segment.session.id)).toEqual([
+      CONTEXT.session.id,
+      CONTEXT.session.id,
+      'next-session',
+    ])
+    expect(segments.map((segment) => segment.index_in_view)).toEqual([0, 1, 0])
+    expect(segments.map((segment) => segment.records.length)).toEqual([1, 1, 1])
+  })
+
+  it('never releases an unfinished flush for a different session', () => {
+    addRecord(RECORD)
+    clock.tick(WITHHELD_BUFFER_DURATION)
+    releasedSessionId = 'different-session'
+    stopCollection()
+    worker.processAllMessages()
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+  })
+
+  it('does not send anything while the session has not reported an error', () => {
+    addRecord(RECORD)
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+    expect(httpRequestSpy.sendOnExit).not.toHaveBeenCalled()
+  })
+
+  it('keeps buffering across several duration limits instead of cutting the segment', () => {
+    addRecord(RECORD)
+    clock.tick(SEGMENT_DURATION_LIMIT * 3)
+    addRecord(RECORD)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+    // still the same buffer: dropping it would have asked for a fresh full snapshot
+    expect(restartFromFullSnapshotSpy).not.toHaveBeenCalled()
+  })
+
+  it('sends the withheld buffer once the session reports an error', async () => {
+    addRecord(RECORD)
+    addRecord(RECORD)
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+
+    reportError()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).toHaveBeenCalledTimes(1)
+    // the records collected before the error are part of what is sent
+    expect((await readMetadataFromReplayPayload(httpRequestSpy.send.calls.mostRecent().args[0])).records_count).toBe(2)
+  })
+
+  it('keeps the withheld buffer across a page reactivation instead of cutting it', async () => {
+    addRecord(RECORD)
+    worker.processAllMessages()
+    // A reactivation flush must not cut the withheld buffer: cutting drops it, taking the records
+    // that came before the reactivation with it and leaving the released replay unable to start
+    // from them.
+    lifeCycle.notify(LifeCycleEventType.PAGE_REACTIVATED)
+    worker.processAllMessages()
+    expect(restartFromFullSnapshotSpy).not.toHaveBeenCalled()
+    addRecord(RECORD)
+
+    reportError()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    const metadata = await Promise.all(
+      httpRequestSpy.send.calls.allArgs().map(([payload]) => readMetadataFromReplayPayload(payload))
+    )
+    const totalRecords = metadata.reduce((count, segment) => count + segment.records_count, 0)
+    // both records survive in what is released; a reactivation cut would have dropped the first one
+    expect(totalRecords).toBe(2)
+  })
+
+  it('wakes the deferred restart from a SESSION_RELEASED event with no accompanying rum event', () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(VERY_BIG_RECORD))
+    // An oversized snapshot drops the buffer and arms the deferred restart poll, still withholding.
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+
+    // The session errors and is released, but nothing else happens on the page - no rum event, no
+    // clock tick. Only the SESSION_RELEASED subscription can wake the restart here.
+    reportError()
+    lifeCycle.notify(LifeCycleEventType.SESSION_RELEASED, { sessionId: CONTEXT.session.id } as any)
+    worker.processAllMessages()
+
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops the buffer and restarts from a full snapshot once it spans the checkout time', () => {
+    addRecord(RECORD)
+    clock.tick(WITHHELD_BUFFER_DURATION)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops the buffer and restarts from a full snapshot when it grows past the bytes limit', () => {
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not restart in a hot loop when the full snapshot alone exceeds the bytes limit', () => {
+    // every restart would blow the limit again straight away on such a document
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('restores a full snapshot after consecutive oversized snapshots and an error', async () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(VERY_BIG_RECORD))
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+
+    reportError()
+    addRecord(RECORD)
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).toHaveBeenCalled()
+    expect(
+      (await readMetadataFromReplayPayload(httpRequestSpy.send.calls.first().args[0])).has_full_snapshot
+    ).toBeTrue()
+  })
+
+  it('restores a missing snapshot before an errored page exits during the restart delay', async () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(VERY_BIG_RECORD))
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    reportError()
+    addRecord(RECORD)
+    lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, { reason: PageExitReason.UNLOADING })
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.sendOnExit).toHaveBeenCalled()
+    expect(
+      (await readMetadataFromReplayPayload(httpRequestSpy.sendOnExit.calls.first().args[0])).has_full_snapshot
+    ).toBeTrue()
+  })
+
+  it('restores the missing snapshot as soon as an error releases the session', () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(VERY_BIG_RECORD))
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    reportError()
+    lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, { type: 'error' } as any)
+
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(2)
+    worker.processAllMessages()
+    expect(httpRequestSpy.send).toHaveBeenCalled()
+  })
+
+  it('cancels the delayed replacement when a new view supplies a snapshot', () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(VERY_BIG_RECORD))
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    lifeCycle.notify(LifeCycleEventType.VIEW_CREATED, {} as any)
+    addRecord({ ...VERY_BIG_RECORD, data: {} } as BrowserRecord)
+    worker.processAllMessages()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+  })
+
+  it('does not repeatedly serialize an oversized document while waiting for an error', () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(VERY_BIG_RECORD))
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    for (let i = 0; i < 4; i++) {
+      clock.tick(SEGMENT_DURATION_LIMIT)
+      worker.processAllMessages()
+    }
+
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+  })
+
+  it('cancels a delayed snapshot when recording stops', () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(VERY_BIG_RECORD))
+    addRecord(VERY_BIG_RECORD)
+    worker.processAllMessages()
+    stopCollection()
+    clock.tick(SEGMENT_DURATION_LIMIT * 2)
+    worker.processAllMessages()
+
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+  })
+
+  it('keeps the buffer when the page is only hidden, so the replay can still start from its snapshot', () => {
+    // switching tabs is ordinary; dropping here would take the only full snapshot with it
+    addRecord(RECORD)
+    addRecord(RECORD)
+    lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, { reason: PageExitReason.HIDDEN })
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.sendOnExit).not.toHaveBeenCalled()
+    expect(restartFromFullSnapshotSpy).not.toHaveBeenCalled()
+
+    reportError()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends nothing on page exit for a session that never errored', () => {
+    addRecord(RECORD)
+    lifeCycle.notify(LifeCycleEventType.PAGE_MAY_EXIT, { reason: PageExitReason.UNLOADING })
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.sendOnExit).not.toHaveBeenCalled()
+  })
+
+  it('does not let a dropped buffer leave its index_in_view behind for the next one to collide with', async () => {
+    // the restart emits records, exactly as taking a fresh full snapshot does in production
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(RECORD))
+
+    addRecord(RECORD)
+    clock.tick(WITHHELD_BUFFER_DURATION)
+    worker.processAllMessages()
+    expect(restartFromFullSnapshotSpy).toHaveBeenCalledTimes(1)
+
+    reportError()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    // the dropped buffer never reached the intake, so the first segment that does is index 0
+    const metadata = await readMetadataFromReplayPayload(httpRequestSpy.send.calls.mostRecent().args[0])
+    expect(metadata.index_in_view).toBe(0)
+    // and it carries a reason the segment schema knows, not the internal one that dropped the buffer
+    expect(metadata.creation_reason).toBe('segment_duration_limit')
+  })
+
+  it('does not restart the buffer when collection was stopped while the flush was in flight', () => {
+    addRecord(RECORD)
+    // the checkout flush is posted to the worker, and recording is stopped before it answers
+    clock.tick(WITHHELD_BUFFER_DURATION)
+    stopCollection()
+    worker.processAllMessages()
+
+    expect(restartFromFullSnapshotSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not hand the next segment an index the dropped one still holds when a record lands mid-flush', async () => {
+    restartFromFullSnapshotSpy.and.callFake(() => addRecord(RECORD))
+
+    addRecord(RECORD)
+    // The flush is posted to the worker but not answered yet - in production that round trip always
+    // happens, because flushing writes the trailer before finishing. A record arriving now creates
+    // the next segment, which reads its index while the dropped one is still counted.
+    clock.tick(WITHHELD_BUFFER_DURATION)
+    addRecord(RECORD)
+    worker.processAllMessages()
+
+    reportError()
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    expect((await readMetadataFromReplayPayload(httpRequestSpy.send.calls.mostRecent().args[0])).index_in_view).toBe(0)
+  })
+
+  it('leaves no trace of a dropped buffer in the replay stats', () => {
+    addRecord(RECORD)
+    clock.tick(WITHHELD_BUFFER_DURATION)
+    worker.processAllMessages()
+
+    const stats = replayStats.getReplayStats(CONTEXT.view.id)
+    expect(stats?.segments_count ?? 0).toBe(0)
+    expect(stats?.segments_total_raw_size ?? 0).toBe(0)
+  })
+
+  it('sends normally once released, without withholding the following segments', () => {
+    reportError()
+    addRecord(RECORD)
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+    addRecord(RECORD)
+    clock.tick(SEGMENT_DURATION_LIMIT)
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('startSegmentCollection withholding, session lifecycle', () => {
+  let clock: Clock
+  let lifeCycle: LifeCycle
+  let worker: MockWorker
+  let httpRequestSpy: {
+    sendOnExit: jasmine.Spy<HttpRequest['sendOnExit']>
+    send: jasmine.Spy<HttpRequest['send']>
+  }
+  let addRecord: (record: BrowserRecord) => void
+  let stopSegmentCollection: () => void
+  let withholdingSessionId: string | undefined
+  let releasedSessionId: string | undefined
+
+  beforeEach(() => {
+    clock = mockClock()
+    lifeCycle = new LifeCycle()
+    worker = new MockWorker()
+    httpRequestSpy = { sendOnExit: jasmine.createSpy(), send: jasmine.createSpy() }
+    withholdingSessionId = CONTEXT.session.id
+    releasedSessionId = undefined
+
+    const { stop, addRecord: add } = doStartSegmentCollection(
+      lifeCycle,
+      () => CONTEXT,
+      httpRequestSpy,
+      createDeflateEncoder({} as RumConfiguration, worker, DeflateEncoderStreamId.REPLAY),
+      {
+        getWithholdingSessionId: () => withholdingSessionId,
+        isReleased: (sessionId) => releasedSessionId === sessionId,
+        restartFromFullSnapshot: () => undefined,
+      }
+    )
+    addRecord = add
+    stopSegmentCollection = stop
+
+    registerCleanupTask(() => {
+      stopSegmentCollection()
+      clock.cleanup()
+    })
+  })
+
+  it('drops the buffer when the session expires without ever reporting an error', () => {
+    addRecord(RECORD)
+    // the session is gone, so nothing answers for these records any more
+    withholdingSessionId = undefined
+    releasedSessionId = undefined
+
+    stopSegmentCollection()
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+    expect(httpRequestSpy.sendOnExit).not.toHaveBeenCalled()
+  })
+
+  it('drops the buffer when the session is renewed into a different one', () => {
+    addRecord(RECORD)
+    withholdingSessionId = undefined
+    releasedSessionId = 'a-different-session'
+
+    stopSegmentCollection()
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).not.toHaveBeenCalled()
+    expect(httpRequestSpy.sendOnExit).not.toHaveBeenCalled()
+  })
+
+  it('sends the buffer when its own session reports the error', () => {
+    addRecord(RECORD)
+    releasedSessionId = withholdingSessionId
+    withholdingSessionId = undefined
+
+    stopSegmentCollection()
+    worker.processAllMessages()
+
+    expect(httpRequestSpy.send).toHaveBeenCalledTimes(1)
+  })
 })

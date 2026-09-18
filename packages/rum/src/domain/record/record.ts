@@ -33,6 +33,11 @@ export interface RecordOptions {
 export interface RecordAPI {
   stop: () => void
   flushMutations: () => void
+  /**
+   * Re-serializes the document so that the records that follow are replayable on their own. Needed
+   * when a withheld replay buffer is dropped, since it takes its full snapshot with it.
+   */
+  takeSubsequentFullSnapshot: () => void
   shadowRootsController: ShadowRootsController
 }
 
@@ -54,7 +59,7 @@ export function record(options: RecordOptions): RecordAPI {
 
   const shadowRootsController = initShadowRootsController(configuration, emitAndComputeStats, elementsScrollPositions)
 
-  const { stop: stopFullSnapshots } = startFullSnapshots(
+  const { stop: stopFullSnapshots, takeSubsequentFullSnapshot } = startFullSnapshots(
     elementsScrollPositions,
     shadowRootsController,
     lifeCycle,
@@ -95,6 +100,7 @@ export function record(options: RecordOptions): RecordAPI {
       stopFullSnapshots()
     },
     flushMutations,
+    takeSubsequentFullSnapshot,
     shadowRootsController,
   }
 }

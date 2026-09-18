@@ -6,27 +6,27 @@ __metadata:
   cacheKey: 10c0
 
 "@flashcatcloud/browser-core@file:../../../packages/core/package.tgz::locator=react-app%40workspace%3A.":
-  version: 0.1.1
-  resolution: "@flashcatcloud/browser-core@file:../../../packages/core/package.tgz#../../../packages/core/package.tgz::hash=4465e7&locator=react-app%40workspace%3A."
-  checksum: 10c0/46e0299a01d91d26b69488f075c3a773730c7b68b31a6acc15a627b078cd5b7d79c0f064ecc9a95f2f463545c4160a4983e4bac38b2a5228424747034fbdc4d1
+  version: 0.3.0
+  resolution: "@flashcatcloud/browser-core@file:../../../packages/core/package.tgz#../../../packages/core/package.tgz::hash=2c6466&locator=react-app%40workspace%3A."
+  checksum: 10c0/c9e5459d7fcc963f572cba22efe2e15cafbc772f055934db94fcdba49948829858f3a4e82c23579c0e097f9a571c3a5c90dcb822dfb30c707fa7baf936874881
   languageName: node
   linkType: hard
 
 "@flashcatcloud/browser-rum-core@file:../../../packages/rum-core/package.tgz::locator=react-app%40workspace%3A.":
-  version: 0.1.1
-  resolution: "@flashcatcloud/browser-rum-core@file:../../../packages/rum-core/package.tgz#../../../packages/rum-core/package.tgz::hash=9cfaab&locator=react-app%40workspace%3A."
+  version: 0.3.0
+  resolution: "@flashcatcloud/browser-rum-core@file:../../../packages/rum-core/package.tgz#../../../packages/rum-core/package.tgz::hash=b308b0&locator=react-app%40workspace%3A."
   dependencies:
-    "@flashcatcloud/browser-core": "npm:0.1.1"
-  checksum: 10c0/4ddf61c4fe3fd8d3d59d4b33e0a93490540cbb9acb28a4b6e65966b3de1018e4fb609978d702a9abf7cbe1b1848f7effefa01818567ff9d7a61b68533d62bfbb
+    "@flashcatcloud/browser-core": "npm:0.3.0"
+  checksum: 10c0/b2d058cb3c94c47313f051b2884b6581abde7c8e774c26228b7fe4760c565498a7b50d82d1403ee33e90e7016740119c1ea6fea6351d7fa0499c52a2dc0ab8a4
   languageName: node
   linkType: hard
 
 "@flashcatcloud/browser-rum-react@file:../../../packages/rum-react/package.tgz::locator=react-app%40workspace%3A.":
-  version: 0.1.1
-  resolution: "@flashcatcloud/browser-rum-react@file:../../../packages/rum-react/package.tgz#../../../packages/rum-react/package.tgz::hash=c6584f&locator=react-app%40workspace%3A."
+  version: 0.3.0
+  resolution: "@flashcatcloud/browser-rum-react@file:../../../packages/rum-react/package.tgz#../../../packages/rum-react/package.tgz::hash=1e0e0a&locator=react-app%40workspace%3A."
   dependencies:
-    "@flashcatcloud/browser-core": "npm:0.1.1"
-    "@flashcatcloud/browser-rum-core": "npm:0.1.1"
+    "@flashcatcloud/browser-core": "npm:0.3.0"
+    "@flashcatcloud/browser-rum-core": "npm:0.3.0"
   peerDependencies:
     react: 18 || 19
     react-router-dom: 6 || 7
@@ -39,22 +39,22 @@ __metadata:
       optional: true
     react-router-dom:
       optional: true
-  checksum: 10c0/dfe0ff4d0ca4b50ce92b0c2cc190104afd0998a636382f05447bd8670c6ae9c199614898c345e3022f294859378f9357b08a8ad9319038b4523a153ad9fc1894
+  checksum: 10c0/9f9af1c035f840f45a502f7ccafa72329a6bba95cf728f58c563538387cf41f71cedb92158634c0e540800c31e1d9564c721e7f7cdced97edf66cfd3bdaefbe2
   languageName: node
   linkType: hard
 
 "@flashcatcloud/browser-rum@file:../../../packages/rum/package.tgz::locator=react-app%40workspace%3A.":
-  version: 0.1.1
-  resolution: "@flashcatcloud/browser-rum@file:../../../packages/rum/package.tgz#../../../packages/rum/package.tgz::hash=ab62a4&locator=react-app%40workspace%3A."
+  version: 0.3.0
+  resolution: "@flashcatcloud/browser-rum@file:../../../packages/rum/package.tgz#../../../packages/rum/package.tgz::hash=27653b&locator=react-app%40workspace%3A."
   dependencies:
-    "@flashcatcloud/browser-core": "npm:0.1.1"
-    "@flashcatcloud/browser-rum-core": "npm:0.1.1"
+    "@flashcatcloud/browser-core": "npm:0.3.0"
+    "@flashcatcloud/browser-rum-core": "npm:0.3.0"
   peerDependencies:
-    "@flashcatcloud/browser-logs": 0.1.1
+    "@flashcatcloud/browser-logs": 0.3.0
   peerDependenciesMeta:
     "@flashcatcloud/browser-logs":
       optional: true
-  checksum: 10c0/b866d94b34d3584c52e95e6bb244dec4186fd32a2f73cf6655349c6b2f50183bc130f4a872b3346b91cc8892a7ec3f74d3bad8b92cd39608327d6eff3fc8e2ed
+  checksum: 10c0/63b53a374b0f53889e3f9cd2f68fee318c51a09e833c16b28d75134e94962ed56727ef0a4e77e59d4fbbfe57519a3f06b94ca77bb65d48b354b5248ccdb0436c
   languageName: node
   linkType: hard
 

@@ -1,3 +1,4 @@
+import { startFakeTelemetry } from '../telemetry'
 import type { MockStorage } from '../../../test'
 import { mockClock, mockCookie, mockLocalStorage } from '../../../test'
 import type { CookieOptions } from '../../browser/cookie'
@@ -232,6 +233,7 @@ const DEFAULT_INIT_CONFIGURATION = { trackAnonymousUser: true } as Configuration
 
       it('should abort after a max number of retry', () => {
         const clock = mockClock()
+        const telemetry = startFakeTelemetry()
 
         sessionStoreStrategy.persistSession(initialSession)
         storage.setSpy.calls.reset()
@@ -246,6 +248,7 @@ const DEFAULT_INIT_CONFIGURATION = { trackAnonymousUser: true } as Configuration
         expect(processSpy).not.toHaveBeenCalled()
         expect(afterSpy).not.toHaveBeenCalled()
         expect(storage.setSpy).not.toHaveBeenCalled()
+        expect(telemetry).toContain(jasmine.objectContaining({ message: 'Session store lock retries exhausted' }))
 
         clock.cleanup()
       })

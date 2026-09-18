@@ -20,6 +20,8 @@ export interface AssembleOptions {
   type: string
   configuration: AssemblyConfiguration
   sessionId: string
+  /** Whether the session was kept only because it errored. It then stands for itself, see below. */
+  sampledOnError: boolean
   view: ViewContext
   /** When the event happened. Defaults to now, which is wrong for a view: see below. */
   date?: number
@@ -35,7 +37,7 @@ export interface AssembleOptions {
  * `view` sub-object is merged rather than replaced.
  */
 export function assembleEvent(options: AssembleOptions): object {
-  const { type, configuration, sessionId, view, date, properties, context } = options
+  const { type, configuration, sessionId, sampledOnError, view, date, properties, context } = options
 
   const event: { [key: string]: any } = {
     type,
@@ -57,7 +59,9 @@ export function assembleEvent(options: AssembleOptions): object {
       format_version: 2,
       drift: 0,
       configuration: {
-        session_sample_rate: configuration.sessionSampleRate,
+        // A session the modern bundle kept only because it errored was not drawn by this rate, so it
+        // stands for itself rather than for `100 / rate` sessions; 0 is read as "do not scale".
+        session_sample_rate: sampledOnError ? 0 : configuration.sessionSampleRate,
         // Session replay cannot run here. Reporting 0 rather than omitting it keeps the field
         // meaningful downstream instead of reading as "unknown".
         session_replay_sample_rate: 0,

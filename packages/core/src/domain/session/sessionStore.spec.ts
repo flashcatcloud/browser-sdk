@@ -596,7 +596,7 @@ describe('session store', () => {
       sessionStoreManager = setupSessionStore(updateSpy)
       otherSessionStoreManager = setupSessionStore(otherUpdateSpy)
 
-      sessionStoreManager.updateSessionState({ extra: 'extra' })
+      sessionStoreManager.updateSessionState(() => ({ extra: 'extra' }))
 
       expect(updateSpy).toHaveBeenCalledTimes(1)
 
