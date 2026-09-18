@@ -18,7 +18,7 @@
 
 ---
 
-## Unreleased
+## v0.3.0
 
 - ✨ Two new init options keep only the sessions that report an error, for customers who want every
   error investigated without storing and paying for every session. `sessionOnError` keeps the
