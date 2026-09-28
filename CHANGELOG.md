@@ -20,6 +20,17 @@
 
 ## v0.3.0
 
+- 💥 **Breaking**: `startSessionReplayRecordingManually` no longer defaults to `true` on an init
+  `sessionReplaySampleRate` of 0 when `remoteConfigurationEnabled` is on. The recorder now starts on
+  its own, so a rate delivered from the console has something to withhold — and replays are uploaded
+  and billed. A site that gates recording on consent by calling `startSessionReplayRecording()`
+  itself must pass `startSessionReplayRecordingManually: true` explicitly; without it, a session
+  starts recording before that call. The 🐛 entry below describes the same change.
+- 💥 **Breaking for TypeScript code that calls our session APIs**:
+  `SessionManager.updateSessionState`, exported from `@flashcatcloud/browser-core`, now takes an
+  updater function `(state: SessionState) => Partial<SessionState> | undefined` instead of a
+  `Partial<SessionState>`. Code that only uses the RUM entry points is unaffected; code that calls
+  this method must wrap its patch in a function.
 - ✨ Two new init options keep only the sessions that report an error, for customers who want every
   error investigated without storing and paying for every session. `sessionOnError` keeps the
   events of a session the plain `sessionSampleRate` draw missed: it records from the start, uploads
