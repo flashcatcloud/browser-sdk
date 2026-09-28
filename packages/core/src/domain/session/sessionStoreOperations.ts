@@ -1,3 +1,4 @@
+import { addTelemetryDebug } from '../telemetry'
 import { setTimeout } from '../../tools/timer'
 import { generateUUID } from '../../tools/utils/stringUtils'
 import type { SessionStoreStrategy } from './storeStrategies/sessionStoreStrategy'
@@ -43,6 +44,7 @@ export function processSessionStoreOperations(
     return
   }
   if (isLockEnabled && numberOfRetries >= LOCK_MAX_TRIES) {
+    addTelemetryDebug('Session store lock retries exhausted', { retries: numberOfRetries })
     next(sessionStoreStrategy)
     return
   }

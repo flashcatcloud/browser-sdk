@@ -78,6 +78,7 @@ export function createFlushController({
   }
 
   return {
+    flush,
     flushObservable,
     get messagesCount() {
       return currentMessagesCount

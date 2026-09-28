@@ -8,7 +8,7 @@ export function createMockFlushController() {
   let currentMessagesCount = 0
   let currentBytesCount = 0
 
-  return {
+  const controller = {
     notifyBeforeAddMessage: jasmine
       .createSpy<FlushController['notifyBeforeAddMessage']>()
       .and.callFake((messageBytesCount) => {
@@ -33,6 +33,11 @@ export function createMockFlushController() {
       return currentBytesCount
     },
     flushObservable,
+    flush(reason: FlushReason) {
+      if (currentMessagesCount > 0) {
+        controller.notifyFlush(reason)
+      }
+    },
     notifyFlush(reason: FlushReason = 'bytes_limit') {
       if (currentMessagesCount === 0) {
         throw new Error(
@@ -53,4 +58,5 @@ export function createMockFlushController() {
       })
     },
   } satisfies Record<any, any> & FlushController
+  return controller
 }

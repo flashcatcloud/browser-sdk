@@ -34,6 +34,11 @@ function getErrorType(session: RumSession | undefined, isRecordingStarted: boole
     // - replay sampled out
     return 'incorrect-session-plan'
   }
+  if (session.sessionReplay === SessionReplayState.BUFFERED_ON_ERROR) {
+    // the session records, but nothing has been uploaded yet and nothing may ever be: there is no
+    // replay to link to until the session reports an error
+    return 'replay-not-started'
+  }
   if (!isRecordingStarted) {
     return 'replay-not-started'
   }

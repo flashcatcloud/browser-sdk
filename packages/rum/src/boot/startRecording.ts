@@ -1,7 +1,7 @@
 import type { RawError, HttpRequest, DeflateEncoder } from '@flashcatcloud/browser-core'
-import { createHttpRequest, addTelemetryDebug, canUseEventBridge } from '@flashcatcloud/browser-core'
+import { createHttpRequest, addTelemetryDebug, canUseEventBridge, noop } from '@flashcatcloud/browser-core'
 import type { LifeCycle, ViewHistory, RumConfiguration, RumSessionManager } from '@flashcatcloud/browser-rum-core'
-import { LifeCycleEventType } from '@flashcatcloud/browser-rum-core'
+import { LifeCycleEventType, SessionReplayState } from '@flashcatcloud/browser-rum-core'
 
 import { record } from '../domain/record'
 import { startSegmentCollection, SEGMENT_BYTES_LIMIT } from '../domain/segmentCollection'
@@ -28,6 +28,10 @@ export function startRecording(
 
   let addRecord: (record: BrowserRecord) => void
 
+  // Assigned once recording has started. Segment collection is created first because `record()`
+  // emits into it, so the buffer reaches for the snapshot through this holder rather than directly.
+  let takeSubsequentFullSnapshot: () => void = noop
+
   // FLASHCAT FORK (2/4) - see `sessionReplayDirectUpload` in RumInitConfiguration.
   // Without the option, records are handed over to the host application through the bridge. With
   // it, they go through the regular segment collection and are uploaded from this page.
@@ -38,7 +42,27 @@ export function startRecording(
       sessionManager,
       viewHistory,
       replayRequest,
-      encoder
+      encoder,
+      {
+        getWithholdingSessionId: () => {
+          const session = sessionManager.findTrackedSession()
+          return session?.sessionReplay === SessionReplayState.BUFFERED_ON_ERROR ? session.id : undefined
+        },
+        isReleased: (sessionId) => {
+          const session = sessionManager.findTrackedSession()
+          // Still the same session, still one whose replay is kept only on an error, and no longer
+          // withholding. The middle condition matters: a session can stop withholding without ever
+          // erroring - an older SDK sharing the same store does not know these tracking types and
+          // redraws them - and that is a session ending, not a replay earning its way out.
+          return (
+            !!session &&
+            session.id === sessionId &&
+            session.sampledOnErrorReplay &&
+            session.sessionReplay !== SessionReplayState.BUFFERED_ON_ERROR
+          )
+        },
+        restartFromFullSnapshot: () => takeSubsequentFullSnapshot(),
+      }
     )
     addRecord = segmentCollection.addRecord
     cleanupTasks.push(segmentCollection.stop)
@@ -57,13 +81,14 @@ export function startRecording(
       sessionManager.findTrackedSession()?.drawnConfiguration?.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
   }
 
-  const { stop: stopRecording } = record({
+  const recording = record({
     emit: addRecord,
     configuration: recordConfiguration,
     lifeCycle,
     viewHistory,
   })
-  cleanupTasks.push(stopRecording)
+  takeSubsequentFullSnapshot = recording.takeSubsequentFullSnapshot
+  cleanupTasks.push(recording.stop)
 
   return {
     stop: () => {

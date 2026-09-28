@@ -12,11 +12,12 @@ import {
   isTelemetryReplicationAllowed,
   startBatchWithReplica,
 } from '@flashcatcloud/browser-core'
+import type { RecorderApi } from '../boot/rumPublicApi'
 import type { RumConfiguration } from '../domain/configuration'
 import type { LifeCycle } from '../domain/lifeCycle'
-import { LifeCycleEventType } from '../domain/lifeCycle'
+import type { RumSessionManager } from '../domain/rumSessionManager'
 import { RumEventType } from '../rawRumEvent.types'
-import type { RumEvent } from '../rumEvent.types'
+import { startWithheldEventBuffer } from './withheldEventBuffer'
 
 export function startRumBatch(
   configuration: RumConfiguration,
@@ -24,8 +25,9 @@ export function startRumBatch(
   telemetryEventObservable: Observable<TelemetryEvent & Context>,
   reportError: (error: RawError) => void,
   pageMayExitObservable: Observable<PageMayExitEvent>,
-  sessionExpireObservable: Observable<void>,
-  createEncoder: (streamId: DeflateEncoderStreamId) => Encoder
+  sessionManager: RumSessionManager,
+  createEncoder: (streamId: DeflateEncoderStreamId) => Encoder,
+  recorderApi: RecorderApi
 ) {
   const replica = configuration.replica
 
@@ -42,10 +44,12 @@ export function startRumBatch(
     },
     reportError,
     pageMayExitObservable,
-    sessionExpireObservable
+    sessionManager.expireObservable
   )
 
-  lifeCycle.subscribe(LifeCycleEventType.RUM_EVENT_COLLECTED, (serverRumEvent: RumEvent & Context) => {
+  // Events reach the batch through the buffer, which either forwards them straight away or withholds
+  // them until the session reports an error. A session that never errors uploads nothing at all.
+  const withheldEventBuffer = startWithheldEventBuffer(lifeCycle, sessionManager, recorderApi, (serverRumEvent) => {
     if (serverRumEvent.type === RumEventType.VIEW) {
       batch.upsert(serverRumEvent, serverRumEvent.view.id)
     } else {
@@ -55,5 +59,13 @@ export function startRumBatch(
 
   telemetryEventObservable.subscribe((event) => batch.add(event, isTelemetryReplicationAllowed(configuration)))
 
-  return batch
+  return {
+    ...batch,
+    stop: () => {
+      // Drain released history while the batch is still listening, then flush its final messages.
+      withheldEventBuffer.stop()
+      batch.flush('session_expire')
+      batch.stop()
+    },
+  }
 }
