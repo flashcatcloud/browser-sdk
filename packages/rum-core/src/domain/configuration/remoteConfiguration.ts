@@ -60,15 +60,15 @@ const DRAW_STORE_KEY_PREFIX = '_fc_draw_1_'
 const DEFAULT_FETCH_TIMEOUT = 3 * ONE_SECOND
 
 /**
- * How long an entry may go unrefreshed before `sweepAbandonedEntries` treats it as belonging to a
- * release nobody is running any more.
+ * How long an entry may go unrefreshed before `sweepAbandonedEntries` treats it as one nothing reads
+ * any more.
  *
  * An entry written by this SDK that is still being read is also being rewritten: the page reading
  * it refetches at every session renewal and stores the answer. So the threshold only has to clear
  * the longest a live entry can legitimately stay silent, which is the longest session (four hours,
  * after which a renewal refetches) plus the longest endpoint outage we are willing to survive
  * without dropping anyone — a failed fetch stores nothing. Two days leaves better than a day and a
- * half of outage, and still bounds the leak at the entries of two days of releases.
+ * half of outage.
  *
  * Erring long is deliberate. Deleting an entry too early costs the page reading it one session on
  * its init values; keeping a dead one costs a few hundred bytes.
@@ -346,7 +346,7 @@ function keepConfigFresh(configuration: RumConfiguration, setup: RemoteConfigSet
 
   const renewSubscription = lifeCycle.subscribe(LifeCycleEventType.SESSION_RENEWED, onTrigger)
 
-  // Before the first request, so the room the entries of dead releases are holding is free by the
+  // Before the first request, so the room abandoned entries are holding is free by the
   // time there is an answer to store. See `sweepAbandonedEntries`.
   sweepAbandonedEntries(setup.storeKey)
 
@@ -553,13 +553,12 @@ function writeEntry(setup: RemoteConfigSetup, values: RemoteConfigValues) {
 }
 
 /**
- * Delete the entries of releases nobody is running any more.
+ * Delete the entries nothing reads any more.
  *
- * The store key carries the application version, because two releases live at the same time are
- * entitled to different rates and one entry between them would have each overwrite the other's at
- * every fetch. The cost of that is an entry per release, and nothing ever read or removed them
- * again — on a site that deploys daily they accumulate for good, in a quota the host application
- * shares.
+ * Builds before this one keyed the entry by application version as well, which left an entry per
+ * release that nothing ever read or removed again — on a site that deploys daily they accumulate for
+ * good, in a quota the host application shares. Those entries, and the entries of an application or
+ * environment a visitor no longer uses, are what this clears.
  *
  * Run once per initialisation rather than at every write. Sweeping on write was the shape tried
  * first and it is the wrong one: `localStorage` is synchronous, a session renewal is a hot path,
@@ -660,35 +659,26 @@ function validFetchTimeout(timeout: number | undefined) {
 }
 
 /**
- * The key covers everything that can change the answer — which application, on which host, in which
- * environment, at which version — so a visitor moving between two of them does not read the other's
- * rates. It deliberately leaves out the SDK version: including it would throw the stored rates away
- * on every SDK upgrade and put the first session after an upgrade back on the local settings. The
- * storage format version lives in `STORE_KEY_PREFIX` instead, so only a real format change orphans
- * the cache.
+ * The key covers which application, on which host, in which environment, so a visitor moving
+ * between two of them does not read the other's rates.
  *
- * The application version is in it for a reason the SDK version does not have: settings can be
- * targeted at a release, so two releases of one site that are live at the same time are entitled to
- * different rates. One entry between them would have each overwrite the other's on every fetch, for
- * as long as both are being served — so the version has to stay, and cannot be dropped to make the
- * limitation below go away.
- *
- * That costs an entry per release — the first session after one reads the local settings, and the
- * entry the release before it used is never read again — so the entries are swept by age rather
- * than left to accumulate in a quota the host application shares. See `sweepAbandonedEntries` for
- * why age is the only thing that can tell an abandoned entry from the entry of a tab still open on
- * yesterday's release.
+ * It deliberately leaves out both versions. The SDK version, because including it would throw the
+ * stored rates away on every SDK upgrade; the storage format version lives in `STORE_KEY_PREFIX`
+ * instead, so only a real format change orphans the cache. The application version, because the
+ * settings stored by the release a visitor used last are the best answer the first session on a new
+ * release can get: keyed by version, that session found nothing and was drawn on the init values,
+ * after every deploy. Releases of one site live at the same time share the entry, which is right as
+ * long as they are given the same settings, and is still the latest decision on record if they ever
+ * are not — the fetch every page makes stores its own release's answer for its next draw.
  */
 function buildStoreKey(initConfiguration: RumInitConfiguration) {
-  return buildKey(STORE_KEY_PREFIX, identityParts(initConfiguration).concat(initConfiguration.version ?? ''))
+  return buildKey(STORE_KEY_PREFIX, identityParts(initConfiguration))
 }
 
 /**
- * The key of the draw record the session manager writes. It shares the identity of the settings
- * cache but deliberately not its application version: the record belongs to the session, and a
- * session outlives a deploy. Keying it by version would lose the decision the moment a visitor with
- * a live session navigates onto a newly deployed page, putting that session's events and its
- * tracer back on the init values — the mid-session flip the record exists to prevent.
+ * The key of the draw record the session manager writes. It has the same identity as the settings
+ * cache — the record belongs to the session, and a session outlives a deploy, so it is not keyed by
+ * application version either — and its own prefix, so the two never collide.
  *
  * Built for every site, not only the ones that opted in: `beforeSampling` and `setForcedSession()`
  * move a draw off the init values with remote configuration switched off.
