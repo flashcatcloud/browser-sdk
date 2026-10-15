@@ -247,6 +247,26 @@ describe('rum session manager', () => {
       expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
     })
 
+    it('draws the first session of a new release on the rate the previous release stored', () => {
+      // Store keys carry the application version, so a deploy starts with no entry of its own.
+      const previousReleaseKey = '_fc_rc_1_site|app|env|1.0.0'
+      localStorage.setItem(
+        previousReleaseKey,
+        JSON.stringify({ sessionSampleRate: 100, sessionReplaySampleRate: 100, version: 5, t: Date.now() })
+      )
+      registerCleanupTask(() => localStorage.removeItem(previousReleaseKey))
+
+      startRumSessionManagerWithDefaults({
+        configuration: {
+          sessionSampleRate: 0,
+          remoteConfig: { ...REMOTE_SAMPLING_SETUP, storeKey: '_fc_rc_1_site|app|env|2.0.0' },
+        },
+      })
+      document.dispatchEvent(createNewEvent(DOM_EVENT.CLICK))
+
+      expect(getSessionState(SESSION_STORE_KEY)[RUM_SESSION_KEY]).toBe(RumTrackingType.TRACKED_WITH_SESSION_REPLAY)
+    })
+
     it('draws replay on the remote replay rate', () => {
       storeRemoteConfigValues({ sessionReplaySampleRate: 100 })
 

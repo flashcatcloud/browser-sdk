@@ -18,6 +18,14 @@
 
 ---
 
+## Unreleased
+
+- 🐛 With `remoteConfigurationEnabled`, the first session a visitor starts on a newly deployed
+  release of the site no longer falls back to the init settings. Stored settings are kept per
+  application version, so every deploy used to put that session on the init rates and report no
+  remote configuration version for it. That session now uses the settings the same application and environment last
+  stored under another release, until this release's own answer arrives.
+
 ## v0.3.0
 
 - 💥 **Breaking**: `startSessionReplayRecordingManually` no longer defaults to `true` on an init

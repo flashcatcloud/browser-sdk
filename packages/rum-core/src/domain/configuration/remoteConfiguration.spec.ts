@@ -873,6 +873,85 @@ describe('remoteConfiguration', () => {
     })
   })
 
+  describe('a release that has not stored its own entry yet', () => {
+    // The key carries the application version, so the first session after every deploy finds no
+    // entry of its own. Reading the local settings there would put that session on the init values
+    // and report no version at all, on every deploy.
+    const keyOf = (partial: Partial<RumInitConfiguration>) =>
+      buildRemoteConfigSetup({ ...INIT_CONFIGURATION, ...partial })!.storeKey
+    const previousReleaseKey = keyOf({ version: '1.2.2' })
+    const olderReleaseKey = keyOf({ version: '1.2.1' })
+    const otherApplicationKey = keyOf({ applicationId: 'other-app', version: '1.2.2' })
+    const otherEnvironmentKey = keyOf({ env: 'production', version: '1.2.2' })
+
+    beforeEach(() => {
+      registerCleanupTask(() => {
+        ;[previousReleaseKey, olderReleaseKey, otherApplicationKey, otherEnvironmentKey].forEach((key) =>
+          localStorage.removeItem(key)
+        )
+      })
+    })
+
+    function writeEntryAt(key: string, age: number, values: Record<string, unknown>) {
+      localStorage.setItem(key, JSON.stringify({ ...values, t: dateNow() - age }))
+    }
+
+    it('reads the entry another release of the same application and environment stored last', () => {
+      writeEntryAt(olderReleaseKey, 2 * ONE_SECOND, { sessionSampleRate: 5, version: 2 })
+      writeEntryAt(previousReleaseKey, ONE_SECOND, { sessionSampleRate: 42, version: 3 })
+
+      expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 42, version: 3 })
+    })
+
+    it('never reads the entry of another application or environment', () => {
+      writeEntryAt(otherApplicationKey, ONE_SECOND, { sessionSampleRate: 42, version: 3 })
+      writeEntryAt(otherEnvironmentKey, ONE_SECOND, { sessionSampleRate: 42, version: 3 })
+
+      expect(readRemoteConfig(setup)).toEqual({})
+    })
+
+    it('passes over an entry that does not say when it was written', () => {
+      localStorage.setItem(previousReleaseKey, JSON.stringify({ sessionSampleRate: 42, version: 3 }))
+
+      expect(readRemoteConfig(setup)).toEqual({})
+    })
+
+    it('prefers its own entry, however recently another release wrote one', () => {
+      writeEntryAt(setup!.storeKey, ONE_DAY, { sessionSampleRate: 7, version: 3 })
+      writeEntryAt(previousReleaseKey, 0, { sessionSampleRate: 42, version: 4 })
+
+      expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 7, version: 3 })
+    })
+
+    it('tells the server the version it is running on meanwhile', (done) => {
+      writeEntryAt(previousReleaseKey, ONE_SECOND, { sessionSampleRate: 42, version: 3 })
+
+      interceptor.withMockXhr((xhr) => {
+        expect(xhr.url).toContain('applied_version=3')
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it("stores and announces its own answer, even one numbered below the other release's", (done) => {
+      // The other release's number is not this release's floor: under targeting the two can be
+      // answered differently, and refusing this release's own answer would leave it on borrowed
+      // settings for good.
+      writeEntryAt(previousReleaseKey, ONE_SECOND, { sessionSampleRate: 42, version: 9 })
+      const notified = jasmine.createSpy('remoteConfigurationStored')
+      lifeCycle.subscribe(LifeCycleEventType.REMOTE_CONFIGURATION_STORED, notified)
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: { sessionSampleRate: 1 }, version: 3 }))
+
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 1, version: 3 })
+        expect(notified).toHaveBeenCalledTimes(1)
+        done()
+      })
+      start(configurationWith())
+    })
+  })
+
   describe('the storage key', () => {
     it('separates applications, environments and versions', () => {
       const keyOf = (partial: Partial<RumInitConfiguration>) =>

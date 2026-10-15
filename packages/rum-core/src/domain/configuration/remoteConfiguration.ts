@@ -229,19 +229,71 @@ function isSupportedResponse(body: unknown): body is RemoteConfigurationResponse
  * Read the settings that apply right now. Reading straight from storage rather than from a value
  * held in memory is what lets a value fetched by one page load apply to the very first session of
  * the next one, instead of every visit starting on the local settings until a request comes back.
+ *
+ * A release that has not stored its own entry yet reads the entry this application and environment
+ * last stored under another release. The key carries the application version, so without this every
+ * deploy would put each visitor's first session on it back on the local settings, reporting no
+ * version. The settings another release was given are what this one gets too unless the console targets
+ * releases apart, and even then they are the latest decision on record, which the local settings are
+ * not. This release's own answer replaces them as soon as it is stored.
  */
 export function readRemoteConfig(setup: RemoteConfigSetup | undefined): RemoteConfigValues {
   if (!setup) {
     return {}
   }
+  return readEntry(setup.storeKey) ?? readEntry(findLatestOtherReleaseKey(setup.storeKey)) ?? {}
+}
 
-  try {
-    const stored = localStorage.getItem(setup.storeKey)
-    return stored ? readStoredValues(JSON.parse(stored)) : {}
-  } catch {
-    // Storage unavailable or holding something we did not write: fall back to the local settings.
-    return {}
+/**
+ * The values stored under `key`, or undefined when there is no entry to read. Storage unavailable or
+ * holding something we did not write reads as no entry: the caller falls back to the local settings.
+ */
+function readEntry(key: string | undefined): RemoteConfigValues | undefined {
+  if (key === undefined) {
+    return undefined
   }
+  try {
+    const stored = localStorage.getItem(key)
+    return stored === null ? undefined : readStoredValues(JSON.parse(stored))
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The key of the most recently written entry of the same application and environment under another
+ * release, if any. The version is the last part of the key and the separator cannot occur inside a
+ * part (see `buildKey`), so everything up to the last separator identifies the application and
+ * environment exactly.
+ *
+ * An entry without a write time cannot be ranked against the others and is passed over.
+ */
+function findLatestOtherReleaseKey(ownKey: string) {
+  const separatorIndex = ownKey.lastIndexOf('|')
+  if (separatorIndex === -1) {
+    // Not a key `buildStoreKey` built: there is no identity to match, and an empty prefix would
+    // match every key on the origin.
+    return undefined
+  }
+  const identityPrefix = ownKey.slice(0, separatorIndex + 1)
+  let latestKey: string | undefined
+  let latestWriteTime = -Infinity
+  try {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i)
+      if (key === null || key === ownKey || key.indexOf(identityPrefix) !== 0) {
+        continue
+      }
+      const writeTime = readWriteTime(key)
+      if (writeTime !== undefined && writeTime > latestWriteTime) {
+        latestKey = key
+        latestWriteTime = writeTime
+      }
+    }
+  } catch {
+    return undefined
+  }
+  return latestKey
 }
 
 /**
@@ -460,8 +512,11 @@ function store(setup: RemoteConfigSetup, response: RemoteConfigurationResponse) 
   // would strand every client that had seen the higher number until the entry is replaced.
   //
   // What it is compared against is storage, not a version held in memory here, because the two
-  // requests that can cross are two pages, and storage is the only thing they share.
-  const stored = readRemoteConfig(setup)
+  // requests that can cross are two pages, and storage is the only thing they share. Only this
+  // release's own entry counts: the one another release left is read in its place until this one
+  // stores its own, but it is not this release's answer, so it neither refuses one nor makes one
+  // look like a repeat.
+  const stored = readEntry(setup.storeKey) ?? {}
   const storedVersion = stored.version
   if (storedVersion !== undefined && response.version < storedVersion) {
     // Refused, but the entry is plainly still in use — a request was just made for it and answered.
@@ -673,11 +728,11 @@ function validFetchTimeout(timeout: number | undefined) {
  * as long as both are being served — so the version has to stay, and cannot be dropped to make the
  * limitation below go away.
  *
- * That costs an entry per release — the first session after one reads the local settings, and the
- * entry the release before it used is never read again — so the entries are swept by age rather
- * than left to accumulate in a quota the host application shares. See `sweepAbandonedEntries` for
- * why age is the only thing that can tell an abandoned entry from the entry of a tab still open on
- * yesterday's release.
+ * That costs an entry per release. The first session after a deploy reads the entry the release
+ * before it stored, until its own arrives (see `readRemoteConfig`), and after that the older entry
+ * is never read again — so the entries are swept by age rather than left to accumulate in a quota
+ * the host application shares. See `sweepAbandonedEntries` for why age is the only thing that can
+ * tell an abandoned entry from the entry of a tab still open on yesterday's release.
  */
 function buildStoreKey(initConfiguration: RumInitConfiguration) {
   return buildKey(STORE_KEY_PREFIX, identityParts(initConfiguration).concat(initConfiguration.version ?? ''))
