@@ -18,7 +18,7 @@
 
 ---
 
-## Unreleased
+## v0.3.1
 
 - 🐛 With `remoteConfigurationEnabled`, settings stored by one release of a site are now read by
   the next. The stored settings used to be keyed by application version as well, so the first
