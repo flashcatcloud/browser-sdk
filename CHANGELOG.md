@@ -18,6 +18,15 @@
 
 ---
 
+## Unreleased
+
+- 🐛 With `remoteConfigurationEnabled`, settings stored by one release of a site are now read by
+  the next. The stored settings used to be keyed by application version as well, so the first
+  session a visitor started on a newly deployed release found nothing, was drawn on the init
+  settings, and reported no remote configuration version. Entries left by earlier builds are no
+  longer read and are swept after two days; the first session after upgrading the SDK uses the
+  init settings once.
+
 ## v0.3.0
 
 - 💥 **Breaking**: `startSessionReplayRecordingManually` no longer defaults to `true` on an init

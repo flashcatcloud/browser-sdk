@@ -777,10 +777,10 @@ describe('remoteConfiguration', () => {
     })
   })
 
-  describe('sweeping the entries of releases nobody runs', () => {
-    // The key carries the application version, so every release leaves one behind. Without a sweep
-    // they accumulate for good in a quota the host application shares.
-    const otherReleaseKey = buildRemoteConfigSetup({ ...INIT_CONFIGURATION, version: '0.9.0' })!.storeKey
+  describe('sweeping the entries nothing reads', () => {
+    // Builds that keyed the entry by application version left one behind per release. Without a
+    // sweep they accumulate for good in a quota the host application shares.
+    const otherReleaseKey = `${buildRemoteConfigSetup(INIT_CONFIGURATION)!.storeKey}|0.9.0`
     const drawKey = buildDrawStoreKey(INIT_CONFIGURATION)
     const foreignKey = 'a-key-the-host-application-owns'
 
@@ -874,13 +874,33 @@ describe('remoteConfiguration', () => {
   })
 
   describe('the storage key', () => {
-    it('separates applications, environments and versions', () => {
+    it('separates applications and environments', () => {
       const keyOf = (partial: Partial<RumInitConfiguration>) =>
         buildRemoteConfigSetup({ ...INIT_CONFIGURATION, ...partial })!.storeKey
 
       expect(keyOf({})).not.toEqual(keyOf({ applicationId: 'other' }))
       expect(keyOf({})).not.toEqual(keyOf({ env: 'production' }))
-      expect(keyOf({})).not.toEqual(keyOf({ version: '1.2.4' }))
+    })
+
+    it('is shared by every release of the application', () => {
+      // Keyed by version, the first session after every deploy found no entry and was drawn on the
+      // init values. The settings the previous release stored are the better answer.
+      const keyOf = (partial: Partial<RumInitConfiguration>) =>
+        buildRemoteConfigSetup({ ...INIT_CONFIGURATION, ...partial })!.storeKey
+
+      expect(keyOf({ version: '1.2.4' })).toEqual(keyOf({}))
+      expect(keyOf({ version: undefined })).toEqual(keyOf({}))
+    })
+
+    it('lets a new release read the settings the previous one stored', (done) => {
+      const previousRelease = buildRemoteConfigSetup({ ...INIT_CONFIGURATION, version: '1.2.2' })!
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: { sessionSampleRate: 42 }, version: 3 }))
+
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 42, version: 3 })
+        done()
+      })
+      start(configurationWith({ remoteConfig: previousRelease }))
     })
 
     it('cannot be spelled the same way by two different identities', () => {
@@ -889,7 +909,7 @@ describe('remoteConfiguration', () => {
       const keyOf = (partial: Partial<RumInitConfiguration>) =>
         buildRemoteConfigSetup({ ...INIT_CONFIGURATION, ...partial })!.storeKey
 
-      expect(keyOf({ env: 'prod', version: '1_0' })).not.toEqual(keyOf({ env: 'prod_1', version: '0' }))
+      expect(keyOf({ applicationId: 'app', env: '1_0' })).not.toEqual(keyOf({ applicationId: 'app_1', env: '0' }))
     })
 
     it('separates whatever the server is able to tell apart', () => {
@@ -906,7 +926,8 @@ describe('remoteConfiguration', () => {
       // part. `service` is on it while it is still inert: nothing reports it today, so the check
       // skips it, and the day it starts being reported this turns into a real assertion. Fields
       // that identify the application rather than target it are left off — `clientToken` travels
-      // on the request but the key separates the same clients through `applicationId`.
+      // on the request but the key separates the same clients through `applicationId`. So is the
+      // application version, deliberately: see `buildStoreKey`, and the test below that pins it.
       const urlOf = (partial: Partial<RumInitConfiguration>) =>
         buildRemoteConfigSetup({ ...INIT_CONFIGURATION, ...partial })!.buildUrl(undefined)
       const keyOf = (partial: Partial<RumInitConfiguration>) =>
@@ -914,7 +935,6 @@ describe('remoteConfiguration', () => {
 
       const candidates: Array<Partial<RumInitConfiguration>> = [
         { env: 'production' },
-        { version: '9.9.9' },
         { service: 'checkout' },
         { applicationId: 'other-app' },
       ]
