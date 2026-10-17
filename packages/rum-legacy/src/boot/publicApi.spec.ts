@@ -382,6 +382,41 @@ describe('public api', () => {
       expect(eventsOfType('error')[0].usr).toEqual({ id: 'u-1', name: 'Ada' })
     })
 
+    it('sends the user id, name and email as strings, as the modern bundle does', () => {
+      api.setUser({ id: 42, name: 7, email: 1, tier: 3 })
+      api.addError(new Error('boom'))
+      flush()
+
+      // The intake types these three as strings and rejects the whole event otherwise. Custom
+      // fields keep their type.
+      expect(eventsOfType('error')[0].usr).toEqual({ id: '42', name: '7', email: '1', tier: 3 })
+    })
+
+    it('converts a user property set on its own as well', () => {
+      api.setUserProperty('id', 42)
+      api.addError(new Error('boom'))
+      flush()
+
+      expect(eventsOfType('error')[0].usr).toEqual({ id: '42' })
+    })
+
+    it('leaves an empty user id alone rather than sending the string "null"', () => {
+      api.setUser({ id: null, name: 'Ada' })
+      api.addError(new Error('boom'))
+      flush()
+
+      expect(eventsOfType('error')[0].usr).toEqual({ id: null, name: 'Ada' })
+    })
+
+    it('sends the account id and name as strings', () => {
+      api.setAccount({ id: 9, name: 1 })
+      api.setAccountProperty('name', 2)
+      api.addError(new Error('boom'))
+      flush()
+
+      expect(eventsOfType('error')[0].account).toEqual({ id: '9', name: '2' })
+    })
+
     it('leaves out an account without an id, which the format would reject', () => {
       api.setAccount({ name: 'no id here' })
       api.addError(new Error('boom'))
