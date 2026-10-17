@@ -38,6 +38,24 @@ type Context = { [key: string]: any }
 const TRACKING_CONSENT_GRANTED = 'granted'
 const TRACKING_CONSENT_NOT_GRANTED = 'not-granted'
 
+const USER_STRING_FIELDS = ['id', 'name', 'email']
+const ACCOUNT_STRING_FIELDS = ['id', 'name']
+
+/*
+ * The intake types these fields as strings and rejects the whole event when one is not, and pages
+ * commonly pass a numeric id. The modern bundle converts them for the same reason; empty values are
+ * left alone, as it does, rather than sent as "null" or "undefined".
+ */
+function stringifyFields(context: Context, keys: string[]): Context {
+  for (let i = 0; i < keys.length; i++) {
+    const value = context[keys[i]]
+    if (value !== undefined && value !== null && value !== '') {
+      context[keys[i]] = String(value)
+    }
+  }
+  return context
+}
+
 export function makeRumLegacyPublicApi() {
   let running: ReturnType<typeof start> | undefined
   let initConfiguration: LegacyInitConfiguration | undefined
@@ -97,6 +115,7 @@ export function makeRumLegacyPublicApi() {
         type,
         configuration: assemblyConfiguration,
         sessionId: session.id,
+        sampledOnError: session.sampledOnError,
         view,
         date,
         properties: withIdentityContexts(properties),
@@ -302,11 +321,12 @@ export function makeRumLegacyPublicApi() {
     }),
 
     setUser: monitor((user: Context) => {
-      userContext = user ? shallowMerge(user, {}) : {}
+      userContext = stringifyFields(user ? shallowMerge(user, {}) : {}, USER_STRING_FIELDS)
     }),
     getUser: monitor(() => shallowMerge(userContext, {})),
     setUserProperty: monitor((key: string, value: any) => {
       userContext[key] = value
+      stringifyFields(userContext, USER_STRING_FIELDS)
     }),
     removeUserProperty: monitor((key: string) => {
       delete userContext[key]
@@ -316,11 +336,12 @@ export function makeRumLegacyPublicApi() {
     }),
 
     setAccount: monitor((account: Context) => {
-      accountContext = account ? shallowMerge(account, {}) : {}
+      accountContext = stringifyFields(account ? shallowMerge(account, {}) : {}, ACCOUNT_STRING_FIELDS)
     }),
     getAccount: monitor(() => shallowMerge(accountContext, {})),
     setAccountProperty: monitor((key: string, value: any) => {
       accountContext[key] = value
+      stringifyFields(accountContext, ACCOUNT_STRING_FIELDS)
     }),
     removeAccountProperty: monitor((key: string) => {
       delete accountContext[key]

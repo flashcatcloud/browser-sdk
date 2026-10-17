@@ -1,4 +1,4 @@
-import { INTAKE_SITE_US1, ONE_SECOND, display, isIntakeUrl } from '@flashcatcloud/browser-core'
+import { INTAKE_SITE_US1, ONE_DAY, ONE_SECOND, dateNow, display, isIntakeUrl } from '@flashcatcloud/browser-core'
 import type { Clock, MockXhr } from '@flashcatcloud/browser-core/test'
 import { interceptRequests, mockClock, registerCleanupTask } from '@flashcatcloud/browser-core/test'
 import { mockRumConfiguration } from '../../../test'
@@ -121,6 +121,34 @@ describe('remoteConfiguration', () => {
       start(configurationWith())
     })
 
+    it('keeps the on-error switches the server reports, either way they are set', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(
+          200,
+          body({ rum: { sessionReplaySampleRate: 10, sessionReplayOnError: false, sessionOnError: true } })
+        )
+
+        expect(readRemoteConfig(setup)).toEqual({
+          sessionReplaySampleRate: 10,
+          sessionReplayOnError: false,
+          sessionOnError: true,
+          version: 3,
+        })
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('drops a switch that is not a boolean, so it reads as not delivered', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: { sessionSampleRate: 50, sessionReplayOnError: 'true' as unknown as boolean } }))
+
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 50, version: 3 })
+        done()
+      })
+      start(configurationWith())
+    })
+
     it('drops a privacy level it does not recognise rather than passing it on', (done) => {
       // A typo must not reach the recorders: an unknown value there falls through to recording
       // everything, which is the one outcome nobody asks for by accident.
@@ -190,6 +218,83 @@ describe('remoteConfiguration', () => {
         xhr.complete(200, body({ version: 9, rum: { sessionSampleRate: 1 } }))
 
         expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 1, version: 9 })
+        done()
+      })
+      start(configurationWith())
+    })
+  })
+
+  describe('announcing that new settings are in storage', () => {
+    function watchStoredNotifications() {
+      const notified = jasmine.createSpy('remoteConfigurationStored')
+      lifeCycle.subscribe(LifeCycleEventType.REMOTE_CONFIGURATION_STORED, notified)
+      return notified
+    }
+
+    it('announces settings that reached storage, so a subscriber can act on them', (done) => {
+      const notified = watchStoredNotifications()
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: { sessionSampleRate: 0 } }))
+
+        expect(notified).toHaveBeenCalledTimes(1)
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('stays silent about settings it refused as older than the ones it holds', (done) => {
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 42, version: 8 }))
+      const notified = watchStoredNotifications()
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ version: 7, rum: { sessionSampleRate: 0 } }))
+
+        // Nothing changed in storage, so nothing downstream may behave as though it had.
+        expect(notified).not.toHaveBeenCalled()
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('stays silent about an answer that repeats the settings it already holds', (done) => {
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ sessionSampleRate: 42, version: 7 }))
+      const notified = watchStoredNotifications()
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ version: 7, rum: { sessionSampleRate: 42 } }))
+
+        // The ordinary answer: every new session asks again and most find nothing changed. A
+        // subscriber woken by those would act on no news, once per session, for as long as the
+        // visitor stays.
+        expect(notified).not.toHaveBeenCalled()
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('stays silent when the answer never reached storage', (done) => {
+      const notified = watchStoredNotifications()
+      spyOn(Storage.prototype, 'setItem').and.throwError('storage is full')
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: { sessionSampleRate: 0 } }))
+
+        // The next draw will not find these settings, so ending a session for their sake would end
+        // it for nothing.
+        expect(notified).not.toHaveBeenCalled()
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('stays silent about an answer that never made it', (done) => {
+      const notified = watchStoredNotifications()
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(500)
+
+        expect(notified).not.toHaveBeenCalled()
         done()
       })
       start(configurationWith())
@@ -672,14 +777,130 @@ describe('remoteConfiguration', () => {
     })
   })
 
+  describe('sweeping the entries nothing reads', () => {
+    // Builds that keyed the entry by application version left one behind per release. Without a
+    // sweep they accumulate for good in a quota the host application shares.
+    const otherReleaseKey = `${buildRemoteConfigSetup(INIT_CONFIGURATION)!.storeKey}|0.9.0`
+    const drawKey = buildDrawStoreKey(INIT_CONFIGURATION)
+    const foreignKey = 'a-key-the-host-application-owns'
+
+    beforeEach(() => {
+      registerCleanupTask(() => {
+        localStorage.removeItem(otherReleaseKey)
+        localStorage.removeItem(drawKey)
+        localStorage.removeItem(foreignKey)
+      })
+    })
+
+    function writeEntryAged(key: string, age: number, values: Record<string, unknown> = { version: 4 }) {
+      localStorage.setItem(key, JSON.stringify({ ...values, t: dateNow() - age }))
+    }
+
+    function writeTimeOf(key: string) {
+      return (JSON.parse(localStorage.getItem(key)!) as { t?: number }).t
+    }
+
+    it('removes an entry nothing has refreshed for longer than the threshold', () => {
+      writeEntryAged(otherReleaseKey, 3 * ONE_DAY)
+
+      start(configurationWith())
+
+      expect(localStorage.getItem(otherReleaseKey)).toBeNull()
+    })
+
+    it('keeps an entry a page refreshed recently, which is how a live one looks', () => {
+      writeEntryAged(otherReleaseKey, ONE_DAY)
+
+      start(configurationWith())
+
+      expect(localStorage.getItem(otherReleaseKey)).not.toBeNull()
+    })
+
+    it('keeps an entry left by a build that did not record when it was written', () => {
+      // An old build still using this origin cannot add a write time when it refreshes the entry,
+      // so absence alone cannot distinguish a live release from an abandoned one.
+      localStorage.setItem(otherReleaseKey, JSON.stringify({ version: 4, sessionSampleRate: 42 }))
+
+      start(configurationWith())
+
+      expect(localStorage.getItem(otherReleaseKey)).not.toBeNull()
+    })
+
+    it("never removes this page's own entry, however old it looks", () => {
+      // It holds the version floor that lets a late answer be refused, and the request this very
+      // initialisation is starting is about to read it.
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ version: 8, sessionSampleRate: 42 }))
+
+      start(configurationWith())
+
+      expect(readRemoteConfig(setup).version).toBe(8)
+    })
+
+    it('leaves alone every key it did not write', () => {
+      writeEntryAged(drawKey, 3 * ONE_DAY)
+      localStorage.setItem(foreignKey, 'not ours to parse')
+
+      start(configurationWith())
+
+      expect(localStorage.getItem(drawKey)).not.toBeNull()
+      expect(localStorage.getItem(foreignKey)).toBe('not ours to parse')
+    })
+
+    it('records when an entry was written, so a later sweep can tell its age', (done) => {
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: { sessionSampleRate: 42 } }))
+
+        expect(dateNow() - writeTimeOf(setup!.storeKey)!).toBeLessThan(ONE_SECOND)
+        done()
+      })
+      start(configurationWith())
+    })
+
+    it('refreshes the write time of an entry whose values it refuses', (done) => {
+      // The entry a client is stuck on when a server breaks the only-goes-up contract is the one
+      // entry no successful write refreshes. Without this its settings would be swept out from
+      // under it while it was still asking for them.
+      writeEntryAged(setup!.storeKey, 3 * ONE_DAY, { version: 8, sessionSampleRate: 42 })
+
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: { sessionSampleRate: 1 }, version: 7 }))
+
+        expect(readRemoteConfig(setup)).toEqual({ version: 8, sessionSampleRate: 42 })
+        expect(dateNow() - writeTimeOf(setup!.storeKey)!).toBeLessThan(ONE_SECOND)
+        done()
+      })
+      start(configurationWith())
+    })
+  })
+
   describe('the storage key', () => {
-    it('separates applications, environments and versions', () => {
+    it('separates applications and environments', () => {
       const keyOf = (partial: Partial<RumInitConfiguration>) =>
         buildRemoteConfigSetup({ ...INIT_CONFIGURATION, ...partial })!.storeKey
 
       expect(keyOf({})).not.toEqual(keyOf({ applicationId: 'other' }))
       expect(keyOf({})).not.toEqual(keyOf({ env: 'production' }))
-      expect(keyOf({})).not.toEqual(keyOf({ version: '1.2.4' }))
+    })
+
+    it('is shared by every release of the application', () => {
+      // Keyed by version, the first session after every deploy found no entry and was drawn on the
+      // init values. The settings the previous release stored are the better answer.
+      const keyOf = (partial: Partial<RumInitConfiguration>) =>
+        buildRemoteConfigSetup({ ...INIT_CONFIGURATION, ...partial })!.storeKey
+
+      expect(keyOf({ version: '1.2.4' })).toEqual(keyOf({}))
+      expect(keyOf({ version: undefined })).toEqual(keyOf({}))
+    })
+
+    it('lets a new release read the settings the previous one stored', (done) => {
+      const previousRelease = buildRemoteConfigSetup({ ...INIT_CONFIGURATION, version: '1.2.2' })!
+      interceptor.withMockXhr((xhr) => {
+        xhr.complete(200, body({ rum: { sessionSampleRate: 42 }, version: 3 }))
+
+        expect(readRemoteConfig(setup)).toEqual({ sessionSampleRate: 42, version: 3 })
+        done()
+      })
+      start(configurationWith({ remoteConfig: previousRelease }))
     })
 
     it('cannot be spelled the same way by two different identities', () => {
@@ -688,7 +909,7 @@ describe('remoteConfiguration', () => {
       const keyOf = (partial: Partial<RumInitConfiguration>) =>
         buildRemoteConfigSetup({ ...INIT_CONFIGURATION, ...partial })!.storeKey
 
-      expect(keyOf({ env: 'prod', version: '1_0' })).not.toEqual(keyOf({ env: 'prod_1', version: '0' }))
+      expect(keyOf({ applicationId: 'app', env: '1_0' })).not.toEqual(keyOf({ applicationId: 'app_1', env: '0' }))
     })
 
     it('separates whatever the server is able to tell apart', () => {
@@ -705,7 +926,8 @@ describe('remoteConfiguration', () => {
       // part. `service` is on it while it is still inert: nothing reports it today, so the check
       // skips it, and the day it starts being reported this turns into a real assertion. Fields
       // that identify the application rather than target it are left off — `clientToken` travels
-      // on the request but the key separates the same clients through `applicationId`.
+      // on the request but the key separates the same clients through `applicationId`. So is the
+      // application version, deliberately: see `buildStoreKey`, and the test below that pins it.
       const urlOf = (partial: Partial<RumInitConfiguration>) =>
         buildRemoteConfigSetup({ ...INIT_CONFIGURATION, ...partial })!.buildUrl(undefined)
       const keyOf = (partial: Partial<RumInitConfiguration>) =>
@@ -713,7 +935,6 @@ describe('remoteConfiguration', () => {
 
       const candidates: Array<Partial<RumInitConfiguration>> = [
         { env: 'production' },
-        { version: '9.9.9' },
         { service: 'checkout' },
         { applicationId: 'other-app' },
       ]

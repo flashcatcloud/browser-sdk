@@ -36,6 +36,7 @@ describe('event assembly', () => {
       type,
       configuration: CONFIGURATION,
       sessionId: SESSION_ID,
+      sampledOnError: false,
       view: VIEW,
       properties,
       context,
@@ -108,6 +109,20 @@ describe('event assembly', () => {
     expect(event._dd.configuration.session_replay_sample_rate).toBe(0)
   })
 
+  it('reports a zero session sample rate for a session kept only because it errored', () => {
+    const event = assembleEvent({
+      type: 'error',
+      configuration: { ...CONFIGURATION, sessionSampleRate: 20 },
+      sessionId: SESSION_ID,
+      sampledOnError: true,
+      view: VIEW,
+      properties: { error: { message: 'boom', source: 'source' } },
+    }) as any
+
+    // It was not drawn by the 20% rate, so it stands for one session rather than for five.
+    expect(event._dd.configuration.session_sample_rate).toBe(0)
+  })
+
   it('leaves out service and version when they are not configured', () => {
     const event = assemble('error', { error: { message: 'boom', source: 'source' } }) as any
 
@@ -120,6 +135,7 @@ describe('event assembly', () => {
       type: 'error',
       configuration: { ...CONFIGURATION, service: 'checkout', version: '1.2.3' },
       sessionId: SESSION_ID,
+      sampledOnError: false,
       view: VIEW,
       properties: { error: { message: 'boom', source: 'source' } },
     }) as any

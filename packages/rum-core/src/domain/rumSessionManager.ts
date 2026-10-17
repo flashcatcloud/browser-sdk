@@ -1,6 +1,7 @@
-import type { DefaultPrivacyLevel, RelativeTime, TrackingConsentState } from '@flashcatcloud/browser-core'
+import type { RelativeTime, TrackingConsentState } from '@flashcatcloud/browser-core'
 import {
   BridgeCapability,
+  DefaultPrivacyLevel,
   Observable,
   SESSION_TIME_OUT_DELAY,
   STORAGE_POLL_DELAY,
@@ -35,6 +36,13 @@ export interface RumSessionManager {
   expireObservable: Observable<void>
   setForcedReplay: () => void
   setForcedSession: () => void
+  /**
+   * Marks the given session as having reported an error. This is what releases what an on-error
+   * session withheld: the replay for a `sessionReplayOnError` session, and the withheld events for a
+   * `sessionOnError` one. The id is required because the store write can be deferred by the lock, and
+   * it must not land on a later session.
+   */
+  setSessionHasError: (sessionId: string) => void
 }
 
 /**
@@ -51,7 +59,9 @@ export interface StartedRumSessionManager extends RumSessionManager {
  * the draw (after the remote values and `beforeSampling` had their say) and the remote settings
  * version they came from. Events carry these instead of the init values, so server-side
  * extrapolation and audits line up with the draw that kept the session — a session is never
- * re-judged, so the metadata must be from its creation, not from whatever arrived since.
+ * re-judged, so the metadata must be from its creation, not from whatever arrived since. The one
+ * exception is the session rate of a session kept only because it errored: its events report 0
+ * whatever it was drawn at, decided from the tracking type - see sessionContext.
  */
 export interface DrawnConfiguration {
   version?: number
@@ -79,6 +89,22 @@ export interface DrawnConfiguration {
 export type RumSession = {
   id: string
   sessionReplay: SessionReplayState
+  /**
+   * Whether the session collects events but withholds them until it reports an error. Nothing is
+   * uploaded while this is true, and if the session never errors nothing ever is.
+   */
+  eventsWithheld: boolean
+  /**
+   * Whether the session is only kept because of `sessionOnError`. Unlike {@link eventsWithheld} this
+   * stays true once the error has been reported, so what is stored can be told apart from a plainly
+   * sampled session - its detail only starts where the buffer reached.
+   */
+  sampledOnError: boolean
+  /**
+   * Whether the replay of this session is only kept if it reports an error. Same idea as
+   * {@link sampledOnError}, for the replay rather than the events.
+   */
+  sampledOnErrorReplay: boolean
   anonymousId?: string
   // FLASHCAT FORK - absent when the draw used exactly what init passed — nothing to override then,
   // the events already report those values — and when the record of the draw did not survive
@@ -90,13 +116,50 @@ export const enum RumTrackingType {
   NOT_TRACKED = '0',
   TRACKED_WITH_SESSION_REPLAY = '1',
   TRACKED_WITHOUT_SESSION_REPLAY = '2',
+  TRACKED_WITH_ERROR_SESSION_REPLAY = '3',
+  TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY = '4',
+  TRACKED_ON_ERROR_WITH_SESSION_REPLAY = '5',
 }
 
 export const enum SessionReplayState {
   OFF,
   SAMPLED,
   FORCED,
+  /**
+   * The session records, but every segment is withheld until it reports its first error. If no error
+   * ever happens, nothing is uploaded and the session is never billed. Once an error is reported the
+   * session moves to `SAMPLED` and the withheld buffer is released.
+   */
+  BUFFERED_ON_ERROR,
 }
+
+/**
+ * FLASHCAT FORK - the id the draw of a session that lost its lottery is recorded under.
+ *
+ * A session that is not collected is given no id — see `sessionStore` — so it has nothing to key a
+ * record on, and until this existed its draw was simply not recorded. That left the one question
+ * this SDK has to answer before it may re-draw such a visitor unanswerable: was this session drawn
+ * at a rate of 0, or did it lose a draw at some other rate? Getting that wrong in the second
+ * direction re-rolls losers while sparing winners, which quietly lifts a fleet's real sampling
+ * rate towards 100% — see `endSessionIfSettingsAreDecisive`.
+ *
+ * Not a UUID, and not a value `generateUUID` can produce, so a record written here can never be
+ * mistaken for a real session's. The two are told apart by the id alone, which is what lets both
+ * share the single record slot: a collected session looks its own id up and a sampled-out one
+ * looks this up, and neither can read the other's.
+ *
+ * What it gives up, and why that is affordable: every sampled-out session matches this same id, so
+ * the id check that makes a stale record inert for a collected session does nothing here. What
+ * keeps a stale one from being read instead is that the page which draws owns the slot — it writes
+ * its draw or clears the slot, in the same stack that created the session — so the record always
+ * describes the most recent draw, and the most recent draw is what created the session being read.
+ * The one thing the record decides for a sampled-out session — whether a rate leaving 0 may end
+ * it — is read off storage at the moment of that decision rather than off the copy `trackDraw`
+ * took when the session was adopted. See `endSessionIfSettingsAreDecisive` for why the copy is not
+ * enough: the session store cannot tell one sampled-out session from the next, so a page can keep
+ * the copy of a session another tab has already replaced.
+ */
+const NOT_TRACKED_DRAW_ID = 'not-tracked'
 
 export function startRumSessionManager(
   configuration: RumConfiguration,
@@ -171,8 +234,8 @@ export function startRumSessionManager(
   // synchronous stack: a tab whose storage poll fell exactly between the two would find no record
   // and keep its own settings for that session. Writing it earlier is not possible from here — the
   // id it belongs to is generated inside the store, as that session is persisted. The record is
-  // read only here, when a session is adopted, so such a tab keeps its own settings for the whole
-  // remaining life of that session rather than until its next poll.
+  // read into the history only here, when a session is adopted, so such a tab keeps its own
+  // settings for the whole remaining life of that session rather than until its next poll.
   //
   // Storage is also per origin while the session need not be: with `trackSessionAcrossSubdomains`
   // a session arrives on the next subdomain with no record waiting, and is reported and traced
@@ -181,15 +244,32 @@ export function startRumSessionManager(
     const drawn = pendingDraw
     pendingDraw = undefined
     const sessionEntity = sessionManager.findSession()
-    if (!sessionEntity?.id) {
+    if (!sessionEntity) {
       return
     }
+    // A session that lost its draw has no id to be recorded under, so it is recorded under an id no
+    // session can hold. It has to be recorded at all for the same reason a collected one does — the
+    // rate it was drawn at is not something a later page can work out, and here it decides whether
+    // a console change away from 0 may re-draw this visitor at once. Which of the two is read back
+    // follows from the session itself, so no record can be read for a session it does not describe.
+    const drawId = sessionEntity.id || NOT_TRACKED_DRAW_ID
     if (drawn) {
-      writeDrawRecord(configuration, { id: sessionEntity.id, ...drawn })
-      drawnHistory.add(drawn, startTime)
+      // The page that draws owns the slot, and says so either way. A record is only worth keeping
+      // when it says something the init values do not — but leaving the previous one in place
+      // instead would let it outlive the session it described, and a sampled-out session cannot
+      // spot that the way a collected one does: it matches on an id every sampled-out session
+      // shares. So a draw that has nothing to record clears the slot rather than passing over it.
+      // The cost is one `removeItem` per session drawn on a site that enabled none of this, which
+      // is a handful per visit.
+      if (isWorthRecording(configuration, drawn)) {
+        writeDrawRecord(configuration, { id: drawId, ...drawn })
+        drawnHistory.add(drawn, startTime)
+      } else {
+        forgetDrawRecord(configuration)
+      }
       return
     }
-    const stored = readDrawRecord(configuration, sessionEntity.id)
+    const stored = readDrawRecord(configuration, drawId)
     if (stored) {
       drawnHistory.add(stored, startTime)
     }
@@ -206,12 +286,173 @@ export function startRumSessionManager(
     lifeCycle.notify(LifeCycleEventType.SESSION_RENEWED)
   })
 
-  sessionManager.sessionStateUpdateObservable.subscribe(({ previousState, newState }) => {
-    if (!previousState.forcedReplay && newState.forcedReplay) {
-      const sessionEntity = sessionManager.findSession()
-      if (sessionEntity) {
-        sessionEntity.isReplayForced = true
+  // FLASHCAT FORK - by the time this runs the client has already downloaded the new settings and
+  // filed them away, and without this it would then do nothing with them until the running session
+  // ends on its own — up to four hours. That wait is the whole problem: a visitor who keeps loading
+  // pages fetches the change within seconds and then carries on under the old decision for the rest
+  // of their visit.
+  //
+  // Three changes are not made to wait, and what makes exactly those three special is that their
+  // outcome for the running session can be asserted without drawing again:
+  //
+  //   - a stricter default privacy level: every further second recorded is a second of plaintext
+  //     uploaded, and masking cannot reach back for it. This is the one whose cost is not
+  //     recoverable, and the reason the rest of this exists;
+  //   - a session sample rate of 0 for a session being collected: nothing is meant to be collected
+  //     any more, and this is the emergency stop the console offers — one that took four hours
+  //     would not be one;
+  //   - a rate above 0 for a session that was drawn AT 0: this visitor was never in a draw at all,
+  //     and now could be. Without it an application whose rate only ever comes from the console
+  //     shows an operator who has just switched collection on precisely nothing, for as long as
+  //     the sessions already running take to rotate — and nothing at all is indistinguishable from
+  //     broken.
+  //
+  // The first two are about a session that is being collected, and the third only ever about one
+  // that is not, which is why each rule checks that for itself.
+  //
+  // No rate other than 0 says anything about whether THIS session should have been kept — only a
+  // second draw could, and drawing twice silently turns a rate p into p². That is also why the
+  // third rule is written against the rate the session was DRAWN at rather than against whether it
+  // is being collected: re-drawing every session that is not collected, while leaving the collected
+  // ones alone, spares the winners and re-rolls the losers, so a fleet drawn at 20 and moved to 50
+  // would come out at 60. A rate of 0 is the one value with no winners to spare — nothing was
+  // collected, no coin was flipped — so re-drawing everyone lands exactly on the new rate. And it
+  // costs nothing to end such a session: it has no id, no events and no history, so it does not
+  // exist in the data and ending it leaves no seam.
+  //
+  // Everything else waits for the next session, a loosening privacy level included. Loosening waits
+  // on purpose: the delay is what leaves an operator room to undo a mistake, and what it costs
+  // meanwhile is more of the data already being collected.
+  //
+  // The action is to end the session and let the next activity start a new one — never to flip the
+  // running one, which would leave a replay masked in its first half and plain in its second, or
+  // invent a session that begins in the middle of a visit.
+  //
+  // It stays idempotent with no bookkeeping at all: it compares what this session was drawn under
+  // against what a draw would use now, and ending the session is exactly what makes that
+  // difference disappear. The same response arriving again — another tab, a retry, a reload —
+  // finds nothing left to act on.
+  //
+  // What it cannot reach: settings are fetched at start-up and on session renewal only, so a page
+  // that is never reloaded never hears of the change. A single always-visible tab is exactly that
+  // page — the visibility timer keeps renewing it, so it fetches nothing until the four-hour cap.
+  // Any other tab of the same visitor that does load a page ends the session they share.
+  function endSessionIfSettingsAreDecisive() {
+    const session = sessionManager.findSession()
+    if (!session) {
+      return
+    }
+
+    const remote = readRemoteConfig(configuration.remoteConfig)
+
+    if (!isTypeTracked(session.trackingType)) {
+      // Read off storage rather than off `drawnHistory`, because the two can disagree here and only
+      // storage is right. Two sampled-out sessions look alike to the session store — no id, the
+      // same tracking type — so a page whose storage poll misses the expired state between them
+      // never learns that another tab ended the first and drew the second: nothing expires and
+      // nothing renews on this page, and the history keeps the draw of a session that is gone. The
+      // page that drew the replacement wrote its rate to storage in the same stack, so that is the
+      // one place this session's own rate can be found. A collected session cannot be confused this
+      // way, since its id changes with it.
+      //
+      // Nothing forced can reach this comparison as a zero: a forced draw is recorded at 100 and is
+      // collected besides, so the record already answers the question the tracked branch has to ask
+      // `forcedSession` about below. No record means the draw used the init values, see `trackDraw`.
+      const drawnSampleRate =
+        readDrawRecord(configuration, NOT_TRACKED_DRAW_ID)?.sessionSampleRate ?? configuration.sessionSampleRate
+      if (drawnSampleRate !== 0) {
+        return
       }
+      // Asked only now, and only here, because resolving runs the site's `beforeSampling`: this
+      // announcement is not a draw, and the callback should be run no more often than a decision
+      // actually turns on its answer. `sessionOnError` counts here too: a session drawn at 0 with
+      // the switch off is uncollected, and turning the switch on at rate 0 would now keep it on
+      // error - so it must end and redraw, exactly as a rate rising above 0 makes it.
+      const nextRates = resolveSampleRates(configuration, remote)
+      if (nextRates.sessionSampleRate > 0 || nextRates.sessionOnError) {
+        sessionManager.expire()
+      }
+      return
+    }
+
+    // What this session is masking pages with right now, which is not the previously stored
+    // settings: settings are stored while a session runs, and the session was drawn under whatever
+    // was stored before that. No record means the draw used the init value, and so does the
+    // recorder — see `startRecording`, which falls back the same way.
+    const drawnPrivacyLevel = drawnHistory.find()?.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
+    const nextPrivacyLevel = remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel
+    if (PRIVACY_LEVEL_STRICTNESS[nextPrivacyLevel] > PRIVACY_LEVEL_STRICTNESS[drawnPrivacyLevel]) {
+      sessionManager.expire()
+      return
+    }
+
+    if (forcedSession) {
+      // The host application has taken this page off the rates deliberately, and every draw it
+      // makes from now on is collected whatever the console says. Ending it on a rate would only
+      // replace it with an identical forced session — the same difference, forever. The flag is
+      // this page's: another tab of the same visitor that never called `setForcedSession` reads
+      // the shared session as an ordinary one and may end it on a rate.
+      return
+    }
+
+    // FLASHCAT FORK - a rate of zero ends a running session only when nothing else would keep it.
+    // The exception is this session itself being an on-error one: `sessionOnError` collects exactly
+    // the sessions the plain rate misses, so a zero rate next to it is the switch's ordinary setting,
+    // not a stop. Ending such a session would discard the very thing the switch exists to keep, and
+    // leave the page blind from this fetch until the visitor's first interaction - which is what a
+    // fresh profile and every deploy would hit on their first configuration fetch. A plainly drawn
+    // session ('1'/'2'/'3') is still ended by the emergency stop even when the switch is on: the
+    // switch shapes what the NEXT draw keeps, it does not exempt a session already collected in full.
+    const { sessionSampleRate, sessionOnError } = resolveSampleRates(configuration, remote)
+    if (sessionSampleRate === 0 && !(sessionOnError && withholdsEvents(session.trackingType))) {
+      sessionManager.expire()
+    }
+  }
+
+  const remoteConfigSubscription = lifeCycle.subscribe(
+    LifeCycleEventType.REMOTE_CONFIGURATION_STORED,
+    endSessionIfSettingsAreDecisive
+  )
+
+  function forceReplay() {
+    const session = sessionManager.findSession()
+    if (!session) {
+      return
+    }
+    const wasForced = session.isReplayForced
+    session.isReplayForced = true
+    if (!wasForced) {
+      lifeCycle.notify(LifeCycleEventType.SESSION_RELEASED, { sessionId: session.id, reason: 'force' })
+    }
+    sessionManager.updateSessionState((state) => (state.id === session.id ? { forcedReplay: '1' } : undefined))
+  }
+
+  const sessionStateSubscription = sessionManager.sessionStateUpdateObservable.subscribe(({ newState }) => {
+    const session = sessionManager.findSession()
+    if (!session || session.id !== newState.id) {
+      return
+    }
+    const becameForced = !session.isReplayForced && newState.forcedReplay === '1'
+    const becameErrored = !session.hasError && newState.hasError === '1'
+    session.isReplayForced ||= becameForced
+    session.hasError ||= becameErrored
+    if (becameForced || becameErrored) {
+      lifeCycle.notify(LifeCycleEventType.SESSION_RELEASED, {
+        sessionId: session.id,
+        reason: becameForced ? 'force' : 'error',
+      })
+    }
+    // A lock retry can be exhausted before a mark reaches storage. The existing poll is the
+    // next opportunity to reconcile it, and the session identity bounds how long it may live.
+    if ((session.hasError && newState.hasError !== '1') || (session.isReplayForced && newState.forcedReplay !== '1')) {
+      sessionManager.updateSessionState((state) =>
+        state.id === session.id
+          ? {
+              ...(session.hasError ? { hasError: '1' } : {}),
+              ...(session.isReplayForced ? { forcedReplay: '1' } : {}),
+            }
+          : undefined
+      )
     }
   })
   return {
@@ -222,12 +463,10 @@ export function startRumSessionManager(
       }
       return {
         id: session.id,
-        sessionReplay:
-          session.trackingType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY
-            ? SessionReplayState.SAMPLED
-            : session.isReplayForced
-              ? SessionReplayState.FORCED
-              : SessionReplayState.OFF,
+        sessionReplay: computeSessionReplayState(session.trackingType, session.hasError, session.isReplayForced),
+        eventsWithheld: computeEventsWithheld(session.trackingType, session.hasError, session.isReplayForced),
+        sampledOnError: withholdsEvents(session.trackingType),
+        sampledOnErrorReplay: withholdsReplay(session.trackingType),
         anonymousId: session.anonymousId,
         // FLASHCAT FORK - looked up at the same time as the session itself, so an event that
         // belongs to a session already renewed still reports the draw that created it.
@@ -237,26 +476,98 @@ export function startRumSessionManager(
     expire: sessionManager.expire,
     expireObservable: sessionManager.expireObservable,
     stop: () => {
+      sessionStateSubscription.unsubscribe()
       consentSubscription.unsubscribe()
+      remoteConfigSubscription.unsubscribe()
       drawnHistory.stop()
     },
-    setForcedReplay: () => sessionManager.updateSessionState({ forcedReplay: '1' }),
+    setForcedReplay: forceReplay,
     // FLASHCAT FORK - the escape hatch for "collect this visitor NOW": the host application knows
     // who needs debugging (its own allow-list, a support flow), the SDK only provides the switch.
     // A session keeps the decision it was drawn with, so forcing a visitor that was not being
     // collected means ending their current (empty) session; the next activity draws again with
     // `forcedSession` set and starts a collected session with replay. A session already collected
-    // only needs replay forced on, which is the existing forced-replay path.
+    // only needs replay forced on, which is the existing forced-replay path - and a session that
+    // withholds its events or its replay until it errors is released the same way, since the host
+    // asked for it now: forcing the replay is what releases the events too.
     setForcedSession: () => {
       forcedSession = true
       const session = sessionManager.findSession()
       if (!session || !isTypeTracked(session.trackingType)) {
         sessionManager.expire()
-      } else if (session.trackingType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY) {
-        sessionManager.updateSessionState({ forcedReplay: '1' })
+      } else if (
+        session.trackingType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY ||
+        withholdsReplay(session.trackingType) ||
+        withholdsEvents(session.trackingType)
+      ) {
+        forceReplay()
       }
     },
+    setSessionHasError: (sessionId) => {
+      const sessionEntity = sessionManager.findSession()
+      if (sessionEntity?.id === sessionId) {
+        // Marked in memory straight away, and not only once the store write lands: that write goes
+        // through a lock that can defer it by several retries, and until then the withheld buffer
+        // would still read the session as withholding - so an error followed closely by the page or
+        // the session ending would throw away the very buffer the error was meant to release.
+        const hadError = sessionEntity.hasError
+        sessionEntity.hasError = true
+        if (!hadError) {
+          lifeCycle.notify(LifeCycleEventType.SESSION_RELEASED, { sessionId, reason: 'error' })
+        }
+      }
+      sessionManager.updateSessionState((state) => (state.id === sessionId ? { hasError: '1' } : undefined))
+    },
   }
+}
+
+export function withholdsReplay(trackingType: RumTrackingType) {
+  return (
+    trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY ||
+    trackingType === RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
+  )
+}
+
+export function withholdsEvents(trackingType: RumTrackingType) {
+  return (
+    trackingType === RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY ||
+    trackingType === RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
+  )
+}
+
+export function computeSessionReplayState(
+  trackingType: RumTrackingType,
+  hasError: boolean,
+  isReplayForced: boolean
+): SessionReplayState {
+  if (trackingType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY) {
+    return SessionReplayState.SAMPLED
+  }
+  if (withholdsReplay(trackingType) && hasError) {
+    return SessionReplayState.SAMPLED
+  }
+  // A forced replay wins over withholding: the host explicitly asked for this user's replay, so it
+  // must not keep waiting for an error that may never come.
+  if (isReplayForced) {
+    return SessionReplayState.FORCED
+  }
+  if (withholdsReplay(trackingType)) {
+    return SessionReplayState.BUFFERED_ON_ERROR
+  }
+  return SessionReplayState.OFF
+}
+
+export function computeEventsWithheld(
+  trackingType: RumTrackingType,
+  hasError: boolean,
+  isReplayForced: boolean
+): boolean {
+  // Forcing capture asks for this user's whole session, so it releases the events too - otherwise
+  // the forced replay would be uploaded for a session that does not exist yet.
+  if (hasError || isReplayForced) {
+    return false
+  }
+  return withholdsEvents(trackingType)
 }
 
 /**
@@ -350,6 +661,10 @@ export function startRumSessionManagerStub(
       return {
         id: sessionId ?? STUB_SESSION_ID,
         sessionReplay,
+        // The host records for us, or this page uploads what the plain rate drew: neither withholds.
+        eventsWithheld: false,
+        sampledOnError: false,
+        sampledOnErrorReplay: false,
         anonymousId: bridge?.getAnonymousId(),
       }
     },
@@ -357,6 +672,7 @@ export function startRumSessionManagerStub(
     expireObservable,
     setForcedReplay: noop,
     setForcedSession: noop,
+    setSessionHasError: noop,
     stop: () => clearInterval(watchIntervalId),
   }
 }
@@ -365,9 +681,11 @@ function computeSessionState(
   configuration: RumConfiguration,
   rawTrackingType?: string,
   forcedSession?: boolean,
-  // FLASHCAT FORK - called when a draw actually happens (never for a restored session) and lands
-  // on something other than the init values, with the rates the draw used and the remote version
-  // they came from.
+  // FLASHCAT FORK - called whenever a draw actually happens and never for a restored session, with
+  // the rates the draw used and the remote version they came from. Reporting every draw, including
+  // one that landed on the init values, is what lets the caller tell "this page drew" from "this
+  // page adopted a session somebody else drew" — see `trackDraw`, where only the first may write to
+  // the record slot.
   onDraw?: (drawn: DrawnConfiguration) => void
 ) {
   let trackingType: RumTrackingType
@@ -387,44 +705,36 @@ function computeSessionState(
     // the decision it was created with: settings arriving mid-session never start or stop
     // collecting for a visitor already on the site.
     const remote = readRemoteConfig(configuration.remoteConfig)
+    const { sessionSampleRate, sessionReplaySampleRate, sessionOnError, sessionReplayOnError } = resolveSampleRates(
+      configuration,
+      remote
+    )
 
-    let sessionSampleRate = remote.sessionSampleRate ?? configuration.sessionSampleRate
-    let sessionReplaySampleRate = remote.sessionReplaySampleRate ?? configuration.sessionReplaySampleRate
-
-    // FLASHCAT FORK - the application gets the last word, right at the draw. This is what turns the
-    // delivered custom values into sampling decisions without a wasted first draw or a session
-    // restart: the console ships the data (an allow-list, a cohort rule), the application's own
-    // code interprets it here. Its failure modes must never reach session creation, so a thrown
-    // error or a value outside 0..100 leaves the incoming rate in place.
-    if (configuration.beforeSampling) {
-      try {
-        const override = configuration.beforeSampling({
-          sessionSampleRate,
-          sessionReplaySampleRate,
-          custom: remote.custom,
-        })
-        if (override) {
-          if (isRate(override.sessionSampleRate)) {
-            sessionSampleRate = override.sessionSampleRate
-          }
-          if (isRate(override.sessionReplaySampleRate)) {
-            sessionReplaySampleRate = override.sessionReplaySampleRate
-          }
-        }
-      } catch (e) {
-        display.error('beforeSampling threw an error:', e)
+    if (performDraw(sessionSampleRate)) {
+      if (performDraw(sessionReplaySampleRate)) {
+        trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
+      } else if (sessionReplayOnError) {
+        // Only for sessions the plain replay draw missed, so a session is never counted by both.
+        trackingType = RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY
+      } else {
+        trackingType = RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY
       }
-    }
-
-    reportDraw(configuration, remote, sessionSampleRate, sessionReplaySampleRate, onDraw)
-
-    if (!performDraw(sessionSampleRate)) {
-      trackingType = RumTrackingType.NOT_TRACKED
-    } else if (!performDraw(sessionReplaySampleRate)) {
-      trackingType = RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY
+    } else if (sessionOnError) {
+      // Only for sessions the plain session draw missed, so a session is never counted by both.
+      // Such a session never uploads its replay ahead of its events: whichever replay it draws, the
+      // replay is withheld alongside them, because until they are released the session does not
+      // exist yet and a replay sent then would have nothing to attach to.
+      trackingType =
+        performDraw(sessionReplaySampleRate) || sessionReplayOnError
+          ? RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
+          : RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY
     } else {
-      trackingType = RumTrackingType.TRACKED_WITH_SESSION_REPLAY
+      trackingType = RumTrackingType.NOT_TRACKED
     }
+
+    // The draw as it happened, on-error sessions included. That such a session stands for itself
+    // rather than for `100 / rate` sessions is reported from its tracking type - see sessionContext.
+    reportDraw(configuration, remote, sessionSampleRate, sessionReplaySampleRate, onDraw)
   }
   return {
     trackingType,
@@ -433,16 +743,81 @@ function computeSessionState(
 }
 
 /**
+ * FLASHCAT FORK - the rates a draw would use right now, and the on-error switches beside them: what
+ * the console delivered, falling back to what the site passed to init, with the application's
+ * `beforeSampling` given the last word on the rates (the switch is not offered to it: it is a
+ * yes or a no the console already answered). This
+ * is what turns the delivered custom values into sampling decisions without a wasted first draw or
+ * a session restart: the console ships the data (an allow-list, a cohort rule), the application's
+ * own code interprets it here. Its failure modes must never reach session creation, so a thrown
+ * error or a value outside 0..100 leaves the incoming rate in place.
+ *
+ * It resolves rates and never draws on them, which is what lets the same question be asked away
+ * from a draw — see `endSessionIfSettingsAreDecisive`, which needs to know which rate would apply
+ * without spending a lottery ticket to find out.
+ */
+function resolveSampleRates(configuration: RumConfiguration, remote: RemoteConfigValues) {
+  let sessionSampleRate = remote.sessionSampleRate ?? configuration.sessionSampleRate
+  let sessionReplaySampleRate = remote.sessionReplaySampleRate ?? configuration.sessionReplaySampleRate
+  let sessionOnError = remote.sessionOnError ?? configuration.sessionOnError
+  let sessionReplayOnError = remote.sessionReplayOnError ?? configuration.sessionReplayOnError
+
+  if (configuration.beforeSampling) {
+    try {
+      const override = configuration.beforeSampling({
+        sessionSampleRate,
+        sessionReplaySampleRate,
+        custom: remote.custom,
+      })
+      if (override) {
+        if (isRate(override.sessionSampleRate)) {
+          sessionSampleRate = override.sessionSampleRate
+          // The callback's documented contract is "0 never collects". A visitor it draws to 0 must
+          // not be kept by the on-error switch either, or "never collect" would quietly become
+          // "collect on error". A rate it leaves alone keeps the switch.
+          if (override.sessionSampleRate === 0) {
+            sessionOnError = false
+          }
+        }
+        if (isRate(override.sessionReplaySampleRate)) {
+          sessionReplaySampleRate = override.sessionReplaySampleRate
+          if (override.sessionReplaySampleRate === 0) {
+            sessionReplayOnError = false
+          }
+        }
+      }
+    } catch (e) {
+      display.error('beforeSampling threw an error:', e)
+    }
+  }
+
+  return {
+    sessionSampleRate,
+    sessionReplaySampleRate,
+    sessionOnError,
+    sessionReplayOnError,
+  }
+}
+
+/**
+ * FLASHCAT FORK - how much of a page each level keeps out of a recording, ordered so two levels can
+ * be compared. Only the direction matters: tightening is the change that cannot be undone after the
+ * fact, because a second already recorded in the clear has already been uploaded in the clear.
+ */
+const PRIVACY_LEVEL_STRICTNESS: { [level in DefaultPrivacyLevel]: number } = {
+  [DefaultPrivacyLevel.ALLOW]: 0,
+  [DefaultPrivacyLevel.MASK_USER_INPUT]: 1,
+  [DefaultPrivacyLevel.MASK]: 2,
+}
+
+/**
  * FLASHCAT FORK - hands the draw that just happened to whoever records it. Both draw branches
  * report the same shape and differ only in the rates: forcing pins them, an ordinary draw uses
  * what the console and the application settled on.
  *
- * What decides whether a draw is worth recording is the draw itself, not which feature produced it:
- * a draw that used exactly what init passed is already described by the events, so recording it
- * would buy nothing and cost a storage write on every site that turned none of this on. Everything
- * else is recorded — including a `beforeSampling` override or a forced session on a site with
- * remote configuration switched off, where the rates used and the rates init passed are precisely
- * the values that differ.
+ * Whether the draw is worth keeping is `isWorthRecording`'s question, asked one layer up, because
+ * the answer there decides between writing the record and clearing it — and only a caller that
+ * hears about every draw can clear one.
  */
 function reportDraw(
   configuration: RumConfiguration,
@@ -454,23 +829,32 @@ function reportDraw(
   if (!onDraw) {
     return
   }
-  const drawn: DrawnConfiguration = {
+  onDraw({
     version: remote.version,
     sessionSampleRate,
     sessionReplaySampleRate,
     traceSampleRate: remote.traceSampleRate ?? initTraceRule(configuration),
     defaultPrivacyLevel: remote.defaultPrivacyLevel ?? configuration.defaultPrivacyLevel,
-  }
-  if (
-    drawn.version === undefined &&
-    drawn.sessionSampleRate === configuration.sessionSampleRate &&
-    drawn.sessionReplaySampleRate === configuration.sessionReplaySampleRate &&
-    drawn.traceSampleRate === initTraceRule(configuration) &&
-    drawn.defaultPrivacyLevel === configuration.defaultPrivacyLevel
-  ) {
-    return
-  }
-  onDraw(drawn)
+  })
+}
+
+/**
+ * FLASHCAT FORK - whether a draw says anything the init values do not.
+ *
+ * One that does not is already described by the events, so keeping it would buy nothing and cost a
+ * storage write on every site that turned none of this on. Asked about the draw rather than about
+ * which feature produced it: a `beforeSampling` override or a forced session on a site with remote
+ * configuration switched off is precisely the case where the rates used and the rates init passed
+ * are the values that differ.
+ */
+function isWorthRecording(configuration: RumConfiguration, drawn: DrawnConfiguration) {
+  return (
+    drawn.version !== undefined ||
+    drawn.sessionSampleRate !== configuration.sessionSampleRate ||
+    drawn.sessionReplaySampleRate !== configuration.sessionReplaySampleRate ||
+    drawn.traceSampleRate !== initTraceRule(configuration) ||
+    drawn.defaultPrivacyLevel !== configuration.defaultPrivacyLevel
+  )
 }
 
 /**
@@ -562,13 +946,19 @@ function hasValidRumSession(trackingType?: string): trackingType is RumTrackingT
   return (
     trackingType === RumTrackingType.NOT_TRACKED ||
     trackingType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY ||
-    trackingType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY
+    trackingType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY ||
+    trackingType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY ||
+    trackingType === RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY ||
+    trackingType === RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
   )
 }
 
 function isTypeTracked(rumSessionType: RumTrackingType | undefined) {
   return (
     rumSessionType === RumTrackingType.TRACKED_WITHOUT_SESSION_REPLAY ||
-    rumSessionType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY
+    rumSessionType === RumTrackingType.TRACKED_WITH_SESSION_REPLAY ||
+    rumSessionType === RumTrackingType.TRACKED_WITH_ERROR_SESSION_REPLAY ||
+    rumSessionType === RumTrackingType.TRACKED_ON_ERROR_WITHOUT_SESSION_REPLAY ||
+    rumSessionType === RumTrackingType.TRACKED_ON_ERROR_WITH_SESSION_REPLAY
   )
 }

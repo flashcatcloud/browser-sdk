@@ -4,7 +4,9 @@ import { NO_ERROR_STACK_PRESENT_MESSAGE, isError } from '../error/error'
 import { toStackTraceString } from '../../tools/stackTrace/handlingStack'
 import { getExperimentalFeatures } from '../../tools/experimentalFeatures'
 import type { Configuration } from '../configuration'
-import { INTAKE_SITE_STAGING } from '../configuration'
+// Import the constant without loading configuration construction, which uses session storage.
+// eslint-disable-next-line local-rules/disallow-protected-directory-import
+import { INTAKE_SITE_STAGING } from '../configuration/intakeSites'
 import { Observable } from '../../tools/observable'
 import { timeStampNow } from '../../tools/utils/timeUtils'
 import { displayIfDebugEnabled, startMonitorErrorCollection } from '../../tools/monitor'

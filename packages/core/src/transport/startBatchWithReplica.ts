@@ -6,6 +6,7 @@ import type { RawError } from '../domain/error/error.types'
 import type { Encoder } from '../tools/encoder'
 import { createBatch } from './batch'
 import { createHttpRequest } from './httpRequest'
+import type { FlushReason } from './flushController'
 import { createFlushController } from './flushController'
 
 export interface BatchConfiguration {
@@ -45,6 +46,10 @@ export function startBatchWithReplica<T extends Context>(
   }
 
   return {
+    flush: (reason: FlushReason) => {
+      primaryBatch.flushController.flush(reason)
+      replicaBatch?.flushController.flush(reason)
+    },
     flushObservable: primaryBatch.flushController.flushObservable,
 
     add(message: T, replicated = true) {
