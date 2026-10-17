@@ -18,6 +18,13 @@
 
 ---
 
+## v0.3.2
+
+- 🐛 The IE9-11 bundle (`fc-rum-legacy.js`) now sends `usr.id`, `usr.name`, `usr.email`,
+  `account.id` and `account.name` as strings, as the modern bundle does. A numeric value, such as
+  `setUser({ id: 12345 })`, used to go out as a number, and the intake rejected every event carrying
+  it. Empty values and custom fields are sent unchanged.
+
 ## v0.3.1
 
 - 🐛 With `remoteConfigurationEnabled`, settings stored by one release of a site are now read by
