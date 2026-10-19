@@ -464,7 +464,7 @@ export function makeRumPublicApi(
     options,
     trackingConsentState,
     customVitalsState,
-    (configuration, deflateWorker, initialViewOptions) => {
+    (configuration, deflateWorker, initialViewOptions, remoteConfiguration, remoteConfigurationWait) => {
       const startRumResult = startRumImpl(
         configuration,
         recorderApi,
@@ -474,7 +474,9 @@ export function makeRumPublicApi(
           ? (streamId) => options.createDeflateEncoder!(configuration, deflateWorker, streamId)
           : createIdentityEncoder,
         trackingConsentState,
-        customVitalsState
+        customVitalsState,
+        remoteConfiguration,
+        remoteConfigurationWait
       )
 
       recorderApi.onRumStart(

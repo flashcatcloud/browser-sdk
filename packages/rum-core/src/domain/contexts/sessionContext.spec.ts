@@ -271,6 +271,30 @@ describe('session context', () => {
     })
   })
 
+  it('should report how long the start that drew the session waited for remote settings', () => {
+    sessionManager.setDrawnConfiguration({
+      sessionSampleRate: 40,
+      sessionReplaySampleRate: 10,
+      traceSampleRate: undefined,
+      defaultPrivacyLevel: 'mask',
+      wait: 1000,
+    })
+
+    const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'view',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(defaultRumEventAttributes._dd).toEqual({
+      configuration: {
+        session_sample_rate: 40,
+        session_replay_sample_rate: 10,
+        rc_version: undefined,
+        rc_wait: 1000,
+      } as NonNullable<DefaultRumEventAttributes['_dd']>['configuration'],
+    })
+  })
+
   it('should not override the configuration when the session has no draw record', () => {
     const defaultRumEventAttributes = hooks.triggerHook(HookNames.Assemble, {
       eventType: 'action',

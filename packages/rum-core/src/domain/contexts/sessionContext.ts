@@ -7,13 +7,15 @@ import type { DefaultRumEventAttributes, Hooks } from '../hooks'
 import type { ViewHistory } from './viewHistory'
 
 /**
- * FLASHCAT FORK - what the shared schema says `_dd.configuration` holds, plus `rc_version`, which is
- * ours: our intake reads it and other consumers ignore it. Naming the addition here rather than
- * casting the whole `_dd` away keeps every field that DOES belong to the shared schema checked
- * against it, so a rename upstream still fails the build instead of silently emitting a dead field.
+ * FLASHCAT FORK - what the shared schema says `_dd.configuration` holds, plus `rc_version` and
+ * `rc_wait`, which are ours: our intake reads them and other consumers ignore them. Naming the
+ * additions here rather than casting the whole `_dd` away keeps every field that DOES belong to the
+ * shared schema checked against it, so a rename upstream still fails the build instead of silently
+ * emitting a dead field.
  */
 type DrawnConfigurationAttributes = NonNullable<NonNullable<DefaultRumEventAttributes['_dd']>['configuration']> & {
   rc_version?: number
+  rc_wait?: number
 }
 
 function drawnAttributes(drawn: DrawnConfiguration): DrawnConfigurationAttributes {
@@ -21,6 +23,8 @@ function drawnAttributes(drawn: DrawnConfiguration): DrawnConfigurationAttribute
     session_sample_rate: round(drawn.sessionSampleRate, 3),
     session_replay_sample_rate: round(drawn.sessionReplaySampleRate, 3),
     rc_version: drawn.version,
+    // Only present when the start waited, which few draws did.
+    ...(drawn.wait !== undefined && { rc_wait: drawn.wait }),
   }
 }
 

@@ -4,7 +4,7 @@ import {
   createEndpointUrlBuilder,
   dateNow,
   display,
-  noop,
+  Observable,
   setTimeout,
   ONE_DAY,
   ONE_SECOND,
@@ -32,6 +32,12 @@ declare const __BUILD_ENV__SDK_VERSION__: string
  * sessions are drawn would be requests for nothing. There is no timer between sessions. The cost
  * of that rhythm is that a visitor who never goes idle stays on one session, and so on one set of
  * settings, for as long as they keep using the site.
+ *
+ * Nothing waits for an answer, with one exception: a page that has nothing stored at all. Its first
+ * draw would otherwise use the init values, and so would the next one if storage is gone again by
+ * then — a one-off visitor, a private window, a browser that clears storage after a week. For those
+ * visitors "next session" never comes, so the start waits for the first answer, for at most
+ * `REMOTE_CONFIGURATION_WAIT`. See `shouldWaitForRemoteConfiguration`.
  *
  * Three fields the server sends are accepted and ignored, deliberately: `ttl` and
  * `refresh_on_foreground`, which describe when to ask again and are moot without a timer, and
@@ -87,6 +93,18 @@ const STORE_ENTRY_MAX_AGE = 2 * ONE_DAY
  */
 const RETRY_DELAYS = [5 * ONE_SECOND, 60 * ONE_SECOND]
 
+/**
+ * How long the start of a page with nothing stored waits for the first answer before drawing on the
+ * init values.
+ *
+ * Only such a page waits, and its first draw is the one thing waiting buys: collection starts once
+ * the wait ends, so this is the most it delays the start. It is short because it is paid in full by
+ * every visitor whose answer does not come back in time — a slow network, an endpoint having a bad
+ * minute — and they get nothing for it. An answer arriving later is stored all the same, for the
+ * next draw, exactly as without the wait.
+ */
+export const REMOTE_CONFIGURATION_WAIT = ONE_SECOND
+
 export interface RemoteConfigValues {
   sessionSampleRate?: number
   sessionReplaySampleRate?: number
@@ -134,8 +152,9 @@ export interface RemoteConfigValues {
 /**
  * What the application's `beforeSampling` callback receives at the moment a new session is about to
  * be drawn: the rates that would apply (console-delivered, falling back to init) and the custom
- * values the console delivered. On the very first visit, before the first response has been
- * cached, `custom` is undefined and the rates are the init ones.
+ * values the console delivered. On a page with nothing stored, these are what the first answer
+ * brought if it came within `REMOTE_CONFIGURATION_WAIT`; otherwise `custom` is undefined and the
+ * rates are the init ones.
  */
 export interface BeforeSamplingContext {
   sessionSampleRate: number
@@ -285,20 +304,58 @@ function readStoredValues(parsed: unknown): RemoteConfigValues {
 }
 
 /**
- * Keep the stored settings as fresh as the sessions that read them.
+ * The remote configuration of one page: its requests, and what came of them.
  *
- * A fetch is issued at start-up and on every session renewal, and nothing ever waits for it —
- * initialisation is never delayed and collection never pauses, whatever the endpoint does. The
- * response lands in storage for the NEXT draw: the draw that triggered the fetch has already
- * happened by the time the response arrives, which is exactly the next-session semantics the
- * console promises.
+ * Started before RUM itself, because a page with nothing stored waits for the first answer before it
+ * starts — see `shouldWaitForRemoteConfiguration`. Until RUM starts nobody listens, and that is fine:
+ * a settings change can only reach a draw, and the first draw has not happened yet.
  */
-export function startRemoteConfiguration(configuration: RumConfiguration, lifeCycle: LifeCycle) {
-  const setup = configuration.remoteConfig
-  return setup ? keepConfigFresh(configuration, setup, lifeCycle) : noop
+export interface RemoteConfiguration {
+  /**
+   * Notified once per request, when it is answered — `true` when the answer stored settings this
+   * client did not already hold, `false` for anything else: the same settings again, a refused
+   * response, or no response at all.
+   */
+  answerObservable: Observable<boolean>
+  /** Ask again now. Called at every session renewal, the only other moment a draw happens. */
+  refresh: () => void
+  stop: () => void
 }
 
-function keepConfigFresh(configuration: RumConfiguration, setup: RemoteConfigSetup, lifeCycle: LifeCycle) {
+/**
+ * Keep the stored settings as fresh as the sessions that read them.
+ *
+ * A fetch is issued at every `refresh`, the first of them by whoever created this — after
+ * subscribing to `answerObservable` if it means to wait: an attempt that fails before anything is
+ * sent is answered on the spot. Its response lands in storage for the NEXT draw: unless the start
+ * waited for it, the draw that triggered the fetch has already happened by the time the response
+ * arrives, which is exactly the next-session semantics the console promises.
+ */
+export function createRemoteConfiguration(configuration: RumConfiguration): RemoteConfiguration | undefined {
+  const setup = configuration.remoteConfig
+  return setup ? keepConfigFresh(configuration, setup) : undefined
+}
+
+/**
+ * Once RUM has started: ask again at every session renewal, and announce settings that changed —
+ * `endSessionIfSettingsAreDecisive` acts on them. Answers how to stop it all.
+ */
+export function connectRemoteConfiguration(remoteConfiguration: RemoteConfiguration, lifeCycle: LifeCycle) {
+  const answerSubscription = remoteConfiguration.answerObservable.subscribe((isNew) => {
+    if (isNew) {
+      lifeCycle.notify(LifeCycleEventType.REMOTE_CONFIGURATION_STORED)
+    }
+  })
+  const renewSubscription = lifeCycle.subscribe(LifeCycleEventType.SESSION_RENEWED, remoteConfiguration.refresh)
+  return () => {
+    answerSubscription.unsubscribe()
+    renewSubscription.unsubscribe()
+    remoteConfiguration.stop()
+  }
+}
+
+function keepConfigFresh(configuration: RumConfiguration, setup: RemoteConfigSetup): RemoteConfiguration {
+  const answerObservable = new Observable<boolean>()
   let retryTimeoutId: TimeoutId | undefined
   let failedAttempts = 0
   let inFlight = false
@@ -321,41 +378,63 @@ function keepConfigFresh(configuration: RumConfiguration, setup: RemoteConfigSet
       }
       if (response) {
         failedAttempts = 0
-        if (store(setup, response)) {
-          // Announced only once new settings are in storage, because that is where the next draw
-          // reads them: a subscriber that ends the running session so the new values can take
-          // effect immediately has to be sure the draw that follows will find them, and must not
-          // be woken by an answer that changed nothing.
-          lifeCycle.notify(LifeCycleEventType.REMOTE_CONFIGURATION_STORED)
-        }
+        // Announced as new only once the settings are in storage, because that is where the next
+        // draw reads them: a subscriber that ends the running session so the new values can take
+        // effect immediately has to be sure the draw that follows will find them, and must not be
+        // woken by an answer that changed nothing.
+        answerObservable.notify(store(setup, response))
         return
       }
       if (failedAttempts < RETRY_DELAYS.length) {
         retryTimeoutId = setTimeout(fetchNow, jittered(RETRY_DELAYS[failedAttempts]))
         failedAttempts += 1
       }
-      // Out of retries: give up until the next trigger. The stored settings stay as they were.
+      // Otherwise out of retries: give up until the next trigger. The stored settings stay as they
+      // were. Either way this request has its answer, and a start waiting for one does not wait for
+      // the retry.
+      answerObservable.notify(false)
     })
   }
 
-  function onTrigger() {
+  function refresh() {
     clearTimeout(retryTimeoutId)
     failedAttempts = 0
     fetchNow()
   }
 
-  const renewSubscription = lifeCycle.subscribe(LifeCycleEventType.SESSION_RENEWED, onTrigger)
-
   // Before the first request, so the room abandoned entries are holding is free by the
   // time there is an answer to store. See `sweepAbandonedEntries`.
   sweepAbandonedEntries(setup.storeKey)
 
-  onTrigger()
+  return {
+    answerObservable,
+    refresh,
+    stop: () => {
+      stopped = true
+      clearTimeout(retryTimeoutId)
+    },
+  }
+}
 
-  return () => {
-    stopped = true
-    renewSubscription.unsubscribe()
-    clearTimeout(retryTimeoutId)
+/**
+ * Whether the start of this page should wait for the first answer: only when nothing is stored, so
+ * that the first draw would otherwise fall back on the init values.
+ *
+ * Not when storage cannot be written either. The answer would then have nowhere to go that the draw
+ * reads, so the wait would delay the start of every page for nothing — and such a page has nothing
+ * stored on every load.
+ */
+export function shouldWaitForRemoteConfiguration(setup: RemoteConfigSetup | undefined) {
+  if (!setup || readRemoteConfig(setup).version !== undefined) {
+    return false
+  }
+  try {
+    const probeKey = '_fc_rc_probe'
+    localStorage.setItem(probeKey, '')
+    localStorage.removeItem(probeKey)
+    return true
+  } catch {
+    return false
   }
 }
 

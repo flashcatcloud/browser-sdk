@@ -1,4 +1,4 @@
-import { INTAKE_SITE_US1, ONE_DAY, ONE_SECOND, dateNow, display, isIntakeUrl } from '@flashcatcloud/browser-core'
+import { INTAKE_SITE_US1, ONE_DAY, ONE_SECOND, dateNow, display, isIntakeUrl, noop } from '@flashcatcloud/browser-core'
 import type { Clock, MockXhr } from '@flashcatcloud/browser-core/test'
 import { interceptRequests, mockClock, registerCleanupTask } from '@flashcatcloud/browser-core/test'
 import { mockRumConfiguration } from '../../../test'
@@ -7,8 +7,10 @@ import type { RumConfiguration, RumInitConfiguration } from './configuration'
 import {
   buildDrawStoreKey,
   buildRemoteConfigSetup,
+  connectRemoteConfiguration,
   readRemoteConfig,
-  startRemoteConfiguration,
+  shouldWaitForRemoteConfiguration,
+  createRemoteConfiguration,
 } from './remoteConfiguration'
 
 const INIT_CONFIGURATION = {
@@ -60,10 +62,46 @@ describe('remoteConfiguration', () => {
   })
 
   function start(configuration: RumConfiguration) {
-    const stop = startRemoteConfiguration(configuration, lifeCycle)
+    // Connected before the first request, unlike in the SDK — where `preStartRum` asks and `startRum`
+    // connects later — so that these tests hear every answer. Settings stored before the start are
+    // judged by the session manager when it starts; see rumSessionManager.spec.
+    const remoteConfiguration = createRemoteConfiguration(configuration)
+    const stop = remoteConfiguration ? connectRemoteConfiguration(remoteConfiguration, lifeCycle) : noop
+    remoteConfiguration?.refresh()
     registerCleanupTask(stop)
     return stop
   }
+
+  describe('whether the start waits', () => {
+    it('waits only when nothing is stored', () => {
+      expect(shouldWaitForRemoteConfiguration(undefined)).toBeFalse()
+      expect(shouldWaitForRemoteConfiguration(setup)).toBeTrue()
+
+      localStorage.setItem(setup!.storeKey, JSON.stringify({ version: 1, t: dateNow() }))
+
+      expect(shouldWaitForRemoteConfiguration(setup)).toBeFalse()
+    })
+
+    it('does not wait when storage cannot be written', () => {
+      spyOn(Storage.prototype, 'setItem').and.throwError('QuotaExceededError')
+
+      expect(shouldWaitForRemoteConfiguration(setup)).toBeFalse()
+    })
+
+    it('reports each answer, a failed one included, so a waiting start can go on', () => {
+      const answers: boolean[] = []
+      const requests: MockXhr[] = []
+      interceptor.withMockXhr((xhr) => requests.push(xhr))
+      const remoteConfiguration = createRemoteConfiguration(configurationWith())!
+      registerCleanupTask(remoteConfiguration.stop)
+      remoteConfiguration.answerObservable.subscribe((isNew) => answers.push(isNew))
+      remoteConfiguration.refresh()
+
+      requests[0].complete(500)
+
+      expect(answers).toEqual([false])
+    })
+  })
 
   describe('opting in', () => {
     it('does nothing at all when the site did not opt in', () => {

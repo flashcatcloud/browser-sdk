@@ -5,6 +5,7 @@ import type {
   DeflateEncoderStreamId,
   Encoder,
   TrackingConsentState,
+  Duration,
 } from '@flashcatcloud/browser-core'
 import {
   sendToExtension,
@@ -34,8 +35,8 @@ import { startRumBatch } from '../transport/startRumBatch'
 import { startRumEventBridge } from '../transport/startRumEventBridge'
 import { startUrlContexts } from '../domain/contexts/urlContexts'
 import { createLocationChangeObservable } from '../browser/locationChangeObservable'
-import type { RumConfiguration } from '../domain/configuration'
-import { startRemoteConfiguration, readRemoteConfig } from '../domain/configuration'
+import type { RemoteConfiguration, RumConfiguration } from '../domain/configuration'
+import { connectRemoteConfiguration, readRemoteConfig } from '../domain/configuration'
 import type { ViewOptions } from '../domain/view/trackViews'
 import { startFeatureFlagContexts } from '../domain/contexts/featureFlagContext'
 import { startCustomerDataTelemetry } from '../domain/startCustomerDataTelemetry'
@@ -74,7 +75,11 @@ export function startRum(
   // collecting logs unconditionally. As such, `startRum` should be called with a
   // `trackingConsentState` set to "granted".
   trackingConsentState: TrackingConsentState,
-  customVitalsState: CustomVitalsState
+  customVitalsState: CustomVitalsState,
+  // FLASHCAT FORK - started before RUM, so that a page with nothing stored could wait for its first
+  // answer; `remoteConfigurationWait` is how long it did, and is undefined when it did not.
+  remoteConfiguration?: RemoteConfiguration,
+  remoteConfigurationWait?: Duration
 ) {
   const cleanupTasks: Array<() => void> = []
   const lifeCycle = new LifeCycle()
@@ -124,7 +129,7 @@ export function startRum(
   // follows it; either way this page started the manager, so it stops it.
   const session = canUseEventBridge()
     ? startRumSessionManagerStub(configuration, lifeCycle)
-    : startRumSessionManager(configuration, lifeCycle, trackingConsentState)
+    : startRumSessionManager(configuration, lifeCycle, trackingConsentState, remoteConfigurationWait)
   cleanupTasks.push(session.stop)
 
   // Subscribed before the batch below, and it has to stay that way: the withheld event buffer runs
@@ -135,11 +140,12 @@ export function startRum(
 
   if (!canUseEventBridge()) {
     // FLASHCAT FORK - keep the console's sampling rates fresh, at the rhythm the sessions read
-    // them: once now and once per session renewal. It is skipped under an event bridge, where the
-    // host application owns the sampling decision. Nothing waits on the first response: the rates
-    // already in storage, or the ones passed to init, carry this page either way, so an endpoint
-    // having a bad minute never costs a visit.
-    cleanupTasks.push(startRemoteConfiguration(configuration, lifeCycle))
+    // them: the first request went out before the start, and one more goes out per session
+    // renewal. There is none under an event bridge, where the host application owns the sampling
+    // decision.
+    if (remoteConfiguration) {
+      cleanupTasks.push(connectRemoteConfiguration(remoteConfiguration, lifeCycle))
+    }
 
     const batch = startRumBatch(
       configuration,
