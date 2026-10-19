@@ -1,4 +1,4 @@
-import type { RelativeTime, TrackingConsentState } from '@flashcatcloud/browser-core'
+import type { Duration, RelativeTime, TrackingConsentState } from '@flashcatcloud/browser-core'
 import {
   BridgeCapability,
   DefaultPrivacyLevel,
@@ -14,6 +14,7 @@ import {
   noop,
   performDraw,
   relativeNow,
+  round,
   setInterval,
   startSessionManager,
 } from '@flashcatcloud/browser-core'
@@ -84,6 +85,12 @@ export interface DrawnConfiguration {
   // this as "use the built configuration's rate", which is what it did before any of this existed.
   traceSampleRate: number | undefined
   defaultPrivacyLevel: DefaultPrivacyLevel
+  // How many whole milliseconds the start that made this draw waited for the first remote settings
+  // — see `REMOTE_CONFIGURATION_WAIT`. Undefined when it did not wait, which every draw but a page's
+  // first one on an origin with nothing stored is. Kept with the draw rather than with the page,
+  // because every page of the session reports it: the one whose view reaches the intake first is
+  // not necessarily the one that waited.
+  wait?: number
 }
 
 export type RumSession = {
@@ -164,7 +171,8 @@ const NOT_TRACKED_DRAW_ID = 'not-tracked'
 export function startRumSessionManager(
   configuration: RumConfiguration,
   lifeCycle: LifeCycle,
-  trackingConsentState: TrackingConsentState
+  trackingConsentState: TrackingConsentState,
+  remoteConfigurationWait?: Duration
 ): StartedRumSessionManager {
   // FLASHCAT FORK - set through `setForcedSession()`, read at draw time. Once set it stays set for
   // the page lifetime, so every session drawn after the call is collected with replay; the host
@@ -277,6 +285,12 @@ export function startRumSessionManager(
 
   // FLASHCAT FORK - the very first draw happens inside startSessionManager, before any
   // subscription could see its renewal; every later draw announces itself through renew.
+  // The start waited, if it did, for the draw it made — so the wait goes with that draw, and not
+  // with a session this page only continued. At least 1: a wait ended by a request that failed
+  // before it was sent lasts no time at all, and 0 is what the intake reads as "did not wait".
+  if (pendingDraw && remoteConfigurationWait !== undefined) {
+    pendingDraw = { ...pendingDraw, wait: Math.max(1, round(remoteConfigurationWait, 0)) }
+  }
   trackDraw(clocksOrigin().relative)
 
   sessionManager.renewObservable.subscribe(() => {
@@ -413,6 +427,17 @@ export function startRumSessionManager(
     LifeCycleEventType.REMOTE_CONFIGURATION_STORED,
     endSessionIfSettingsAreDecisive
   )
+
+  // FLASHCAT FORK - settings already in storage when this page starts were announced to nobody here:
+  // they were stored before it, by its own wait for them or by another page. A session this page
+  // drew read them at its draw. One it only continued — drawn on another subdomain, before the site
+  // turned this on, or before an emergency stop reached this browser — has to be judged by them now,
+  // as it would have been had they arrived a moment later. Asked of storage rather than of anything
+  // remembered, so that nothing between the answer and the start can lose it.
+  const storedVersion = readRemoteConfig(configuration.remoteConfig).version
+  if (storedVersion !== undefined && storedVersion !== drawnHistory.find()?.version) {
+    endSessionIfSettingsAreDecisive()
+  }
 
   function forceReplay() {
     const session = sessionManager.findSession()
@@ -853,7 +878,10 @@ function isWorthRecording(configuration: RumConfiguration, drawn: DrawnConfigura
     drawn.sessionSampleRate !== configuration.sessionSampleRate ||
     drawn.sessionReplaySampleRate !== configuration.sessionReplaySampleRate ||
     drawn.traceSampleRate !== initTraceRule(configuration) ||
-    drawn.defaultPrivacyLevel !== configuration.defaultPrivacyLevel
+    drawn.defaultPrivacyLevel !== configuration.defaultPrivacyLevel ||
+    // A draw on the init values after a wait that ran out says exactly that, and the other pages of
+    // the session have to be able to say it too.
+    drawn.wait !== undefined
   )
 }
 
@@ -913,6 +941,9 @@ function readDrawRecord(configuration: RumConfiguration, sessionId: string): Dra
       mayHaveBeenDelivered && isPrivacyLevel(record.defaultPrivacyLevel)
         ? record.defaultPrivacyLevel
         : configuration.defaultPrivacyLevel,
+    // Only a start waiting for remote settings can have written one. A whole number of milliseconds
+    // is what `isVersion` checks for.
+    ...(mayHaveBeenDelivered && isVersion(record.wait) && { wait: record.wait }),
   }
 }
 

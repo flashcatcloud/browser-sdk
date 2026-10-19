@@ -11,14 +11,22 @@ import {
   resetExperimentalFeatures,
   resetFetchObservable,
 } from '@flashcatcloud/browser-core'
-import type { Clock } from '@flashcatcloud/browser-core/test'
+import type { Clock, MockXhr } from '@flashcatcloud/browser-core/test'
 import {
   callbackAddsInstrumentation,
+  interceptRequests,
   mockClock,
   mockEventBridge,
   mockSyntheticsWorkerValues,
+  registerCleanupTask,
 } from '@flashcatcloud/browser-core/test'
-import type { HybridInitConfiguration, RumConfiguration, RumInitConfiguration } from '../domain/configuration'
+import type {
+  HybridInitConfiguration,
+  RemoteConfiguration,
+  RumConfiguration,
+  RumInitConfiguration,
+} from '../domain/configuration'
+import { buildRemoteConfigSetup, readRemoteConfig, REMOTE_CONFIGURATION_WAIT } from '../domain/configuration'
 import type { ViewOptions } from '../domain/view/trackViews'
 import { ActionType, VitalType } from '../rawRumEvent.types'
 import type { CustomAction } from '../domain/action/actionCollection'
@@ -40,7 +48,9 @@ describe('preStartRum', () => {
     (
       configuration: RumConfiguration,
       deflateWorker: DeflateWorker | undefined,
-      initialViewOptions?: ViewOptions
+      initialViewOptions?: ViewOptions,
+      remoteConfiguration?: RemoteConfiguration,
+      remoteConfigurationWait?: Duration
     ) => StartRumResult
   >
 
@@ -448,19 +458,191 @@ describe('preStartRum', () => {
     })
 
     describe('remote configuration', () => {
-      it('starts collecting straight away, whatever the sampling settings do', () => {
-        // Fetching them belongs to startRum, next to the session manager. What matters here is
-        // that opting in never delays or blocks initialisation.
+      const REMOTE_INIT_CONFIGURATION = { ...DEFAULT_INIT_CONFIGURATION, remoteConfigurationEnabled: true }
+      let requests: MockXhr[]
+      let clock: Clock
+
+      beforeEach(() => {
+        requests = []
+        interceptRequests().withMockXhr((xhr) => requests.push(xhr))
+        clock = mockClock()
+        registerCleanupTask(clock.cleanup)
+        const storeKey = buildRemoteConfigSetup(REMOTE_INIT_CONFIGURATION)!.storeKey
+        registerCleanupTask(() => localStorage.removeItem(storeKey))
+      })
+
+      function initWithRemoteConfiguration(trackingConsentState = createTrackingConsentState()) {
+        const strategy = createPreStartStrategy({}, trackingConsentState, createCustomVitalsState(), doStartRumSpy)
+        strategy.init(REMOTE_INIT_CONFIGURATION, PUBLIC_API)
+      }
+
+      function storeSettings() {
+        localStorage.setItem(
+          buildRemoteConfigSetup(REMOTE_INIT_CONFIGURATION)!.storeKey,
+          JSON.stringify({ version: 2, sessionSampleRate: 50, t: Date.now() })
+        )
+      }
+
+      function answer(status = 200) {
+        requests[0].complete(
+          status,
+          JSON.stringify({ schema_version: 1, version: 3, enabled: true, rum: { sessionSampleRate: 5 } })
+        )
+      }
+
+      it('starts straight away when settings are already stored', () => {
+        storeSettings()
+
+        initWithRemoteConfiguration()
+
+        expect(doStartRumSpy).toHaveBeenCalled()
+        expect(requests.length).toBe(1)
+        expect(doStartRumSpy.calls.mostRecent().args[0].remoteConfig).toBeDefined()
+        expect(doStartRumSpy.calls.mostRecent().args[3]).toBeDefined()
+        expect(doStartRumSpy.calls.mostRecent().args[4]).toBeUndefined()
+      })
+
+      it('waits for the first answer when nothing is stored, so the first draw can use it', () => {
+        initWithRemoteConfiguration()
+        expect(requests.length).toBe(1)
+        expect(doStartRumSpy).not.toHaveBeenCalled()
+
+        clock.tick(300)
+        answer()
+
+        expect(doStartRumSpy).toHaveBeenCalledTimes(1)
+        expect(readRemoteConfig(buildRemoteConfigSetup(REMOTE_INIT_CONFIGURATION)).sessionSampleRate).toBe(5)
+        expect(doStartRumSpy.calls.mostRecent().args[4]).toBe(300 as Duration)
+      })
+
+      it('starts on the init values when no answer came in time, and stores a late one all the same', () => {
+        initWithRemoteConfiguration()
+
+        clock.tick(REMOTE_CONFIGURATION_WAIT - 1)
+        expect(doStartRumSpy).not.toHaveBeenCalled()
+        clock.tick(1)
+        expect(doStartRumSpy).toHaveBeenCalledTimes(1)
+        expect(doStartRumSpy.calls.mostRecent().args[4]).toBe(REMOTE_CONFIGURATION_WAIT as Duration)
+
+        answer()
+        expect(doStartRumSpy).toHaveBeenCalledTimes(1)
+        expect(readRemoteConfig(buildRemoteConfigSetup(REMOTE_INIT_CONFIGURATION)).version).toBe(3)
+      })
+
+      it('stops waiting at a failed request rather than at its retry', () => {
+        initWithRemoteConfiguration()
+
+        answer(500)
+
+        expect(doStartRumSpy).toHaveBeenCalledTimes(1)
+      })
+
+      it('stops waiting at once when the request cannot even be sent', () => {
+        spyOn(display, 'error')
         const strategy = createPreStartStrategy(
           {},
           createTrackingConsentState(),
           createCustomVitalsState(),
           doStartRumSpy
         )
-        strategy.init({ ...DEFAULT_INIT_CONFIGURATION, remoteConfigurationEnabled: true }, PUBLIC_API)
+        strategy.init(
+          {
+            ...REMOTE_INIT_CONFIGURATION,
+            // Only the settings request: the intake endpoints are built from it at init as well.
+            proxy: ({ path, parameters }) => {
+              if (path.endsWith('/config')) {
+                throw new Error('not this time')
+              }
+              return `https://proxy.example.com${path}?${parameters}`
+            },
+          },
+          PUBLIC_API
+        )
+
+        expect(doStartRumSpy).toHaveBeenCalledTimes(1)
+      })
+
+      it('does not wait when storage cannot be written, since nothing it waited for could be read', () => {
+        spyOn(Storage.prototype, 'setItem').and.throwError('QuotaExceededError')
+
+        initWithRemoteConfiguration()
 
         expect(doStartRumSpy).toHaveBeenCalled()
-        expect(doStartRumSpy.calls.mostRecent().args[0].remoteConfig).toBeDefined()
+      })
+
+      it('sends no request before consent is granted', () => {
+        const trackingConsentState = createTrackingConsentState(TrackingConsent.NOT_GRANTED)
+        initWithRemoteConfiguration(trackingConsentState)
+        expect(requests.length).toBe(0)
+
+        trackingConsentState.update(TrackingConsent.GRANTED)
+
+        expect(requests.length).toBe(1)
+        expect(doStartRumSpy).not.toHaveBeenCalled()
+      })
+
+      it('starts afresh when consent is withdrawn and granted again during the wait', () => {
+        const trackingConsentState = createTrackingConsentState(TrackingConsent.GRANTED)
+        initWithRemoteConfiguration(trackingConsentState)
+
+        trackingConsentState.update(TrackingConsent.NOT_GRANTED)
+        answer()
+        clock.tick(REMOTE_CONFIGURATION_WAIT)
+        expect(doStartRumSpy).not.toHaveBeenCalled()
+
+        // The answer that came in while consent was withdrawn was dropped, so nothing is stored yet
+        // and the start asks, and waits, again.
+        trackingConsentState.update(TrackingConsent.GRANTED)
+        expect(requests.length).toBe(2)
+        expect(doStartRumSpy).not.toHaveBeenCalled()
+
+        requests[1].complete(
+          200,
+          JSON.stringify({ schema_version: 1, version: 3, enabled: true, rum: { sessionSampleRate: 5 } })
+        )
+        expect(doStartRumSpy).toHaveBeenCalledTimes(1)
+      })
+
+      it('still starts on a first grant when consent was not granted at init', () => {
+        const trackingConsentState = createTrackingConsentState(TrackingConsent.NOT_GRANTED)
+        initWithRemoteConfiguration(trackingConsentState)
+        trackingConsentState.update(TrackingConsent.NOT_GRANTED)
+
+        trackingConsentState.update(TrackingConsent.GRANTED)
+        answer()
+
+        expect(doStartRumSpy).toHaveBeenCalledTimes(1)
+      })
+
+      it('asks for nothing more once consent is withdrawn while the start waits for the first view', () => {
+        storeSettings()
+        const trackingConsentState = createTrackingConsentState(TrackingConsent.GRANTED)
+        const strategy = createPreStartStrategy({}, trackingConsentState, createCustomVitalsState(), doStartRumSpy)
+        strategy.init({ ...REMOTE_INIT_CONFIGURATION, trackViewsManually: true }, PUBLIC_API)
+        expect(requests.length).toBe(1)
+
+        trackingConsentState.update(TrackingConsent.NOT_GRANTED)
+        answer(500)
+        clock.tick(100 * REMOTE_CONFIGURATION_WAIT)
+        expect(requests.length).toBe(1)
+
+        // Granted again, the first view still starts RUM.
+        trackingConsentState.update(TrackingConsent.GRANTED)
+        strategy.startView({ name: 'home' })
+        expect(doStartRumSpy).toHaveBeenCalledTimes(1)
+      })
+
+      it('asks for nothing more once consent is withdrawn before the start', () => {
+        const trackingConsentState = createTrackingConsentState(TrackingConsent.GRANTED)
+        initWithRemoteConfiguration(trackingConsentState)
+
+        trackingConsentState.update(TrackingConsent.NOT_GRANTED)
+        // A failure would schedule a retry; withdrawn, there must be none.
+        answer(500)
+        clock.tick(100 * REMOTE_CONFIGURATION_WAIT)
+
+        expect(requests.length).toBe(1)
+        expect(doStartRumSpy).not.toHaveBeenCalled()
       })
 
       it('resolves no remote sampling setup at all when the site did not opt in', () => {
@@ -605,6 +787,7 @@ describe('preStartRum', () => {
       // Remote settings only ever move the sampling rates, and only inside the session manager.
       // If they were merged into the init configuration instead, anything in it — the client
       // token, the site — could be rewritten from the far end of a request.
+      interceptRequests().withMockXhr(noop)
       const initConfiguration = { ...DEFAULT_INIT_CONFIGURATION, remoteConfigurationEnabled: true }
       const strategy = createPreStartStrategy(
         {},

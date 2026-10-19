@@ -10,8 +10,11 @@ import {
   createIdentityEncoder,
   createTrackingConsentState,
   TrackingConsent,
+  INTAKE_SITE_US1,
+  SESSION_STORE_KEY,
+  setCookie,
 } from '@flashcatcloud/browser-core'
-import type { Clock } from '@flashcatcloud/browser-core/test'
+import type { Clock, MockXhr } from '@flashcatcloud/browser-core/test'
 import {
   createNewEvent,
   interceptRequests,
@@ -38,7 +41,8 @@ import { startViewCollection } from '../domain/view/viewCollection'
 import type { RumEvent, RumViewEvent } from '../rumEvent.types'
 import type { LocationChange } from '../browser/locationChangeObservable'
 import { startLongAnimationFrameCollection } from '../domain/longAnimationFrame/longAnimationFrameCollection'
-import type { RumConfiguration } from '../domain/configuration'
+import type { RumConfiguration, RumInitConfiguration } from '../domain/configuration'
+import { buildRemoteConfigSetup, createRemoteConfiguration } from '../domain/configuration'
 import { RumEventType } from '../rawRumEvent.types'
 import type { PageStateHistory } from '../domain/contexts/pageStateHistory'
 import { createCustomVitalsState } from '../domain/vital/vitalCollection'
@@ -314,6 +318,83 @@ describe('rum events url', () => {
 
     expect(serverRumEvents.length).toEqual(1)
     expect(serverRumEvents[0].view.url).toEqual('http://foo.com/')
+  })
+})
+
+describe('remote settings stored before the start', () => {
+  const INIT_CONFIGURATION = {
+    clientToken: 'token',
+    applicationId: 'app',
+    site: INTAKE_SITE_US1,
+    remoteConfigurationEnabled: true,
+  } as RumInitConfiguration
+  const remoteConfig = buildRemoteConfigSetup(INIT_CONFIGURATION)!
+  const configuration = mockRumConfiguration({
+    sessionSampleRate: 100,
+    sessionReplaySampleRate: 0,
+    defaultPrivacyLevel: 'allow',
+    remoteConfig,
+  })
+  let clock: Clock
+
+  beforeEach(() => {
+    clock = mockClock()
+    registerCleanupTask(() => {
+      stopSessionManager()
+      clock.cleanup()
+      localStorage.removeItem(remoteConfig.storeKey)
+      localStorage.removeItem(configuration.drawStoreKey)
+      setCookie(SESSION_STORE_KEY, '', 0)
+    })
+  })
+
+  // What `preStartRum` does when the start waited: the answer is in storage before RUM starts.
+  // The settings are stricter on masking than init, which a running session drawn on init cannot
+  // keep.
+  function startAfterAnAnswer() {
+    const requests: MockXhr[] = []
+    interceptRequests().withMockXhr((xhr) => requests.push(xhr))
+    const remoteConfiguration = createRemoteConfiguration(configuration)!
+    remoteConfiguration.refresh()
+    requests[0].complete(
+      200,
+      JSON.stringify({
+        schema_version: 1,
+        version: 3,
+        enabled: true,
+        rum: { sessionSampleRate: 100, defaultPrivacyLevel: 'mask' },
+      })
+    )
+
+    const startResult = startRum(
+      configuration,
+      noopRecorderApi,
+      noopProfilerApi,
+      undefined,
+      createIdentityEncoder,
+      createTrackingConsentState(TrackingConsent.GRANTED),
+      createCustomVitalsState(),
+      remoteConfiguration
+    )
+    registerCleanupTask(startResult.stop)
+    // The request the start waited for is the page's first: connecting must not ask again.
+    expect(requests.length).toBe(1)
+    return startResult
+  }
+
+  it('end a session the start only continued, which was drawn before them', () => {
+    setCookie(SESSION_STORE_KEY, `id=abcdef&rum=2&created=${Date.now()}&expire=${Date.now() + 60_000}`, 60_000)
+
+    const { session } = startAfterAnAnswer()
+
+    expect(session.findTrackedSession()).toBeUndefined()
+  })
+
+  it('leave alone a session the start drew on them', () => {
+    const { session } = startAfterAnAnswer()
+
+    expect(session.findTrackedSession()).toBeDefined()
+    expect(session.findTrackedSession()!.drawnConfiguration!.defaultPrivacyLevel).toBe('mask')
   })
 })
 

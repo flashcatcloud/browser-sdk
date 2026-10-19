@@ -4,6 +4,7 @@ import type {
   Context,
   ContextManager,
   BoundedBuffer,
+  Duration,
 } from '@flashcatcloud/browser-core'
 import {
   createBoundedBuffer,
@@ -19,13 +20,21 @@ import {
   addTelemetryConfiguration,
   initFetchObservable,
   CustomerContextKey,
+  setTimeout,
+  clearTimeout,
+  elapsed,
+  relativeNow,
 } from '@flashcatcloud/browser-core'
 import {
   validateAndBuildRumConfiguration,
   type RumConfiguration,
   type RumInitConfiguration,
+  type RemoteConfiguration,
   readRemoteConfig,
   buildRemoteConfigSetup,
+  createRemoteConfiguration,
+  shouldWaitForRemoteConfiguration,
+  REMOTE_CONFIGURATION_WAIT,
 } from '../domain/configuration'
 import type { ViewOptions } from '../domain/view/trackViews'
 import type { DurationVital, CustomVitalsState } from '../domain/vital/vitalCollection'
@@ -45,7 +54,9 @@ export function createPreStartStrategy(
   doStartRum: (
     configuration: RumConfiguration,
     deflateWorker: DeflateWorker | undefined,
-    initialViewOptions?: ViewOptions
+    initialViewOptions?: ViewOptions,
+    remoteConfiguration?: RemoteConfiguration,
+    remoteConfigurationWait?: Duration
   ) => StartRumResult
 ): Strategy {
   const bufferApiCalls = createBoundedBuffer<StartRumResult>()
@@ -68,16 +79,62 @@ export function createPreStartStrategy(
   let cachedInitConfiguration: RumInitConfiguration | undefined
   let cachedConfiguration: RumConfiguration | undefined
 
+  // FLASHCAT FORK - see `createRemoteConfiguration`. Started at the start rather than at init, so
+  // that no request goes out before consent is granted, exactly as when it was started with RUM.
+  let remoteConfiguration: RemoteConfiguration | undefined
+  let remoteConfigurationStarted = false
+  // Set while the start waits for the first answer.
+  let cancelWait: (() => void) | undefined
+  let remoteConfigurationWait: Duration | undefined
+
   const trackingConsentStateSubscription = trackingConsentState.observable.subscribe(tryStartRum)
 
   const emptyContext: Context = {}
 
   function tryStartRum() {
-    if (!cachedInitConfiguration || !cachedConfiguration || !trackingConsentState.isGranted()) {
+    if (!cachedInitConfiguration || !cachedConfiguration) {
       return
     }
 
-    trackingConsentStateSubscription.unsubscribe()
+    if (!trackingConsentState.isGranted()) {
+      forgetRemoteConfiguration()
+      return
+    }
+
+    if (cancelWait) {
+      return
+    }
+
+    if (!remoteConfigurationStarted) {
+      remoteConfigurationStarted = true
+      // FLASHCAT FORK - a page with nothing stored would draw its first session on the init values,
+      // and for a visitor whose storage does not last until the next session that is every session.
+      // So that page waits for the first answer before it starts, for at most
+      // `REMOTE_CONFIGURATION_WAIT`; a page with settings stored starts at once, as it always has.
+      //
+      // Storage alone decides, not whether a session is already running: telling would mean reading
+      // the session store before it is started. The cost is one wait, usually one round trip, on the
+      // first page a visitor with a running session opens on an origin with nothing stored — another
+      // subdomain under `trackSessionAcrossSubdomains`, or a site that just turned this on. That
+      // session reports no wait: it goes with the draw the start made, and there was none.
+      //
+      // Ahead of the consent unsubscription below, so that consent withdrawn while waiting stops it;
+      // see `forgetRemoteConfiguration`. The request goes out here rather than at the start because the
+      // start is what waits for it; with `trackViewsManually` it is therefore made before the first
+      // `startView`, and keeps to its retry budget if that never comes.
+      if (!canUseEventBridge()) {
+        const shouldWait = shouldWaitForRemoteConfiguration(cachedConfiguration.remoteConfig)
+        remoteConfiguration = createRemoteConfiguration(cachedConfiguration)
+        if (remoteConfiguration && shouldWait) {
+          // Subscribed before the request goes out: an attempt that fails before anything is sent
+          // is answered on the spot, and then the wait ends — and RUM starts — inside `refresh()`.
+          cancelWait = waitForFirstAnswer(remoteConfiguration)
+          remoteConfiguration.refresh()
+          return
+        }
+        remoteConfiguration?.refresh()
+      }
+    }
 
     let initialViewOptions: ViewOptions | undefined
 
@@ -95,9 +152,63 @@ export function createPreStartStrategy(
       initialViewOptions = firstStartViewCall.options
     }
 
-    const startRumResult = doStartRum(cachedConfiguration, deflateWorker, initialViewOptions)
+    // FLASHCAT FORK - only now, once nothing is left to wait for: until RUM starts, a withdrawal has
+    // to reach `forgetRemoteConfiguration`, and with `trackViewsManually` the start can wait for the
+    // first `startView` long after consent was granted.
+    trackingConsentStateSubscription.unsubscribe()
+
+    const startRumResult = doStartRum(
+      cachedConfiguration,
+      deflateWorker,
+      initialViewOptions,
+      remoteConfiguration,
+      remoteConfigurationWait
+    )
 
     bufferApiCalls.drain(startRumResult)
+  }
+
+  /**
+   * Waits for the first answer or `REMOTE_CONFIGURATION_WAIT`, whichever comes first, then tries to
+   * start again. An answer that stored nothing — a failed request, a refused response — ends the
+   * wait too: the retry it schedules is seconds away, and the start has already waited for one.
+   * Answers how to give up on the wait without starting.
+   */
+  function waitForFirstAnswer({ answerObservable }: RemoteConfiguration) {
+    const waitStart = relativeNow()
+    const answerSubscription = answerObservable.subscribe(endWait)
+    const timeoutId = setTimeout(endWait, REMOTE_CONFIGURATION_WAIT)
+
+    function cancel() {
+      answerSubscription.unsubscribe()
+      clearTimeout(timeoutId)
+      cancelWait = undefined
+    }
+
+    function endWait() {
+      cancel()
+      remoteConfigurationWait = elapsed(waitStart, relativeNow())
+      tryStartRum()
+    }
+
+    return cancel
+  }
+
+  /**
+   * Consent withdrawn before RUM started: nothing may be asked for until it is granted again — a
+   * retry left scheduled would go out regardless — and the start begins afresh then, from whatever
+   * is stored by that time.
+   *
+   * The session store is left as it is, as it is when consent is withdrawn and granted again while
+   * the start waits for the first `startView`: a session in it is continued once RUM starts. Ending
+   * it belongs to the session manager, which is not running yet.
+   */
+  function forgetRemoteConfiguration() {
+    cancelWait?.()
+    remoteConfiguration?.stop()
+    remoteConfiguration = undefined
+    remoteConfigurationStarted = false
+    remoteConfigurationWait = undefined
   }
 
   function doInit(initConfiguration: RumInitConfiguration) {

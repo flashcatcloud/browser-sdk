@@ -116,19 +116,23 @@ export interface RumInitConfiguration extends InitConfiguration {
    * four-hour cap.
    *
    * The values below stay in use until the first settings arrive, and whenever the settings cannot
-   * be reached.
+   * be reached. A page with no settings stored yet — a first visit, a private window, a browser that
+   * cleared its storage — waits for them before it starts collecting, for about a second at most (a
+   * background tab's throttled timers can stretch it), so that its first session can already be drawn
+   * on them. A page with settings stored never waits.
    *
    * Requires `localStorage`. Sessions themselves are kept in a cookie unless `sessionPersistence`
    * says otherwise, but this SDK already reads one `localStorage` entry on every site — the record
    * of the sampling draw, read at start-up and at each new session — and writes it whenever a draw
-   * lands somewhere other than the values passed to init. Turning this option on adds a second
+   * lands somewhere other than the values passed to init, or follows a start that waited for the
+   * settings, whatever it landed on. Turning this option on adds a second
    * entry and the request that fills it; it is not what introduces `localStorage`. Worth stating
    * precisely for a privacy review. Where
    * `localStorage` is unavailable (a third-party iframe under storage partitioning, a browser set
    * to block site data) sessions keep working from the cookie and this feature simply stays off,
-   * falling back to the values passed here. Private browsing is not one of those cases: storage
-   * works there and is cleared when the window closes, so only the first session of each private
-   * visit starts on the values passed here.
+   * falling back to the values passed here, and the start does not wait for settings it could not
+   * keep. Private browsing is not one of those cases: storage works there and is cleared when the
+   * window closes, so each private visit starts with nothing stored and waits like a first visit.
    *
    * Scoped to one origin, while a session is not. `localStorage` belongs to the origin, but the
    * session cookie can be shared across subdomains (`trackSessionAcrossSubdomains`) — so with that

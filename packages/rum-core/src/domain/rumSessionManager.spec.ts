@@ -1,4 +1,4 @@
-import type { RelativeTime, TrackingConsentState } from '@flashcatcloud/browser-core'
+import type { Duration, RelativeTime, TrackingConsentState } from '@flashcatcloud/browser-core'
 import {
   STORAGE_POLL_DELAY,
   SESSION_STORE_KEY,
@@ -548,6 +548,126 @@ describe('rum session manager', () => {
         sessionReplaySampleRate: 100,
         traceSampleRate: undefined,
         defaultPrivacyLevel: 'mask',
+      })
+    })
+
+    describe('settings already stored when the page starts', () => {
+      const RUNNING_SESSION = `id=abcdef&rum=2&created=${Date.now()}&expire=${Date.now() + DURATION}`
+
+      it('end a running session they stop, which this page only continued', () => {
+        setCookie(SESSION_STORE_KEY, RUNNING_SESSION, DURATION)
+        storeRemote({ version: 4, sessionSampleRate: 0 })
+
+        const rumSessionManager = startRumSessionManagerWithDefaults({
+          configuration: { sessionSampleRate: 100, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+        })
+
+        expect(rumSessionManager.findTrackedSession()).toBeUndefined()
+      })
+
+      it('leave a running session alone when it was drawn under them', () => {
+        setCookie(SESSION_STORE_KEY, RUNNING_SESSION, DURATION)
+        localStorage.setItem(
+          DRAW_KEY,
+          JSON.stringify({ id: 'abcdef', version: 4, sessionSampleRate: 100, sessionReplaySampleRate: 0 })
+        )
+        storeRemote({ version: 4, sessionSampleRate: 0 })
+
+        const rumSessionManager = startRumSessionManagerWithDefaults({
+          configuration: { sessionSampleRate: 100, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+        })
+
+        // Judged at the time it was drawn, or by the page that stored them: not again here.
+        expect(rumSessionManager.findTrackedSession()!.id).toBe('abcdef')
+      })
+
+      it('judge nothing when nothing is stored', () => {
+        setCookie(SESSION_STORE_KEY, RUNNING_SESSION, DURATION)
+        localStorage.setItem(
+          DRAW_KEY,
+          JSON.stringify({ id: 'abcdef', version: 4, sessionSampleRate: 100, sessionReplaySampleRate: 0 })
+        )
+
+        const rumSessionManager = startRumSessionManagerWithDefaults({
+          configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+        })
+
+        expect(rumSessionManager.findTrackedSession()!.id).toBe('abcdef')
+      })
+    })
+
+    describe('the wait of the start', () => {
+      it('goes with the draw the start made, in whole milliseconds', () => {
+        storeRemote({ version: 12, sessionSampleRate: 100, sessionReplaySampleRate: 100 })
+
+        const rumSessionManager = startRumSessionManagerWithDefaults({
+          configuration: { sessionSampleRate: 0, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+          remoteConfigurationWait: 63.6 as Duration,
+        })
+
+        expect(rumSessionManager.findTrackedSession()!.drawnConfiguration!.wait).toBe(64)
+      })
+
+      it('is recorded for a draw on the init values too, so other pages of the session report it', () => {
+        // A wait that ran out: nothing was delivered, and without the wait the draw would say nothing
+        // the init values do not.
+        const first = startRumSessionManagerWithDefaults({
+          configuration: {
+            sessionSampleRate: 100,
+            sessionReplaySampleRate: 0,
+            remoteConfig: REMOTE_SAMPLING_SETUP,
+            drawStoreKey: DRAW_KEY,
+          },
+          remoteConfigurationWait: 1000 as Duration,
+        })
+        const sessionId = first.findTrackedSession()!.id
+        first.stop()
+
+        const nextPage = startRumSessionManagerWithDefaults({
+          configuration: {
+            sessionSampleRate: 100,
+            sessionReplaySampleRate: 0,
+            remoteConfig: REMOTE_SAMPLING_SETUP,
+            drawStoreKey: DRAW_KEY,
+          },
+        })
+
+        expect(nextPage.findTrackedSession()!.id).toBe(sessionId)
+        expect(nextPage.findTrackedSession()!.drawnConfiguration!.wait).toBe(1000)
+      })
+
+      it('reads at least 1 for a wait that took no time, so it still says the start waited', () => {
+        const rumSessionManager = startRumSessionManagerWithDefaults({
+          configuration: { sessionSampleRate: 100, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+          remoteConfigurationWait: 0 as Duration,
+        })
+
+        expect(rumSessionManager.findTrackedSession()!.drawnConfiguration!.wait).toBe(1)
+      })
+
+      it('is not given to a session this page only continued', () => {
+        setCookie(SESSION_STORE_KEY, `id=abcdef&rum=1&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
+
+        const rumSessionManager = startRumSessionManagerWithDefaults({
+          configuration: { sessionSampleRate: 100, remoteConfig: REMOTE_SAMPLING_SETUP, drawStoreKey: DRAW_KEY },
+          remoteConfigurationWait: 250 as Duration,
+        })
+
+        expect(rumSessionManager.findTrackedSession()!.drawnConfiguration?.wait).toBeUndefined()
+      })
+
+      it('is not read back on a site that did not opt in', () => {
+        localStorage.setItem(
+          DRAW_KEY,
+          JSON.stringify({ id: 'abcdef', sessionSampleRate: 100, sessionReplaySampleRate: 0, wait: 1000 })
+        )
+        setCookie(SESSION_STORE_KEY, `id=abcdef&rum=2&created=${Date.now()}&expire=${Date.now() + DURATION}`, DURATION)
+
+        const rumSessionManager = startRumSessionManagerWithDefaults({
+          configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 0, drawStoreKey: DRAW_KEY },
+        })
+
+        expect(rumSessionManager.findTrackedSession()!.drawnConfiguration?.wait).toBeUndefined()
       })
     })
 
@@ -1829,7 +1949,12 @@ describe('rum session manager', () => {
   function startRumSessionManagerWithDefaults({
     configuration,
     trackingConsentState = createTrackingConsentState(TrackingConsent.GRANTED),
-  }: { configuration?: Partial<RumConfiguration>; trackingConsentState?: TrackingConsentState } = {}) {
+    remoteConfigurationWait,
+  }: {
+    configuration?: Partial<RumConfiguration>
+    trackingConsentState?: TrackingConsentState
+    remoteConfigurationWait?: Duration
+  } = {}) {
     const sessionManager = startRumSessionManager(
       mockRumConfiguration({
         sessionSampleRate: 50,
@@ -1839,7 +1964,8 @@ describe('rum session manager', () => {
         ...configuration,
       }),
       lifeCycle,
-      trackingConsentState
+      trackingConsentState,
+      remoteConfigurationWait
     )
     registerCleanupTask(sessionManager.stop)
     return sessionManager
