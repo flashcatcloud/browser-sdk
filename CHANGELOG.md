@@ -18,6 +18,22 @@
 
 ---
 
+## v0.4.0
+
+- ✨ With `remoteConfigurationEnabled`, a page that has no settings stored yet — a first visit, a
+  private window, a browser that cleared its storage — now waits for the first settings before it
+  starts collecting, for about a second at most, so that its first session is drawn on the delivered
+  settings instead of the values passed to `init`. A page with settings stored never waits. This
+  delays the start of such pages: uncaught errors and console errors raised during the wait are not
+  collected, as before `init`.
+- ✨ The wait is reported, in whole milliseconds, as `_dd.configuration.rc_wait` on the events of the
+  session it preceded.
+- 🐛 With `remoteConfigurationEnabled`, a session the page continued — from an earlier page or another
+  subdomain — is now judged at start-up by the settings already in storage: an emergency stop
+  (`sessionSampleRate: 0`) or a stricter `defaultPrivacyLevel` ends it right away instead of at its
+  next renewal.
+- 🐛 Tracking consent withdrawn before RUM started no longer lets a scheduled settings request go out.
+
 ## v0.3.2
 
 - 🐛 The IE9-11 bundle (`fc-rum-legacy.js`) now sends `usr.id`, `usr.name`, `usr.email`,
