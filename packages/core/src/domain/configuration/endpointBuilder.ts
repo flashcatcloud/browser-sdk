@@ -46,7 +46,20 @@ function createEndpointUrlWithParametersBuilder(
   initConfiguration: InitConfiguration,
   trackType: TrackType
 ): (parameters: string) => string {
-  const path = `/api/v2/${trackType}`
+  return createEndpointUrlBuilder(initConfiguration, trackType, `/api/v2/${trackType}`)
+}
+
+/**
+ * FLASHCAT FORK - `path` is a parameter rather than derived from `trackType`, so endpoints that do
+ * not sit at `/api/v2/<trackType>` can be built here too. That keeps every request the SDK makes on
+ * one implementation of the proxy and site rules: an endpoint that built its own URL would quietly
+ * bypass a customer's `proxy` and go straight to the intake host.
+ */
+export function createEndpointUrlBuilder(
+  initConfiguration: InitConfiguration,
+  trackType: TrackType,
+  path: string
+): (parameters: string) => string {
   const proxy = initConfiguration.proxy
   if (typeof proxy === 'string') {
     const normalizedProxyUrl = normalizeUrl(proxy)

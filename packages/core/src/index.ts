@@ -6,6 +6,7 @@ export {
   serializeConfiguration,
   isSampleRate,
   buildEndpointHost,
+  createEndpointUrlBuilder,
   INTAKE_SITE_STAGING,
   INTAKE_SITE_US1,
   INTAKE_SITE_US1_FED,
@@ -100,11 +101,13 @@ export type { Context, ContextArray, ContextValue } from './tools/serialisation/
 export {
   areCookiesAuthorized,
   getCookie,
+  getCurrentSite,
   getInitCookie,
   setCookie,
   deleteCookie,
   resetInitCookies,
 } from './browser/cookie'
+export type { CookieOptions } from './browser/cookie'
 export type { CookieStore, WeakRef, WeakRefConstructor } from './browser/browser.types'
 export type { XhrCompleteContext, XhrStartContext } from './browser/xhrObservable'
 export { initXhrObservable } from './browser/xhrObservable'

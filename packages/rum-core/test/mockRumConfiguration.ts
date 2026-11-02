@@ -13,6 +13,10 @@ export function mockRumConfiguration(partialConfig: Partial<RumConfiguration> = 
       trackAnonymousUser: true,
     })!,
     ...SPEC_ENDPOINTS,
+    // Off by default in specs: the daily active report would otherwise fire a real request (and
+    // arm its retry timers) in every spec that starts RUM. Specs for the report itself pass a
+    // setup built by `buildActivePingSetup` through `partialConfig`.
+    activePing: undefined,
   }
   return { ...baseConfig, ...partialConfig }
 }

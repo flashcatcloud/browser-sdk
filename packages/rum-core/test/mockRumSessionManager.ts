@@ -40,6 +40,11 @@ export function createRumSessionManagerMock(): RumSessionManagerMock {
         anonymousId: 'device-123',
       }
     },
+    getAnonymousId() {
+      // The anonymous id outlives the sampling decision, which is the point of the method: a
+      // session that was not drawn still has one. An expired one does not.
+      return sessionStatus === SessionStatus.EXPIRED ? undefined : 'device-123'
+    },
     expire() {
       sessionStatus = SessionStatus.EXPIRED
       this.expireObservable.notify()

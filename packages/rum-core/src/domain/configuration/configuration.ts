@@ -23,6 +23,8 @@ import type { RumEvent } from '../../rumEvent.types'
 import type { RumPlugin } from '../plugins'
 import { isTracingOption } from '../tracing/tracer'
 import type { PropagatorType, TracingOption } from '../tracing/tracer.types'
+import type { ActivePingSetup } from '../activePing'
+import { buildActivePingSetup } from '../activePing'
 
 export const DEFAULT_PROPAGATOR_TYPES: PropagatorType[] = ['tracecontext']
 
@@ -216,6 +218,12 @@ export interface RumConfiguration extends Configuration {
   trackFeatureFlagsForEvents: FeatureFlagsForEvents[]
   profilingSampleRate: number
   propagateTraceBaggage: boolean
+  /**
+   * Where to send the daily active report and where to keep its undelivered remainder.
+   * Resolved once here because building the request URL and choosing the storage the
+   * session settings dictate both need the init configuration.
+   */
+  activePing: ActivePingSetup | undefined
 }
 
 export function validateAndBuildRumConfiguration(
@@ -293,6 +301,7 @@ export function validateAndBuildRumConfiguration(
     trackFeatureFlagsForEvents: initConfiguration.trackFeatureFlagsForEvents || [],
     profilingSampleRate: profilingEnabled ? (initConfiguration.profilingSampleRate ?? 0) : 0, // Enforce 0 if profiling is not enabled, and set 0 as default when not set.
     propagateTraceBaggage: !!initConfiguration.propagateTraceBaggage,
+    activePing: buildActivePingSetup(initConfiguration),
     ...baseConfiguration,
   }
 }

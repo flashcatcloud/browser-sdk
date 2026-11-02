@@ -38,15 +38,26 @@ export class MockXhr extends MockEventTarget {
   public status: number | undefined = undefined
   public readyState: number = XMLHttpRequest.UNSENT
   public onreadystatechange: () => void = noop
+  // Recorded so tests can assert on where a request was addressed, not only on what came back.
+  public url: string | undefined = undefined
+  // Recorded for the same reason as `url`: what was sent, for tests of request payloads.
+  public body: unknown = undefined
+  public requestHeaders: Record<string, string> = {}
 
   private hasEnded = false
 
   /* eslint-disable @typescript-eslint/no-unused-vars */
   open(method: string | undefined | null, url: string | URL | undefined | null) {
+    this.url = url?.toString()
     this.hasEnded = false
   }
 
-  send() {
+  setRequestHeader(name: string, value: string) {
+    this.requestHeaders[name] = value
+  }
+
+  send(body?: unknown) {
+    this.body = body
     MockXhr.onSend?.(this)
   }
 

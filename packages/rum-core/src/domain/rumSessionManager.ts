@@ -25,6 +25,13 @@ export const RUM_SESSION_KEY = 'rum'
 
 export interface RumSessionManager {
   findTrackedSession: (startTime?: RelativeTime) => RumSession | undefined
+  /**
+   * FLASHCAT FORK - the current session's anonymous id, whether or not the session was drawn for
+   * collection. `findTrackedSession` cannot answer this: a session that lost its draw returns
+   * nothing there, id included, and the one caller (the daily active report in `activePing`) has
+   * to work for exactly those visitors — being counted as active is not gated on being sampled.
+   */
+  getAnonymousId: () => string | undefined
   expire: () => void
   expireObservable: Observable<void>
   setForcedReplay: () => void
@@ -93,6 +100,7 @@ export function startRumSessionManager(
         anonymousId: session.anonymousId,
       }
     },
+    getAnonymousId: () => sessionManager.findSession()?.anonymousId,
     expire: sessionManager.expire,
     expireObservable: sessionManager.expireObservable,
     setForcedReplay: () => sessionManager.updateSessionState({ forcedReplay: '1' }),
@@ -197,6 +205,7 @@ export function startRumSessionManagerStub(
         anonymousId: bridge?.getAnonymousId(),
       }
     },
+    getAnonymousId: () => bridge?.getAnonymousId(),
     expire: noop,
     expireObservable,
     setForcedReplay: noop,
