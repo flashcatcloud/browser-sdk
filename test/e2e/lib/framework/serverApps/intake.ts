@@ -26,6 +26,10 @@ export function createIntakeServerApp(intakeRegistry: IntakeRegistry) {
   app.use(connectBusboy({ immediate: true }))
 
   app.post('/', (async (req, res) => {
+    if (isActiveBeacon(req)) {
+      res.status(202).end()
+      return
+    }
     const infos = computeIntakeRequestInfos(req)
 
     try {
@@ -38,6 +42,13 @@ export function createIntakeServerApp(intakeRegistry: IntakeRegistry) {
   }) as express.RequestHandler)
 
   return app
+}
+
+// The daily active beacon (POST /api/v2/rum/active) is not an event batch: answer it the way the
+// real intake does and keep it out of the registry, where it would fail the RUM event format check.
+function isActiveBeacon(req: express.Request) {
+  const ddforward = req.query.ddforward as string | undefined
+  return !!ddforward && new URL(ddforward, 'https://example.org').pathname === '/api/v2/rum/active'
 }
 
 function computeIntakeRequestInfos(req: express.Request): IntakeRequestInfos {

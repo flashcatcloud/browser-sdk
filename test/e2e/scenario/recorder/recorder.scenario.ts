@@ -20,6 +20,7 @@ import {
   findMouseInteractionRecords,
 } from '@flashcatcloud/browser-rum/test/segments'
 import { createMutationPayloadValidatorFromSegment } from '@flashcatcloud/browser-rum/test/mutationPayloadValidator'
+import { SESSION_STORE_KEY } from '@flashcatcloud/browser-core'
 import { test, expect } from '@playwright/test'
 import { wait } from '@flashcatcloud/browser-core/test/wait'
 import { createTest, html } from '../../lib/framework'
@@ -836,8 +837,8 @@ test.describe('recorder', () => {
         await page.evaluate(() => {
           window.FC_RUM!.startSessionReplayRecording({ force: true })
         })
-        const [cookie] = await browserContext.cookies()
-        expect(cookie.value).toContain('forcedReplay=1')
+        const cookie = (await browserContext.cookies()).find(({ name }) => name === SESSION_STORE_KEY)
+        expect(cookie?.value).toContain('forcedReplay=1')
 
         await flushEvents()
 
