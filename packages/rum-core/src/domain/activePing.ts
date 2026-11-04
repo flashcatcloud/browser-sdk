@@ -170,13 +170,15 @@ export function startActivePing(
   let inFlight = false
   let retryTimeoutId: TimeoutId | undefined
   let failedAttempts = 0
-  // The combination this page last reported. User context updates can fire on every route
-  // change; answering those from here keeps the storage read off that hot path. The store
-  // stays the source of truth — this only ever short-circuits a repeat within the page.
+  // The combination this page last reported, and whether the queue was empty behind it.
+  // User context updates can fire on every route change; answering those from here keeps
+  // the storage read off that hot path. The store stays the source of truth — this only
+  // ever short-circuits a repeat within the page, and never while work is queued.
   let lastReportedCombination: string | undefined
+  let lastReportedDrained = false
 
   const attempt = () => {
-    if (stopped || inFlight || !trackingConsentState.isGranted()) {
+    if (stopped || !trackingConsentState.isGranted()) {
       return
     }
     // A new combination is only "activity" when somebody can see the page. A prerendered or
@@ -190,20 +192,37 @@ export function startActivePing(
       userId = currentUserId(userContext)
       if (deviceKey || userId) {
         combination = combinationOf(deviceKey, userId, configuration.version ?? '')
-        if (combination === lastReportedCombination) {
+        if (combination === lastReportedCombination && lastReportedDrained) {
           return
         }
       }
     }
     const state = readState(setup)
     prunePending(state)
+    lastReportedDrained = state.pending.length === 0
+    // Today's activity is recorded before the in-flight check below can return early. A
+    // login that starts and ends while an earlier report is still unanswered is activity
+    // today, and the moment it happened — not the moment the network answers — is what
+    // dates it: queue the combination now and let the sends drain serially.
+    recordCurrentCombination(state, deviceKey, userId, combination)
+    if (inFlight) {
+      return
+    }
     // Yesterday's undelivered reports go first: they are the ones closest to ageing out, and
     // sending them costs the same request whether or not today also has something to say.
     const pending = state.pending[0]
     if (pending) {
       send(pending)
-      return
     }
+  }
+
+  /** Queues today's (device, user) combination, once, whether or not it can leave yet. */
+  const recordCurrentCombination = (
+    state: StoredState,
+    deviceKey: string,
+    userId: string,
+    combination: string | undefined
+  ) => {
     if (!combination) {
       return
     }
@@ -211,6 +230,9 @@ export function startActivePing(
     // reported for the new version too, the intake keeping a row per version.
     if (state.sent.includes(combination)) {
       lastReportedCombination = combination
+      return
+    }
+    if (state.pending.some((candidate) => candidate.combination === combination)) {
       return
     }
     const facts = userAgentFacts()
@@ -229,10 +251,10 @@ export function startActivePing(
     }
     // Kept before it is sent, not after: a page closed a second later has already lost its
     // request, and the next page to start is what delivers this one.
-    const fresh: PendingReport = { combination, report, firstAttemptAt: dateNow() }
-    state.pending.push(fresh)
+    state.pending.push({ combination, report, firstAttemptAt: dateNow() })
+    prunePending(state)
+    lastReportedDrained = false
     writeState(setup, state)
-    send(fresh)
   }
 
   const send = (pending: PendingReport) => {
@@ -274,7 +296,13 @@ export function startActivePing(
             current.sent = current.sent.slice(-MAX_SENT_COMBINATIONS)
           }
           lastReportedCombination = pending.combination
+          lastReportedDrained = current.pending.length === 0
           writeState(setup, current)
+          // Whatever was queued behind it still goes out; only this one was refused.
+          const next = current.pending[0]
+          if (next) {
+            send(next)
+          }
         } else {
           scheduleRetry()
         }
@@ -305,6 +333,7 @@ export function startActivePing(
       clearTimeout(retryTimeoutId)
       retryTimeoutId = undefined
       lastReportedCombination = undefined
+      lastReportedDrained = false
       setup.storage.remove()
     }
   }

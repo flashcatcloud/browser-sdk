@@ -133,6 +133,25 @@ describe('activePing', () => {
       )
     })
 
+    it('keeps a login that starts and ends while an earlier report is in flight', () => {
+      start()
+      expect(requests.length).toBe(1)
+
+      // The whole login happens while the anonymous report is still unanswered. Reading
+      // the user only when the network replies would lose them for the day entirely.
+      userContext.setContext({ id: 'user-42' })
+      userContext.setContext({})
+
+      expect(requests.length).toBe(1)
+
+      requests[0].complete(202)
+
+      expect(requests.length).toBe(2)
+      expect(payloadOf(requests[1])).toEqual(
+        jasmine.objectContaining({ usr: { anonymous_id: 'device-123', id: 'user-42' } })
+      )
+    })
+
     it('is sent for a session the sampling draw did not keep', () => {
       sessionManager.setNotTracked()
 
