@@ -1,16 +1,10 @@
-import type {
-  ContextManager,
-  CookieOptions,
-  TimeoutId,
-  TrackingConsentState,
-} from '@flashcatcloud/browser-core'
+import type { ContextManager, CookieOptions, TimeoutId, TrackingConsentState } from '@flashcatcloud/browser-core'
 import {
   DOM_EVENT,
   ONE_DAY,
   ONE_SECOND,
   SessionPersistence,
   addEventListener,
-  areCookiesAuthorized,
   canUseEventBridge,
   clearTimeout,
   createEndpointUrlBuilder,
@@ -18,11 +12,11 @@ import {
   deleteCookie,
   display,
   getCookie,
-  getCurrentSite,
   getInitCookie,
   getSyntheticsResultId,
   getSyntheticsTestId,
   noop,
+  selectSessionStoreStrategyType,
   setCookie,
   setTimeout,
 } from '@flashcatcloud/browser-core'
@@ -44,7 +38,7 @@ declare const __BUILD_ENV__SDK_VERSION__: string
  * batch and outside sampling. The backend writes it to its own daily-active table and answers the
  * "active devices" and "logged-in users" counts from there; view events keep flowing exactly as
  * before and are merged into the same table server-side, so a client that never sends this (an
- * older SDK, this switched off) is still counted from its views.
+ * older SDK) is still counted from its views.
  *
  * Wire contract (the intake's, shared with the native SDKs and `@flashcatcloud/electron-sdk`):
  * `POST /api/v2/rum/active?dd-api-key=...` — plus `ddsource`/`ddtags` here, so this SDK leaves
@@ -176,10 +170,30 @@ export function startActivePing(
   let inFlight = false
   let retryTimeoutId: TimeoutId | undefined
   let failedAttempts = 0
+  // The combination this page last reported. User context updates can fire on every route
+  // change; answering those from here keeps the storage read off that hot path. The store
+  // stays the source of truth — this only ever short-circuits a repeat within the page.
+  let lastReportedCombination: string | undefined
 
   const attempt = () => {
     if (stopped || inFlight || !trackingConsentState.isGranted()) {
       return
+    }
+    // A new combination is only "activity" when somebody can see the page. A prerendered or
+    // backgrounded tab starting the SDK is not a visit; it reports when it becomes visible.
+    // The identity is worked out before storage is touched so the repeat check above can run.
+    let deviceKey = ''
+    let userId = ''
+    let combination: string | undefined
+    if (document.visibilityState === 'visible') {
+      deviceKey = configuration.trackAnonymousUser ? (sessionManager.getAnonymousId() ?? '') : ''
+      userId = currentUserId(userContext)
+      if (deviceKey || userId) {
+        combination = combinationOf(deviceKey, userId, configuration.version ?? '')
+        if (combination === lastReportedCombination) {
+          return
+        }
+      }
     }
     const state = readState(setup)
     prunePending(state)
@@ -190,20 +204,13 @@ export function startActivePing(
       send(pending)
       return
     }
-    // A new combination is only "activity" when somebody can see the page. A prerendered or
-    // backgrounded tab starting the SDK is not a visit; it reports when it becomes visible.
-    if (document.visibilityState !== 'visible') {
-      return
-    }
-    const deviceKey = configuration.trackAnonymousUser ? (sessionManager.getAnonymousId() ?? '') : ''
-    const userId = currentUserId(userContext)
-    if (!deviceKey && !userId) {
+    if (!combination) {
       return
     }
     // The application version is part of what was reported: a deploy the same day is
     // reported for the new version too, the intake keeping a row per version.
-    const combination = combinationOf(deviceKey, userId, configuration.version ?? '')
     if (state.sent.includes(combination)) {
+      lastReportedCombination = combination
       return
     }
     const facts = userAgentFacts()
@@ -236,7 +243,9 @@ export function startActivePing(
       { ...pending.report, age_ms: Math.max(0, dateNow() - pending.firstAttemptAt) },
       (outcome) => {
         inFlight = false
-        if (stopped) {
+        // A response landing after consent was withdrawn must not write the state back:
+        // withdrawing consent deleted it precisely so no identifier of this visitor is kept.
+        if (stopped || !trackingConsentState.isGranted()) {
           return
         }
         const current = readState(setup)
@@ -249,6 +258,7 @@ export function startActivePing(
             current.sent.push(pending.combination)
             current.sent = current.sent.slice(-MAX_SENT_COMBINATIONS)
           }
+          lastReportedCombination = pending.combination
           writeState(setup, current)
           // More may be queued behind this one: an older report, or today's, which the send above
           // was standing in for.
@@ -263,6 +273,7 @@ export function startActivePing(
             current.sent.push(pending.combination)
             current.sent = current.sent.slice(-MAX_SENT_COMBINATIONS)
           }
+          lastReportedCombination = pending.combination
           writeState(setup, current)
         } else {
           scheduleRetry()
@@ -293,6 +304,7 @@ export function startActivePing(
       // visit. The whole entry goes, sent-marks included — they are identifiers too.
       clearTimeout(retryTimeoutId)
       retryTimeoutId = undefined
+      lastReportedCombination = undefined
       setup.storage.remove()
     }
   }
@@ -494,15 +506,17 @@ const COOKIE_STATE_EXPIRY = MAX_PENDING_AGE + ONE_DAY
  * (about 4KB) and rides on every request to the site's own servers, so it keeps only the most
  * recent marks and remainders. The general bounds still apply within a page.
  */
-const COOKIE_MAX_SENT_COMBINATIONS = 20
+const COOKIE_MAX_SENT_COMBINATIONS = 8
 const COOKIE_MAX_PENDING_REPORTS = 3
 
 function buildActiveStorage(initConfiguration: RumInitConfiguration, storeKey: string): ActivePingStorage {
-  const kind = selectActiveStorageKind(initConfiguration)
-  if (kind === 'cookie') {
-    return cookieStorage(storeKey, buildActiveCookieOptions(initConfiguration))
+  // The session store's own strategy choice, reused rather than mirrored: whatever store
+  // the session record lives in is the store this state lives in, by construction.
+  const strategy = selectSessionStoreStrategyType(initConfiguration)
+  if (strategy?.type === SessionPersistence.COOKIE) {
+    return cookieStorage(storeKey, strategy.cookieOptions)
   }
-  if (kind === 'local-storage') {
+  if (strategy?.type === SessionPersistence.LOCAL_STORAGE) {
     return localStorageStorage(storeKey)
   }
   // No store the session settings allow (cookies refused, no localStorage fallback opted in):
@@ -517,39 +531,6 @@ function buildActiveStorage(initConfiguration: RumInitConfiguration, storeKey: s
       memory = undefined
     },
   }
-}
-
-// Mirrors how the session store chooses its strategy (selectSessionStoreStrategyType), so this
-// state and the session record always live in the same kind of store.
-function selectActiveStorageKind(initConfiguration: RumInitConfiguration): 'cookie' | 'local-storage' | undefined {
-  const cookieOptions = buildActiveCookieOptions(initConfiguration)
-  switch (initConfiguration.sessionPersistence) {
-    case SessionPersistence.COOKIE:
-      return areCookiesAuthorized(cookieOptions) ? 'cookie' : undefined
-    case SessionPersistence.LOCAL_STORAGE:
-      return 'local-storage'
-    case undefined:
-      if (areCookiesAuthorized(cookieOptions)) {
-        return 'cookie'
-      }
-      return initConfiguration.allowFallbackToLocalStorage ? 'local-storage' : undefined
-    default:
-      display.error(`Invalid session persistence '${String(initConfiguration.sessionPersistence)}'`)
-      return undefined
-  }
-}
-
-// The session cookie's options (buildCookieOptions), spelled out: that builder is not exported.
-function buildActiveCookieOptions(initConfiguration: RumInitConfiguration): CookieOptions {
-  const cookieOptions: CookieOptions = {}
-  cookieOptions.secure =
-    !!initConfiguration.useSecureSessionCookie || !!initConfiguration.usePartitionedCrossSiteSessionCookie
-  cookieOptions.crossSite = !!initConfiguration.usePartitionedCrossSiteSessionCookie
-  cookieOptions.partitioned = !!initConfiguration.usePartitionedCrossSiteSessionCookie
-  if (initConfiguration.trackSessionAcrossSubdomains) {
-    cookieOptions.domain = getCurrentSite()
-  }
-  return cookieOptions
 }
 
 function localStorageStorage(storeKey: string): ActivePingStorage {

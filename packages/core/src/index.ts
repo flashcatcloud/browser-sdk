@@ -133,8 +133,10 @@ export type { ValueHistory, ValueHistoryEntry } from './tools/valueHistory'
 export { createValueHistory, CLEAR_OLD_VALUES_INTERVAL } from './tools/valueHistory'
 export { readBytesFromStream } from './tools/readBytesFromStream'
 export type { SessionState } from './domain/session/sessionState'
-export { STORAGE_POLL_DELAY } from './domain/session/sessionStore'
+export { STORAGE_POLL_DELAY, selectSessionStoreStrategyType } from './domain/session/sessionStore'
 export { SESSION_STORE_KEY } from './domain/session/storeStrategies/sessionStoreStrategy'
+export type { SessionStoreStrategyType } from './domain/session/storeStrategies/sessionStoreStrategy'
+export { buildCookieOptions } from './domain/session/storeStrategies/sessionInCookie'
 export {
   willSyntheticsInjectRum,
   getSyntheticsTestId,

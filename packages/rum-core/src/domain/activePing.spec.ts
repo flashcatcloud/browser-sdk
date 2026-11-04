@@ -196,6 +196,16 @@ describe('activePing', () => {
       expect(requests.length).toBe(1)
     })
 
+    it('keeps nothing when consent is withdrawn while a report is in flight', () => {
+      start()
+      expect(requests.length).toBe(1)
+
+      trackingConsentState.update(TrackingConsent.NOT_GRANTED)
+      requests[0].complete(202)
+
+      expect(localStorage.getItem(storeKey())).toBeNull()
+    })
+
     it('deletes undelivered reports when consent is withdrawn', () => {
       start()
       requests[0].complete(500)
