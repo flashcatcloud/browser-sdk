@@ -206,9 +206,20 @@ export function startActivePing(
     // today, and the moment it happened — not the moment the network answers — is what
     // dates it: queue the combination now and let the sends drain serially.
     recordCurrentCombination(state, deviceKey, userId, combination)
-    if (inFlight) {
+    drainQueue(state)
+  }
+
+  /**
+   * Sends the oldest queued report, if any. Network continuations call only this — never
+   * `attempt()` — so a request that finishes after midnight cannot by itself look like
+   * activity on the new day; a new day is recorded only by a real trigger.
+   */
+  const drainQueue = (state: StoredState = readState(setup)) => {
+    if (stopped || inFlight || !trackingConsentState.isGranted()) {
       return
     }
+    prunePending(state)
+    lastReportedDrained = state.pending.length === 0
     // Yesterday's undelivered reports go first: they are the ones closest to ageing out, and
     // sending them costs the same request whether or not today also has something to say.
     const pending = state.pending[0]
@@ -234,7 +245,13 @@ export function startActivePing(
       lastReportedDay = state.day
       return
     }
-    if (state.pending.some((candidate) => candidate.combination === combination)) {
+    // A report left over from an earlier day does not cover today's activity, even for the
+    // same combination: it will be dated to its own first attempt when it finally leaves.
+    if (
+      state.pending.some(
+        (candidate) => candidate.combination === combination && localDay(candidate.firstAttemptAt) === state.day
+      )
+    ) {
       return
     }
     const facts = userAgentFacts()
@@ -285,9 +302,9 @@ export function startActivePing(
           lastReportedCombination = pending.combination
           lastReportedDay = localDay(pending.firstAttemptAt)
           writeState(setup, current)
-          // More may be queued behind this one: an older report, or today's, which the send above
-          // was standing in for.
-          attempt()
+          // Only what a real trigger already queued goes out next; completing a request —
+          // possibly after midnight — is not itself activity on a new day.
+          drainQueue(current)
         } else if (outcome === 'rejected') {
           // The server answered about this report itself; asking again would get the same answer.
           // The combination is marked as reported all the same, so an application the intake
@@ -303,10 +320,7 @@ export function startActivePing(
           lastReportedDrained = current.pending.length === 0
           writeState(setup, current)
           // Whatever was queued behind it still goes out; only this one was refused.
-          const next = current.pending[0]
-          if (next) {
-            send(next)
-          }
+          drainQueue(current)
         } else {
           scheduleRetry()
         }
@@ -323,7 +337,8 @@ export function startActivePing(
     failedAttempts += 1
     retryTimeoutId = setTimeout(() => {
       retryTimeoutId = undefined
-      attempt()
+      // A retry re-sends what is already queued; it must not record a new day by itself.
+      drainQueue()
     }, delay)
   }
 

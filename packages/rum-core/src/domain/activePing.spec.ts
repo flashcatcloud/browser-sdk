@@ -136,6 +136,78 @@ describe('activePing', () => {
       )
     })
 
+    it('does not report the new day just because a report sent yesterday completes after midnight', () => {
+      const clock = startClock()
+      clock.setDate(new Date(2026, 10, 2, 23, 59))
+      start()
+
+      clock.setDate(new Date(2026, 10, 3, 0, 1))
+      requests[0].complete(202)
+      expect(requests.length).toBe(1)
+
+      document.dispatchEvent(createNewEvent('visibilitychange'))
+
+      expect(requests.length).toBe(2)
+    })
+
+    it('does not report the new day just because a retry sends yesterday’s report after midnight', () => {
+      const clock = startClock()
+      clock.setDate(new Date(2026, 10, 2, 23, 59, 58))
+      start()
+      requests[0].complete(500)
+
+      clock.tick(10 * ONE_SECOND)
+
+      expect(requests.length).toBe(2)
+      requests[1].complete(202)
+      expect(requests.length).toBe(2)
+
+      document.dispatchEvent(createNewEvent('visibilitychange'))
+
+      expect(requests.length).toBe(3)
+    })
+
+    it('keeps today’s report behind yesterday’s undelivered report even when yesterday’s is refused', () => {
+      const clock = startClock()
+      const yesterday = new Date(2026, 10, 2, 23, 59)
+      clock.setDate(new Date(2026, 10, 3, 0, 1))
+      localStorage.setItem(
+        storeKey(),
+        JSON.stringify({
+          day: '2026-11-02',
+          sent: [],
+          pending: [
+            {
+              combination: 'device-123||1.2.3',
+              report: {
+                service: 'shop',
+                env: 'staging',
+                version: '1.2.3',
+                build_version: '',
+                sdk_version: 'test',
+                usr: { anonymous_id: 'device-123' },
+                os: { name: 'Earlier OS', version: '1' },
+                device: { type: 'Desktop', model: '', brand: '' },
+              },
+              firstAttemptAt: yesterday.getTime(),
+            },
+          ],
+        })
+      )
+
+      start()
+
+      expect(requests.length).toBe(1)
+      expect(payloadOf(requests[0]).age_ms).toBe(2 * 60 * ONE_SECOND)
+
+      requests[0].complete(400)
+
+      expect(requests.length).toBe(2)
+      expect(payloadOf(requests[1])).toEqual(
+        jasmine.objectContaining({ usr: { anonymous_id: 'device-123' }, age_ms: 0 })
+      )
+    })
+
     it('is sent again when a user logs in, with the raw user id', () => {
       start()
       requests[0].complete(202)
