@@ -18,6 +18,20 @@
 
 ---
 
+## v0.5.0
+
+- ✨ RUM now reports the day's active device and logged-in user through a dedicated request
+  (`POST /api/v2/rum/active`), sent as soon as the SDK starts in a visible page, again when a new
+  user id is set, and again on the next local day. It is independent of `sessionSampleRate` and is
+  not an event, so a short visit or a session the sampling draw did not keep still counts toward
+  the day's unique visitors, which the console now answers from these reports merged with view
+  events. Undelivered reports are kept (in the store `sessionPersistence` selects) and resent on a
+  later page with their age; withdrawing tracking consent deletes them. Nothing is reported under
+  an event bridge or in synthetics and CI sessions. Behind a `proxy`, the request travels inside
+  `ddforward` like every other request, so an allow-listing proxy must be told about
+  `/api/v2/rum/active`.
+- 💥 `RumSessionManager` implementors: the interface gains a required `getAnonymousId()` method.
+
 ## v0.4.0
 
 - ✨ With `remoteConfigurationEnabled`, a page that has no settings stored yet — a first visit, a
