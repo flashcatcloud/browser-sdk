@@ -175,6 +175,7 @@ export function startActivePing(
   // the storage read off that hot path. The store stays the source of truth — this only
   // ever short-circuits a repeat within the page, and never while work is queued.
   let lastReportedCombination: string | undefined
+  let lastReportedDay: string | undefined
   let lastReportedDrained = false
 
   const attempt = () => {
@@ -192,7 +193,7 @@ export function startActivePing(
       userId = currentUserId(userContext)
       if (deviceKey || userId) {
         combination = combinationOf(deviceKey, userId, configuration.version ?? '')
-        if (combination === lastReportedCombination && lastReportedDrained) {
+        if (combination === lastReportedCombination && lastReportedDrained && lastReportedDay === localDay(dateNow())) {
           return
         }
       }
@@ -230,6 +231,7 @@ export function startActivePing(
     // reported for the new version too, the intake keeping a row per version.
     if (state.sent.includes(combination)) {
       lastReportedCombination = combination
+      lastReportedDay = state.day
       return
     }
     if (state.pending.some((candidate) => candidate.combination === combination)) {
@@ -281,6 +283,7 @@ export function startActivePing(
             current.sent = current.sent.slice(-MAX_SENT_COMBINATIONS)
           }
           lastReportedCombination = pending.combination
+          lastReportedDay = localDay(pending.firstAttemptAt)
           writeState(setup, current)
           // More may be queued behind this one: an older report, or today's, which the send above
           // was standing in for.
@@ -296,6 +299,7 @@ export function startActivePing(
             current.sent = current.sent.slice(-MAX_SENT_COMBINATIONS)
           }
           lastReportedCombination = pending.combination
+          lastReportedDay = localDay(pending.firstAttemptAt)
           lastReportedDrained = current.pending.length === 0
           writeState(setup, current)
           // Whatever was queued behind it still goes out; only this one was refused.
@@ -333,6 +337,7 @@ export function startActivePing(
       clearTimeout(retryTimeoutId)
       retryTimeoutId = undefined
       lastReportedCombination = undefined
+      lastReportedDay = undefined
       lastReportedDrained = false
       setup.storage.remove()
     }

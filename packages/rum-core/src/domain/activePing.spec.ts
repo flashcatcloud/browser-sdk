@@ -121,6 +121,21 @@ describe('activePing', () => {
       expect(requests.length).toBe(1)
     })
 
+    it('is sent again on the next day when a page is left open across midnight', () => {
+      const clock = startClock()
+      clock.setDate(new Date(2026, 10, 2, 23, 59))
+      start()
+      requests[0].complete(202)
+
+      clock.setDate(new Date(2026, 10, 3, 0, 1))
+      document.dispatchEvent(createNewEvent('visibilitychange'))
+
+      expect(requests.length).toBe(2)
+      expect(payloadOf(requests[1])).toEqual(
+        jasmine.objectContaining({ usr: { anonymous_id: 'device-123' }, age_ms: 0 })
+      )
+    })
+
     it('is sent again when a user logs in, with the raw user id', () => {
       start()
       requests[0].complete(202)
