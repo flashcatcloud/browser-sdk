@@ -14,8 +14,11 @@ runMain(() => {
   // `beta` (0.5.0-alpha.1 under `alpha`, ...), like the historical alpha/beta releases.
   const version = JSON.parse(fs.readFileSync('lerna.json', 'utf8')).version
   const prerelease = /-([0-9A-Za-z]+)\./.exec(version)
-  const publishCommand = prerelease
-    ? command`yarn lerna publish from-package --yes --dist-tag ${prerelease[1]}`
-    : command`yarn lerna publish from-package --yes`
-  publishCommand.withEnvironment({ NPM_TOKEN: process.env.NPM_TOKEN }).run()
+  if (prerelease) {
+    command`yarn lerna publish from-package --yes --dist-tag ${prerelease[1]}`
+      .withEnvironment({ NPM_TOKEN: process.env.NPM_TOKEN })
+      .run()
+  } else {
+    command`yarn lerna publish from-package --yes`.withEnvironment({ NPM_TOKEN: process.env.NPM_TOKEN }).run()
+  }
 })
