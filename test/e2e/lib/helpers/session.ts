@@ -16,7 +16,7 @@ export async function renewSession(page: Page, browserContext: BrowserContext) {
 export async function expireSession(page: Page, browserContext: BrowserContext) {
   // mock expire session with anonymous id
   const cookies = await browserContext.cookies()
-  const anonymousId = cookies[0]?.value.match(/aid=[a-z0-9-]+/)
+  const anonymousId = cookies.find(({ name }) => name === SESSION_STORE_KEY)?.value.match(/aid=[a-z0-9-]+/)
   const expireCookie = `isExpired=1&${anonymousId && anonymousId[0]}`
 
   await setCookie(page, SESSION_STORE_KEY, expireCookie, SESSION_TIME_OUT_DELAY)
@@ -31,7 +31,7 @@ export async function findSessionCookie(browserContext: BrowserContext) {
   const cookies = await browserContext.cookies()
   // In some case, the session cookie is returned but with an empty value. Let's consider it expired
   // in this case.
-  const rawValue = cookies[0]?.value
+  const rawValue = cookies.find(({ name }) => name === SESSION_STORE_KEY)?.value
   if (!rawValue) {
     return
   }

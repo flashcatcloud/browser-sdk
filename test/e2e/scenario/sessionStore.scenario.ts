@@ -82,6 +82,6 @@ async function getSessionIdFromLocalStorage(page: Page): Promise<string | undefi
 }
 
 async function getSessionIdFromCookie(browserContext: BrowserContext): Promise<string | undefined> {
-  const [cookie] = await browserContext.cookies()
-  return cookie.value.match(SESSION_ID_REGEX)?.[1]
+  const cookie = (await browserContext.cookies()).find(({ name }) => name === SESSION_STORE_KEY)
+  return cookie?.value.match(SESSION_ID_REGEX)?.[1]
 }

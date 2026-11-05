@@ -101,11 +101,13 @@ export type { Context, ContextArray, ContextValue } from './tools/serialisation/
 export {
   areCookiesAuthorized,
   getCookie,
+  getCurrentSite,
   getInitCookie,
   setCookie,
   deleteCookie,
   resetInitCookies,
 } from './browser/cookie'
+export type { CookieOptions } from './browser/cookie'
 export type { CookieStore, WeakRef, WeakRefConstructor } from './browser/browser.types'
 export type { XhrCompleteContext, XhrStartContext } from './browser/xhrObservable'
 export { initXhrObservable } from './browser/xhrObservable'
@@ -131,8 +133,10 @@ export type { ValueHistory, ValueHistoryEntry } from './tools/valueHistory'
 export { createValueHistory, CLEAR_OLD_VALUES_INTERVAL } from './tools/valueHistory'
 export { readBytesFromStream } from './tools/readBytesFromStream'
 export type { SessionState } from './domain/session/sessionState'
-export { STORAGE_POLL_DELAY } from './domain/session/sessionStore'
+export { STORAGE_POLL_DELAY, selectSessionStoreStrategyType } from './domain/session/sessionStore'
 export { SESSION_STORE_KEY } from './domain/session/storeStrategies/sessionStoreStrategy'
+export type { SessionStoreStrategyType } from './domain/session/storeStrategies/sessionStoreStrategy'
+export { buildCookieOptions } from './domain/session/storeStrategies/sessionInCookie'
 export {
   willSyntheticsInjectRum,
   getSyntheticsTestId,

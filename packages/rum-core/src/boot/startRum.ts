@@ -52,6 +52,7 @@ import { startLongTaskCollection } from '../domain/longTask/longTaskCollection'
 import { startSyntheticsContext } from '../domain/contexts/syntheticsContext'
 import { startGlobalContext } from '../domain/contexts/globalContext'
 import { startUserContext } from '../domain/contexts/userContext'
+import { startActivePing } from '../domain/activePing'
 import { startAccountContext } from '../domain/contexts/accountContext'
 import { startRumAssembly } from '../domain/assembly'
 import { startSessionContext } from '../domain/contexts/sessionContext'
@@ -184,6 +185,12 @@ export function startRum(
   startConnectivityContext(hooks)
   const globalContext = startGlobalContext(hooks, configuration)
   const userContext = startUserContext(hooks, configuration, session)
+
+  // FLASHCAT FORK - the daily active report. Started here because it reads the user context the
+  // line above creates; it no-ops on its own when switched off or under an event bridge, where
+  // the host application reports for itself.
+  const activePing = startActivePing(configuration, lifeCycle, session, userContext, trackingConsentState)
+  cleanupTasks.push(() => activePing.stop())
   const accountContext = startAccountContext(hooks, configuration)
 
   const {
