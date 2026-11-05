@@ -69,7 +69,10 @@ jobs:
           path: packages/*/bundle/**
           if-no-files-found: error
 
+  # Beta branch only: a prerelease has no production CDN target (deploy-oss refuses it by
+  # design), so this job is skipped for prerelease refs and publish-npm runs without it.
   deploy-prod:
+    if: ${{ !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'next') }}
     needs: preflight
     runs-on: ubuntu-latest
     steps:
@@ -107,7 +110,8 @@ jobs:
           OSS_SECRET_KEY: ${{ secrets.OSS_SECRET_KEY }}
 
   publish-npm:
-    needs: deploy-prod
+    # Beta branch only: no deploy-prod dependency for prerelease refs (skipped above).
+    needs: preflight
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
