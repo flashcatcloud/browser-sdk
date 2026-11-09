@@ -31,6 +31,8 @@
   `ddforward` like every other request, so an allow-listing proxy must be told about
   `/api/v2/rum/active`.
 - 💥 `RumSessionManager` implementors: the interface gains a required `getAnonymousId()` method.
+- 💥 **Breaking for TypeScript code that constructs or hand-mocks our types**: `RumConfiguration`
+  gains a required `activePing` member. Code that only calls the RUM entry points is unaffected.
 
 ## v0.4.0
 
