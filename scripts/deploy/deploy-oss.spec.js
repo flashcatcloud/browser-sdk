@@ -24,5 +24,7 @@ void describe('deploy-oss', () => {
     assert.equal(isHighestRelease('v0.5.0', published), false)
     assert.equal(isHighestRelease('v0.9.1', [...published, 'v0.9.1']), false)
     assert.equal(isHighestRelease('v1.0.0', [...published, 'v1.0.0']), true)
+    assert.equal(isHighestRelease('v1.0.0-beta.1', [...published, 'v1.0.0-beta.1']), false)
+    assert.equal(isHighestRelease('v1.0.0-beta.1', ['v1.0.0-beta.1']), false)
   })
 })
