@@ -173,6 +173,14 @@ export function createPreStartStrategy(
         return
       }
 
+      // A browser driven by automation (Selenium, Puppeteer, Playwright, headless crawlers) is not a
+      // visitor. Many of them send an ordinary browser UA, so UA-based crawler rules cannot catch
+      // them after the fact; only the page itself can tell.
+      if (navigator.webdriver === true) {
+        display.warn('Automated browser detected (navigator.webdriver). We will not send any data.')
+        return
+      }
+
       callPluginsMethod(initConfiguration.plugins, 'onInit', { initConfiguration, publicApi })
 
       if (initConfiguration.remoteConfigurationId) {

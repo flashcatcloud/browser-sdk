@@ -196,6 +196,21 @@ describe('preStartRum', () => {
       expect(displaySpy).toHaveBeenCalled()
     })
 
+    it('should not initialize in a browser driven by automation', () => {
+      spyOnProperty(navigator, 'webdriver', 'get').and.returnValue(true)
+      const displaySpy = spyOn(display, 'warn')
+      const strategy = createPreStartStrategy(
+        {},
+        createTrackingConsentState(),
+        createCustomVitalsState(),
+        doStartRumSpy
+      )
+      strategy.init(DEFAULT_INIT_CONFIGURATION, PUBLIC_API)
+      strategy.startView({ name: 'foo' })
+      expect(doStartRumSpy).not.toHaveBeenCalled()
+      expect(displaySpy).toHaveBeenCalled()
+    })
+
     describe('skipInitIfSyntheticsWillInjectRum option', () => {
       it('when true, ignores init() call if Synthetics will inject its own instance of RUM', () => {
         mockSyntheticsWorkerValues({ injectsRum: true })
