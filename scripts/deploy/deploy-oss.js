@@ -105,6 +105,9 @@ async function listPublishedVersions(awsConfig) {
 
 function isHighestRelease(version, publishedVersions) {
   const current = parseRelease(version)
+  if (!current) {
+    return false
+  }
   return publishedVersions
     .map(parseRelease)
     .filter(Boolean)
