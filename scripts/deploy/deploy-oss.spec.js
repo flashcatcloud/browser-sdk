@@ -6,7 +6,7 @@ process.env.OSS_ACCESS_KEY = 'oss-access-key'
 process.env.OSS_SECRET_KEY = 'oss-secret-key'
 process.env.OSS_BUCKET = 'oss-bucket'
 
-const { isPrereleaseVersion, generateUploadPath, AWS_CONFIG } = require('./deploy-oss.js')
+const { isPrereleaseVersion, isHighestRelease } = require('./deploy-oss.js')
 
 void describe('deploy-oss', () => {
   void it('detects prerelease versions', () => {
@@ -17,15 +17,12 @@ void describe('deploy-oss', () => {
     assert.equal(isPrereleaseVersion('v0'), false)
   })
 
-  void it('places a bundle under its version and under latest', () => {
-    assert.equal(
-      generateUploadPath(AWS_CONFIG.prod, 'flashcat-rum.js', 'v1.2.3'),
-      '/browser-sdk/v1.2.3/flashcat-rum.js'
-    )
-    assert.equal(
-      generateUploadPath(AWS_CONFIG.prod, 'flashcat-rum.js', 'latest'),
-      '/browser-sdk/latest/flashcat-rum.js'
-    )
-    assert.equal(generateUploadPath(AWS_CONFIG.prod, '', 'latest'), '/browser-sdk/latest/')
+  void it('updates latest only for the highest full release', () => {
+    const published = ['v0', 'v0.4.0', 'v0.5.0', 'v0.10.0', 'v0.11.0-beta.1', 'latest']
+    assert.equal(isHighestRelease('v0.10.0', published), true)
+    assert.equal(isHighestRelease('v0.10.1', [...published, 'v0.10.1']), true)
+    assert.equal(isHighestRelease('v0.5.0', published), false)
+    assert.equal(isHighestRelease('v0.9.1', [...published, 'v0.9.1']), false)
+    assert.equal(isHighestRelease('v1.0.0', [...published, 'v1.0.0']), true)
   })
 })

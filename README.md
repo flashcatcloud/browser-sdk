@@ -33,9 +33,10 @@ so a url serves the version it names.
 https://static.flashcat.cloud/browser-sdk/latest/flashcat-rum.js
 ```
 
-`latest` is overwritten by every release, so a page loading it picks up new releases without a
-change on its side, including behavior changes. Browsers cache it for 5 minutes at most. Pin a
-version instead when the page must not change until you decide.
+`latest` holds the highest release and moves forward with each new one, so a page loading it picks
+up new releases without a change on its side, including behavior changes. Redeploying an older
+release never moves it back. Browsers cache it for 5 minutes. Pin a version instead when the page
+must not change until you decide.
 
 The earlier `/browser-sdk/v0/` path, named for the major version rather than the release, is no
 longer updated. It still resolves, but stays at the release it last held.
