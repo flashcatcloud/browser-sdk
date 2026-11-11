@@ -6,7 +6,7 @@ process.env.OSS_ACCESS_KEY = 'oss-access-key'
 process.env.OSS_SECRET_KEY = 'oss-secret-key'
 process.env.OSS_BUCKET = 'oss-bucket'
 
-const { isPrereleaseVersion } = require('./deploy-oss.js')
+const { isPrereleaseVersion, generateUploadPath, AWS_CONFIG } = require('./deploy-oss.js')
 
 void describe('deploy-oss', () => {
   void it('detects prerelease versions', () => {
@@ -15,5 +15,17 @@ void describe('deploy-oss', () => {
     assert.equal(isPrereleaseVersion('v1.2.3-rc.1'), true)
     assert.equal(isPrereleaseVersion('v1.2.3'), false)
     assert.equal(isPrereleaseVersion('v0'), false)
+  })
+
+  void it('places a bundle under its version and under latest', () => {
+    assert.equal(
+      generateUploadPath(AWS_CONFIG.prod, 'flashcat-rum.js', 'v1.2.3'),
+      '/browser-sdk/v1.2.3/flashcat-rum.js'
+    )
+    assert.equal(
+      generateUploadPath(AWS_CONFIG.prod, 'flashcat-rum.js', 'latest'),
+      '/browser-sdk/latest/flashcat-rum.js'
+    )
+    assert.equal(generateUploadPath(AWS_CONFIG.prod, '', 'latest'), '/browser-sdk/latest/')
   })
 })
