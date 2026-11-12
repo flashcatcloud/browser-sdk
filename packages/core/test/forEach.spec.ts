@@ -7,6 +7,8 @@ beforeEach(() => {
   ;(window as any).FC_LOGS = {}
   ;(window as any).FC_RUM = {}
   ;(window as any).IS_REACT_ACT_ENVIRONMENT = true
+  // Karma's headless Chrome reports itself as automated, which would make RUM skip init in every spec
+  Object.defineProperty(navigator, 'webdriver', { get: () => false, configurable: true })
   // prevent 'Some of your tests did a full page reload!' issue
   window.onbeforeunload = () => 'stop'
   startLeakDetection()

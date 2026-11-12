@@ -21,6 +21,8 @@ async function injectRumWithPuppeteer() {
   await page.evaluateOnNewDocument(
     `
         if (location.href !== 'about:blank') {
+          // Puppeteer reports itself as automated, which would make RUM skip init and leave nothing to test
+          Object.defineProperty(navigator, 'webdriver', { get: () => false, configurable: true })
           ${ddRUM}
           window.FC_RUM._setDebug(true)
           window.FC_RUM.init({
