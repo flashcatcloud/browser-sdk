@@ -18,7 +18,7 @@
 
 ---
 
-## v0.6.0
+## v0.6.1
 
 - ✨ RUM no longer starts in a browser driven by automation (`navigator.webdriver` is true:
   Selenium, Puppeteer, Playwright, headless crawlers). `init()` logs a warning and returns, so no
