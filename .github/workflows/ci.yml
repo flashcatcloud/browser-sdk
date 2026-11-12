@@ -129,5 +129,13 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      - name: Build SDK and test apps
+        run: yarn build && yarn build:apps
+
+      # The runner image already ships the system libraries Chromium needs, so skip `--with-deps`:
+      # it goes through apt, whose mirrors the runner cannot always resolve.
+      - name: Install Chromium
+        run: yarn playwright install chromium
+
       - name: Run Chromium e2e tests
-        run: yarn test:e2e:ci
+        run: CI=true yarn test:e2e
