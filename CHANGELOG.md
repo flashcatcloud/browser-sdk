@@ -18,6 +18,17 @@
 
 ---
 
+## v0.6.0
+
+- ✨ RUM no longer starts in a browser driven by automation (`navigator.webdriver` is true:
+  Selenium, Puppeteer, Playwright, headless crawlers). `init()` logs a warning and returns, so no
+  session is created, no remote configuration is fetched, and nothing is sent, the active device
+  report included. Such browsers often carry an ordinary browser user agent, so they cannot be told
+  apart from real visitors after the fact. To collect from your own automated tests, set
+  `navigator.webdriver` to false before the SDK loads.
+- ✨ Each release is also published to `https://static.flashcat.cloud/browser-sdk/latest/`, which
+  follows the highest release. Versioned paths are unchanged and never rewritten.
+
 ## v0.5.0
 
 - ✨ RUM now reports the day's active device and logged-in user through a dedicated request
