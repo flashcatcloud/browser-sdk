@@ -40,10 +40,15 @@ declare const __BUILD_ENV__SDK_VERSION__: string
  * before and are merged into the same table server-side, so a client that never sends this (an
  * older SDK) is still counted from its views.
  *
- * Wire contract (the intake's, shared with the native SDKs and `@flashcatcloud/electron-sdk`):
- * `POST /api/v2/rum/active?dd-api-key=...` — plus `ddsource`/`ddtags` here, so this SDK leaves
- * its own traffic out of what it collects — with one JSON object, identity nested the way RUM
- * events carry it:
+ * Wire contract: the native SDKs and `@flashcatcloud/electron-sdk` send
+ * `POST /api/v2/rum/active?dd-api-key=...`. This SDK sends the same body to the event path instead,
+ * `POST /api/v2/rum?ddsource=browser&ddtags=...&dd-api-key=...&beacon=active`, and the intake
+ * routes it by the `beacon=active` marker. Sharing the event path keeps the count consistent with
+ * the events: a content blocker that drops this browser's event batches (EasyPrivacy matches
+ * `/rum?ddsource=`, for one) drops the beacon too, so a device is counted as active only when
+ * its events can reach the intake as well. `ddsource` stays the first parameter for that reason,
+ * and `ddsource`/`ddtags` are also what make this SDK leave its own traffic out of what it
+ * collects. The body is one JSON object, identity nested the way RUM events carry it:
  *
  * - `usr.anonymous_id`: the anonymous id, absent when anonymous tracking is off
  * - `usr.id`: the id set through `setUser`, absent when nobody is logged in. Deliberately the raw
@@ -59,10 +64,10 @@ declare const __BUILD_ENV__SDK_VERSION__: string
  * refuses gets a 4xx, which this code treats as final — the report is dropped, never retried
  * day after day.
  *
- * The server answers 202. Like the configuration endpoint it is mounted beside, this request is
- * not an event: it must not consume event quota. Behind a `proxy` it travels inside `ddforward`
- * like every other request this SDK makes, so a proxy that allow-lists forwarded paths has to be
- * told about `/api/v2/rum/active` — the same caveat `remoteConfigurationEnabled` carries.
+ * The server answers 202. Although it shares the event path, this request is not an event: the
+ * intake recognises the marker and does not count it against event quota. Behind a `proxy` it
+ * travels inside `ddforward` like every other request this SDK makes, on the path a proxy already
+ * forwards for events.
  *
  * Nothing here runs under an event bridge. In an Electron renderer or a mobile WebView the host
  * application owns the device identity (it is what hands this page its anonymous id) and sends
@@ -70,7 +75,7 @@ declare const __BUILD_ENV__SDK_VERSION__: string
  * worse, report the page's own short-lived identity next to the host's stable one.
  */
 
-const ACTIVE_PATH = '/api/v2/rum/active'
+const ACTIVE_PATH = '/api/v2/rum'
 const STORE_KEY_PREFIX = '_fc_active_2_'
 const REQUEST_TIMEOUT = 10 * ONE_SECOND
 /** In-process retries of one beacon, the budget the native SDKs' beacons run on. */
@@ -143,6 +148,7 @@ function buildParameters(initConfiguration: RumInitConfiguration) {
     'ddsource=browser',
     `ddtags=${encodeURIComponent(`sdk_version:${__BUILD_ENV__SDK_VERSION__}`)}`,
     `dd-api-key=${encodeURIComponent(initConfiguration.clientToken)}`,
+    'beacon=active',
   ].join('&')
 }
 

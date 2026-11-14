@@ -94,7 +94,10 @@ describe('activePing', () => {
       start()
 
       expect(requests.length).toBe(1)
-      expect(requests[0].url).toContain('/api/v2/rum/active')
+      // Same path and leading parameter as the event batches, so a rule that blocks the batches
+      // (EasyPrivacy's `/rum?ddsource=`) blocks the beacon too; the marker routes it at the intake.
+      expect(requests[0].url).toContain('/api/v2/rum?ddsource=browser&')
+      expect(requests[0].url).toContain('beacon=active')
       expect(requests[0].url).toContain('dd-api-key=token')
       // The SDK must recognise its own traffic and leave it out of what it collects.
       expect(isIntakeUrl(requests[0].url!)).toBeTrue()
