@@ -21,8 +21,8 @@ export interface SessionManager<TrackingType extends string> {
   sessionStateUpdateObservable: Observable<{ previousState: SessionState; newState: SessionState }>
   expire: () => void
   updateSessionState: (update: (state: SessionState) => Partial<SessionState> | undefined) => void
-  /** FLASHCAT FORK - the anonymous id storage holds, see `SessionStore.getPersistedAnonymousId`. */
-  getPersistedAnonymousId: () => string | undefined
+  /** FLASHCAT FORK - whether pages of this browser may still be agreeing on the anonymous id. */
+  isAnonymousIdSettling: () => boolean
 }
 
 export interface SessionContext<TrackingType extends string> extends Context {
@@ -73,6 +73,20 @@ export function startSessionManager<TrackingType extends string>(
     expireObservable.notify()
     sessionContextHistory.closeActive(relativeNow())
   })
+  // FLASHCAT FORK - the anonymous id is the device's, not the session's: when the store settles on
+  // another page's id, events of the current session report it from then on. Only a change the
+  // store is settling counts, so a cookie-backed session keeps the id it was created with.
+  sessionStore.sessionStateUpdateObservable.subscribe(({ previousState, newState }) => {
+    const activeContext = sessionContextHistory.find()
+    if (
+      activeContext &&
+      sessionStore.isAnonymousIdSettling() &&
+      previousState.anonymousId !== newState.anonymousId &&
+      activeContext.id === newState.id
+    ) {
+      activeContext.anonymousId = newState.anonymousId
+    }
+  })
 
   // We expand/renew session unconditionally as tracking consent is always granted when the session
   // manager is started.
@@ -112,7 +126,7 @@ export function startSessionManager<TrackingType extends string>(
     sessionStateUpdateObservable: sessionStore.sessionStateUpdateObservable,
     expire: sessionStore.expire,
     updateSessionState: sessionStore.updateSessionState,
-    getPersistedAnonymousId: sessionStore.getPersistedAnonymousId,
+    isAnonymousIdSettling: sessionStore.isAnonymousIdSettling,
   }
 }
 

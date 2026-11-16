@@ -90,38 +90,6 @@ const DEFAULT_INIT_CONFIGURATION = { trackAnonymousUser: true } as Configuration
         expect(afterSpy).toHaveBeenCalledWith(initialSession)
       })
 
-      it('should hand `after` what storage holds when another page writes right after this one', () => {
-        // Two pages starting at once each generate an anonymous id; without a lock the last write
-        // wins, and this page must settle on that id rather than keep the one it generated.
-        sessionStoreStrategy.persistSession(initialSession)
-        const otherPage = { ...otherSession, anonymousId: 'other-page' }
-        processSpy.and.returnValue({ ...initialSession, anonymousId: 'this-page' })
-        const racingStrategy = {
-          ...sessionStoreStrategy,
-          persistSession: (session: SessionState) => {
-            sessionStoreStrategy.persistSession(session)
-            sessionStoreStrategy.persistSession(otherPage)
-          },
-        }
-
-        processSessionStoreOperations({ process: processSpy, after: afterSpy }, racingStrategy)
-
-        expect(afterSpy).toHaveBeenCalledWith(jasmine.objectContaining({ anonymousId: 'other-page' }))
-      })
-
-      it('should keep the processed session when storage holds no other anonymous id', () => {
-        processSpy.and.returnValue({ ...otherSession, anonymousId: 'this-page' })
-        const failingStrategy = {
-          ...sessionStoreStrategy,
-          persistSession: () => undefined,
-          retrieveSession: () => ({}),
-        }
-
-        processSessionStoreOperations({ process: processSpy, after: afterSpy }, failingStrategy)
-
-        expect(afterSpy).toHaveBeenCalledWith(jasmine.objectContaining({ id: '456', anonymousId: 'this-page' }))
-      })
-
       it('LOCK_MAX_TRIES value should not influence the behavior when lock mechanism is not enabled', () => {
         sessionStoreStrategy.persistSession(initialSession)
         processSpy.and.returnValue({ ...otherSession })

@@ -1,4 +1,5 @@
 import {
+  ANONYMOUS_ID_SETTLE_DELAY,
   INTAKE_SITE_US1,
   ONE_SECOND,
   TrackingConsent,
@@ -90,30 +91,32 @@ describe('activePing', () => {
   })
 
   describe('the report', () => {
-    it('waits for the anonymous id to reach storage before reporting', () => {
+    it('waits until the anonymous id is settled with other pages, then reports the settled one', () => {
       const clock = startClock()
       const getAnonymousId = spyOn(sessionManager, 'getAnonymousId').and.returnValue(undefined)
       start()
 
       expect(requests.length).toBe(0)
 
-      getAnonymousId.and.returnValue('device-123')
-      clock.tick(1000)
+      getAnonymousId.and.returnValue('settled-device')
+      clock.tick(ANONYMOUS_ID_SETTLE_DELAY)
 
       expect(requests.length).toBe(1)
-      expect(payloadOf(requests[0])).toEqual(jasmine.objectContaining({ usr: { anonymous_id: 'device-123' } }))
+      expect(payloadOf(requests[0])).toEqual(jasmine.objectContaining({ usr: { anonymous_id: 'settled-device' } }))
     })
 
-    it('stops waiting for an anonymous id after a bounded number of tries', () => {
+    it('stops waiting for the anonymous id after a bounded number of tries', () => {
       const clock = startClock()
-      const getAnonymousId = spyOn(sessionManager, 'getAnonymousId').and.returnValue(undefined)
+      spyOn(sessionManager, 'getAnonymousId').and.returnValue(undefined)
+      userContext.setContext({ id: 'user-1' })
       start()
 
-      clock.tick(60 * 1000)
-
-      // One read at start, then one per wait.
-      expect(getAnonymousId.calls.count()).toBe(11)
+      clock.tick(9 * ANONYMOUS_ID_SETTLE_DELAY)
       expect(requests.length).toBe(0)
+
+      clock.tick(ANONYMOUS_ID_SETTLE_DELAY)
+      expect(requests.length).toBe(1)
+      expect(payloadOf(requests[0])).toEqual(jasmine.objectContaining({ usr: { id: 'user-1' } }))
     })
 
     it('is sent once at start, carrying the anonymous id as the device', () => {

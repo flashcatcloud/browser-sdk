@@ -5,8 +5,10 @@ import { throttle } from '../../tools/utils/functionUtils'
 import { generateUUID } from '../../tools/utils/stringUtils'
 import type { InitConfiguration, Configuration } from '../configuration'
 import { display } from '../../tools/display'
+import { DOM_EVENT, addEventListener } from '../../browser/addEventListener'
 import { selectCookieStrategy, initCookieStrategy } from './storeStrategies/sessionInCookie'
 import type { SessionStoreStrategyType } from './storeStrategies/sessionStoreStrategy'
+import { SESSION_STORE_KEY } from './storeStrategies/sessionStoreStrategy'
 import {
   getExpiredSessionState,
   expandSessionState,
@@ -23,8 +25,8 @@ export interface SessionStore {
   expandOrRenewSession: () => void
   expandSession: () => void
   getSession: () => SessionState
-  /** FLASHCAT FORK - the anonymous id storage holds right now, which may lag or differ from the cache. */
-  getPersistedAnonymousId: () => string | undefined
+  /** FLASHCAT FORK - see `ANONYMOUS_ID_SETTLE_DELAY`. */
+  isAnonymousIdSettling: () => boolean
   restartSession: () => void
   renewObservable: Observable<void>
   expireObservable: Observable<void>
@@ -45,6 +47,19 @@ export interface SessionStore {
  * This value has been determined from our previous cookie-only implementation.
  */
 export const STORAGE_POLL_DELAY = ONE_SECOND
+
+/**
+ * FLASHCAT FORK - how long an anonymous id this page has just generated, or just changed to, must
+ * go without a conflict before it is taken as the one every page of this browser shares.
+ *
+ * localStorage has no lock: pages that start together each find it empty and generate their own
+ * id. Chrome also keeps a copy of localStorage per renderer and propagates writes to other pages
+ * asynchronously, so a page cannot learn that it lost the race by reading its own write back. Pages
+ * converge instead on the smallest id any of them has seen (see `settleAnonymousId`), learning of
+ * each other's ids through `storage` events and the poll. This delay has to outlast the
+ * propagation of a write between pages.
+ */
+export const ANONYMOUS_ID_SETTLE_DELAY = 300
 
 /**
  * Selects the correct session store strategy type based on the configuration and storage
@@ -98,6 +113,19 @@ export function startSessionStore<TrackingType extends string>(
   const watchSessionTimeoutId = setInterval(watchSession, STORAGE_POLL_DELAY)
   let sessionCache: SessionState
 
+  // FLASHCAT FORK - a cookie is shared and read synchronously by every page, so only localStorage
+  // needs pages to agree on the anonymous id. A `storage` event tells this page about another
+  // page's write as soon as it propagates, rather than at the next poll.
+  const settlesAnonymousId = sessionStoreStrategyType.type === SessionPersistence.LOCAL_STORAGE
+  let anonymousIdChangedAt: number | undefined
+  const { stop: stopStorageListener } = settlesAnonymousId
+    ? addEventListener(configuration, window, DOM_EVENT.STORAGE, (event) => {
+        if (event.key === SESSION_STORE_KEY) {
+          watchSession()
+        }
+      })
+    : { stop: () => undefined }
+
   startSession()
 
   const { throttled: throttledExpandOrRenewSession, cancel: cancelExpandOrRenewSession } = throttle(() => {
@@ -140,8 +168,14 @@ export function startSessionStore<TrackingType extends string>(
   function watchSession() {
     processSessionStoreOperations(
       {
-        process: (sessionState) =>
-          isSessionInExpiredState(sessionState) ? getExpiredSessionState(sessionState, configuration) : undefined,
+        process: (sessionState) => {
+          if (isSessionInExpiredState(sessionState)) {
+            return getExpiredSessionState(sessionState, configuration)
+          }
+          // Storage holding a larger id than this page's must be told: the page that wrote it
+          // may not have seen this page's id at all.
+          return settleAnonymousId(sessionState) ? sessionState : undefined
+        },
         after: synchronizeSession,
       },
       sessionStoreStrategy
@@ -152,6 +186,7 @@ export function startSessionStore<TrackingType extends string>(
     if (isSessionInExpiredState(sessionState)) {
       sessionState = getExpiredSessionState(sessionState, configuration)
     }
+    settleAnonymousId(sessionState)
     if (hasSessionInCache()) {
       if (isSessionInCacheOutdated(sessionState)) {
         expireSessionInCache()
@@ -168,7 +203,11 @@ export function startSessionStore<TrackingType extends string>(
       {
         process: (sessionState) => {
           if (isSessionInNotStartedState(sessionState)) {
-            return getExpiredSessionState(sessionState, configuration)
+            const startedSessionState = getExpiredSessionState(sessionState, configuration)
+            if (settlesAnonymousId && !sessionState.anonymousId && startedSessionState.anonymousId) {
+              anonymousIdChangedAt = dateNow()
+            }
+            return startedSessionState
           }
         },
         after: (sessionState) => {
@@ -203,6 +242,25 @@ export function startSessionStore<TrackingType extends string>(
     // judged with no deadline at all -- which now reads as expired and would stop any session
     // from ever establishing. Upstream does the same inside its own expandOrRenew.
     expandSessionState(sessionState)
+  }
+
+  /**
+   * FLASHCAT FORK - gives `sessionState` the smallest of its anonymous id and this page's, a rule
+   * every page applies the same way so all of them end on one id whatever order their writes
+   * reach each other in. Returns whether `sessionState` changed, i.e. storage is behind this page.
+   */
+  function settleAnonymousId(sessionState: SessionState) {
+    const cachedId = sessionCache.anonymousId
+    const storedId = sessionState.anonymousId
+    if (!settlesAnonymousId || !cachedId || !storedId || cachedId === storedId) {
+      return false
+    }
+    anonymousIdChangedAt = dateNow()
+    if (cachedId < storedId) {
+      sessionState.anonymousId = cachedId
+      return true
+    }
+    return false
   }
 
   function hasSessionInCache() {
@@ -240,7 +298,8 @@ export function startSessionStore<TrackingType extends string>(
     expandOrRenewSession: throttledExpandOrRenewSession,
     expandSession,
     getSession: () => sessionCache,
-    getPersistedAnonymousId: () => sessionStoreStrategy.retrieveSession().anonymousId,
+    isAnonymousIdSettling: () =>
+      anonymousIdChangedAt !== undefined && dateNow() - anonymousIdChangedAt < ANONYMOUS_ID_SETTLE_DELAY,
     renewObservable,
     expireObservable,
     sessionStateUpdateObservable,
@@ -252,6 +311,7 @@ export function startSessionStore<TrackingType extends string>(
     },
     stop: () => {
       clearInterval(watchSessionTimeoutId)
+      stopStorageListener()
     },
     updateSessionState,
   }

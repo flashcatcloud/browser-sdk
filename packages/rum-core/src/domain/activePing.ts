@@ -1,5 +1,6 @@
 import type { ContextManager, CookieOptions, TimeoutId, TrackingConsentState } from '@flashcatcloud/browser-core'
 import {
+  ANONYMOUS_ID_SETTLE_DELAY,
   DOM_EVENT,
   ONE_DAY,
   ONE_SECOND,
@@ -81,10 +82,9 @@ const MAX_PENDING_AGE = 3 * ONE_DAY
 const MAX_SENT_COMBINATIONS = 50
 const MAX_PENDING_REPORTS = 10
 /**
- * How long to keep waiting, at one-second steps, for the anonymous id to reach storage. The session
- * store writes it at start, so this only covers a write that is late or briefly contended.
+ * How many settle delays to wait for the anonymous id before reporting without it. Pages converge
+ * within one or two; the bound only keeps a page that never settles from waiting forever.
  */
-const IDENTITY_WAIT_DELAY = ONE_SECOND
 const MAX_IDENTITY_WAITS = 10
 
 export interface ActivePingSetup {
@@ -198,12 +198,13 @@ export function startActivePing(
     let combination: string | undefined
     if (document.visibilityState === 'visible') {
       deviceKey = configuration.trackAnonymousUser ? (sessionManager.getAnonymousId() ?? '') : ''
-      userId = currentUserId(userContext)
-      if (configuration.trackAnonymousUser && !deviceKey) {
-        // No anonymous id in storage yet: report once the one id every page will share has been
-        // written, rather than an id this page generated that may never persist.
+      if (configuration.trackAnonymousUser && !deviceKey && identityWaits < MAX_IDENTITY_WAITS) {
+        // The anonymous id is still being agreed on with other pages of this browser: report the
+        // one they settle on, not this page's candidate.
         waitForIdentity()
+        return
       }
+      userId = currentUserId(userContext)
       if (deviceKey || userId) {
         combination = combinationOf(deviceKey, userId, configuration.version ?? '')
         if (combination === lastReportedCombination && lastReportedDrained && lastReportedDay === localDay(dateNow())) {
@@ -222,22 +223,22 @@ export function startActivePing(
     drainQueue(state)
   }
 
-  /**
-   * Sends the oldest queued report, if any. Network continuations call only this — never
-   * `attempt()` — so a request that finishes after midnight cannot by itself look like
-   * activity on the new day; a new day is recorded only by a real trigger.
-   */
   const waitForIdentity = () => {
-    if (identityWaitTimeoutId !== undefined || identityWaits >= MAX_IDENTITY_WAITS) {
+    if (identityWaitTimeoutId !== undefined) {
       return
     }
     identityWaits += 1
     identityWaitTimeoutId = setTimeout(() => {
       identityWaitTimeoutId = undefined
       attempt()
-    }, IDENTITY_WAIT_DELAY)
+    }, ANONYMOUS_ID_SETTLE_DELAY)
   }
 
+  /**
+   * Sends the oldest queued report, if any. Network continuations call only this — never
+   * `attempt()` — so a request that finishes after midnight cannot by itself look like
+   * activity on the new day; a new day is recorded only by a real trigger.
+   */
   const drainQueue = (state: StoredState = readState(setup)) => {
     if (stopped || inFlight || !trackingConsentState.isGranted()) {
       return

@@ -20,6 +20,7 @@ import { SESSION_EXPIRATION_DELAY, SESSION_TIME_OUT_DELAY, SessionPersistence } 
 import type { SessionStoreStrategyType } from './storeStrategies/sessionStoreStrategy'
 import { SESSION_STORE_KEY } from './storeStrategies/sessionStoreStrategy'
 import { STORAGE_POLL_DELAY } from './sessionStore'
+import { toSessionState, toSessionString } from './sessionState'
 
 const enum FakeTrackingType {
   NOT_TRACKED = 'not-tracked',
@@ -673,6 +674,26 @@ describe('startSessionManager', () => {
       const callArgs = sessionStateUpdateSpy.calls.argsFor(0)[0]
       expect(callArgs.previousState.extra).toBeUndefined()
       expect(callArgs.newState.extra).toBe('extra')
+    })
+  })
+
+  describe('anonymous id agreed with other pages', () => {
+    it('reports the agreed id for the current session once the store settles on it', () => {
+      const sessionManager = startSessionManagerWithDefaults({
+        configuration: {
+          sessionStoreStrategyType: { type: SessionPersistence.LOCAL_STORAGE },
+          trackAnonymousUser: true,
+        },
+      })
+      registerCleanupTask(() => localStorage.removeItem(SESSION_STORE_KEY))
+      const smallerId = '00000000-0000-4000-8000-000000000000'
+      const stored = toSessionState(localStorage.getItem(SESSION_STORE_KEY))
+      localStorage.setItem(SESSION_STORE_KEY, toSessionString({ ...stored, anonymousId: smallerId }))
+
+      clock.tick(STORAGE_POLL_DELAY)
+
+      expect(sessionManager.findSession()!.id).toBe(stored.id!)
+      expect(sessionManager.findSession()!.anonymousId).toBe(smallerId)
     })
   })
 

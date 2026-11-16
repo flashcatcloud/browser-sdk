@@ -1,12 +1,18 @@
 import type { Clock } from '../../../test'
-import { expireCookie, mockClock, getSessionState } from '../../../test'
+import { createNewEvent, expireCookie, mockClock, getSessionState } from '../../../test'
 import { setCookie } from '../../browser/cookie'
 import type { InitConfiguration, Configuration } from '../configuration'
 import { display } from '../../tools/display'
 import type { SessionStore } from './sessionStore'
-import { STORAGE_POLL_DELAY, startSessionStore, selectSessionStoreStrategyType } from './sessionStore'
+import {
+  ANONYMOUS_ID_SETTLE_DELAY,
+  STORAGE_POLL_DELAY,
+  startSessionStore,
+  selectSessionStoreStrategyType,
+} from './sessionStore'
 import { SESSION_EXPIRATION_DELAY, SESSION_TIME_OUT_DELAY, SessionPersistence } from './sessionConstants'
 import { SESSION_STORE_KEY } from './storeStrategies/sessionStoreStrategy'
+import { toSessionState } from './sessionState'
 
 const enum FakeTrackingType {
   TRACKED = 'tracked',
@@ -607,6 +613,109 @@ describe('session store', () => {
       // Need to wait until watch is triggered
       clock.tick(STORAGE_POLL_DELAY)
       expect(otherUpdateSpy).toHaveBeenCalled()
+    })
+  })
+
+  describe('anonymous id agreement between pages', () => {
+    const SMALL_ID = '10000000-0000-4000-8000-000000000000'
+    const MIDDLE_ID = '50000000-0000-4000-8000-000000000000'
+    const LARGE_ID = '90000000-0000-4000-8000-000000000000'
+    let clock: Clock
+    let store: SessionStore
+
+    function sessionString(anonymousId?: string) {
+      return `id=${FIRST_ID}&${PRODUCT_KEY}=${FakeTrackingType.TRACKED}&created=${Date.now()}&expire=${
+        Date.now() + SESSION_EXPIRATION_DELAY
+      }${anonymousId ? `&aid=${anonymousId}` : ''}`
+    }
+
+    function storedAnonymousId() {
+      return toSessionState(localStorage.getItem(SESSION_STORE_KEY)).anonymousId
+    }
+
+    function startStore(persistence: SessionPersistence = SessionPersistence.LOCAL_STORAGE) {
+      const sessionStoreStrategyType = selectSessionStoreStrategyType({
+        ...DEFAULT_INIT_CONFIGURATION,
+        sessionPersistence: persistence,
+      })
+      store = startSessionStore(sessionStoreStrategyType!, DEFAULT_CONFIGURATION, PRODUCT_KEY, () => ({
+        isTracked: true,
+        trackingType: FakeTrackingType.TRACKED,
+      }))
+      store.expandOrRenewSession()
+    }
+
+    beforeEach(() => {
+      clock = mockClock()
+    })
+
+    afterEach(() => {
+      store.stop()
+      localStorage.removeItem(SESSION_STORE_KEY)
+      resetSessionInStore()
+      clock.cleanup()
+    })
+
+    it('adopts a smaller id another page wrote', () => {
+      localStorage.setItem(SESSION_STORE_KEY, sessionString(MIDDLE_ID))
+      startStore()
+
+      localStorage.setItem(SESSION_STORE_KEY, sessionString(SMALL_ID))
+      clock.tick(STORAGE_POLL_DELAY)
+
+      expect(store.getSession().anonymousId).toBe(SMALL_ID)
+      expect(storedAnonymousId()).toBe(SMALL_ID)
+    })
+
+    it('writes its own id back over a larger one another page wrote', () => {
+      localStorage.setItem(SESSION_STORE_KEY, sessionString(MIDDLE_ID))
+      startStore()
+
+      localStorage.setItem(SESSION_STORE_KEY, sessionString(LARGE_ID))
+      clock.tick(STORAGE_POLL_DELAY)
+
+      expect(store.getSession().anonymousId).toBe(MIDDLE_ID)
+      expect(storedAnonymousId()).toBe(MIDDLE_ID)
+    })
+
+    it("learns of another page's write from its storage event, before the poll", () => {
+      localStorage.setItem(SESSION_STORE_KEY, sessionString(MIDDLE_ID))
+      startStore()
+
+      localStorage.setItem(SESSION_STORE_KEY, sessionString(SMALL_ID))
+      window.dispatchEvent(createNewEvent('storage', { key: SESSION_STORE_KEY }))
+
+      expect(store.getSession().anonymousId).toBe(SMALL_ID)
+    })
+
+    it('settles for a while after generating its id or meeting another one', () => {
+      startStore()
+      expect(store.isAnonymousIdSettling()).toBeTrue()
+
+      clock.tick(ANONYMOUS_ID_SETTLE_DELAY)
+      expect(store.isAnonymousIdSettling()).toBeFalse()
+
+      localStorage.setItem(SESSION_STORE_KEY, sessionString(SMALL_ID))
+      clock.tick(STORAGE_POLL_DELAY - ANONYMOUS_ID_SETTLE_DELAY)
+      expect(store.isAnonymousIdSettling()).toBeTrue()
+    })
+
+    it('does not settle an id it found in storage', () => {
+      localStorage.setItem(SESSION_STORE_KEY, sessionString(MIDDLE_ID))
+      startStore()
+
+      expect(store.isAnonymousIdSettling()).toBeFalse()
+    })
+
+    it('leaves a cookie-backed id as it is', () => {
+      setCookie(SESSION_STORE_KEY, sessionString(MIDDLE_ID), DURATION)
+      startStore(SessionPersistence.COOKIE)
+
+      setCookie(SESSION_STORE_KEY, sessionString(LARGE_ID), DURATION)
+      clock.tick(STORAGE_POLL_DELAY)
+
+      expect(getSessionState(SESSION_STORE_KEY).anonymousId).toBe(LARGE_ID)
+      expect(store.isAnonymousIdSettling()).toBeFalse()
     })
   })
 })

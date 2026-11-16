@@ -505,15 +505,9 @@ export function startRumSessionManager(
         drawnConfiguration: drawnHistory.find(startTime),
       }
     },
-    // Only an id storage holds is the one every page of this browser, and its next visit, will use.
-    // One that exists only in this page's memory - generated before a write that did not land, or
-    // replaced in storage by another page that started at the same moment - is not reported.
-    getAnonymousId: () => {
-      const anonymousId = sessionManager.findSession()?.anonymousId
-      return anonymousId !== undefined && anonymousId === sessionManager.getPersistedAnonymousId()
-        ? anonymousId
-        : undefined
-    },
+    // FLASHCAT FORK - an id still being agreed on with other pages is not reported yet.
+    getAnonymousId: () =>
+      sessionManager.isAnonymousIdSettling() ? undefined : sessionManager.findSession()?.anonymousId,
     expire: sessionManager.expire,
     expireObservable: sessionManager.expireObservable,
     stop: () => {
