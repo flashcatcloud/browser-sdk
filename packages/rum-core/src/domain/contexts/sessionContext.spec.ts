@@ -151,6 +151,22 @@ describe('session context', () => {
     expect(event.session!.has_replay).toBe(true)
   })
 
+  it('should set session.is_automated only in a browser driven by automation', () => {
+    const webdriverSpy = spyOnProperty(navigator, 'webdriver', 'get').and.returnValue(true)
+    const automatedEvent = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'action',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+    webdriverSpy.and.returnValue(false)
+    const visitorEvent = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'action',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(automatedEvent.session!.is_automated).toBeTrue()
+    expect(visitorEvent.session!.is_automated).toBeUndefined()
+  })
+
   it('should set session.is_active when the session is active', () => {
     findViewSpy.and.returnValue({ ...fakeView, sessionIsActive: true })
     const eventWithActiveSession = hooks.triggerHook(HookNames.Assemble, {

@@ -205,9 +205,8 @@ describe('preStartRum', () => {
       expect(displaySpy).toHaveBeenCalled()
     })
 
-    it('should not initialize in a browser driven by automation', () => {
+    it('should initialize in a browser driven by automation, whose events are marked instead', () => {
       spyOnProperty(navigator, 'webdriver', 'get').and.returnValue(true)
-      const displaySpy = spyOn(display, 'warn')
       const strategy = createPreStartStrategy(
         {},
         createTrackingConsentState(),
@@ -215,9 +214,7 @@ describe('preStartRum', () => {
         doStartRumSpy
       )
       strategy.init(DEFAULT_INIT_CONFIGURATION, PUBLIC_API)
-      strategy.startView({ name: 'foo' })
-      expect(doStartRumSpy).not.toHaveBeenCalled()
-      expect(displaySpy).toHaveBeenCalled()
+      expect(doStartRumSpy).toHaveBeenCalled()
     })
 
     describe('skipInitIfSyntheticsWillInjectRum option', () => {

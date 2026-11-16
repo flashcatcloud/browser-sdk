@@ -262,7 +262,7 @@ async function setUpTest(browserLogsManager: BrowserLogsManager, { baseUrl, page
     })
   })
 
-  // Playwright reports itself as automated, which would make RUM skip init on every test page
+  // Playwright reports itself as automated, which would mark every event the tests check as such
   await browserContext.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => false, configurable: true })
   })

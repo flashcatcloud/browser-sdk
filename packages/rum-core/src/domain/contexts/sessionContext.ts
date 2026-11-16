@@ -78,7 +78,7 @@ export function startSessionContext(
       hasReplay = !isReplayWithheld && recorderApi.isRecording() ? true : undefined
     }
 
-    // These three are fork additions the generated event schema does not declare, so on the session
+    // These are fork additions the generated event schema does not declare, so on the session
     // object below they would only be checked against its `[k: string]: unknown` index signature - a
     // typo in a name would compile and silently emit a field the backend never reads. Typing them
     // here makes an excess or misspelled key fail the build instead.
@@ -86,10 +86,15 @@ export function startSessionContext(
       sampled_for_replay: boolean | undefined
       sampled_for_error: boolean | undefined
       sampled_for_error_replay: boolean | undefined
+      is_automated: true | undefined
     } = {
       sampled_for_replay: sampledForReplay,
       sampled_for_error: sampledForError,
       sampled_for_error_replay: sampledForErrorReplay,
+      // A browser driven by automation (Selenium, Puppeteer, Playwright) often sends an ordinary
+      // user agent, so only the page can tell. Its events are collected like any other and marked,
+      // leaving the backend to decide what to count.
+      is_automated: navigator.webdriver === true || undefined,
     }
 
     // A session kept only because it errored reports a session rate of 0 over whatever it was drawn
