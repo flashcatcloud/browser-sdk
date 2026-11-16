@@ -20,6 +20,14 @@
 
 ## v0.6.2
 
+- ✨ RUM starts in a browser driven by automation again, which v0.6.0 and v0.6.1 skipped
+  (`navigator.webdriver` is true: Selenium, Puppeteer, Playwright, headless crawlers). Its events
+  and its active device report are collected as any other visitor's and marked instead:
+  `session.is_automated` is `true` on its events and `is_automated` is `true` on the active report,
+  absent otherwise. An integration that relied on such browsers sending nothing must filter on the
+  mark at the intake or in the console. Setting `navigator.webdriver` to false before the SDK loads
+  still keeps your own automated tests unmarked.
+
 **Internal Changes:**
 
 - Merge pull request #59 from flashcatcloud/feat/report-automated-browsers
