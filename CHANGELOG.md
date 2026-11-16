@@ -18,6 +18,13 @@
 
 ---
 
+## v0.6.2
+
+**Internal Changes:**
+
+- Merge pull request #59 from flashcatcloud/feat/report-automated-browsers
+- feat(rum): collect from browsers driven by automation and mark them [FLAGGING] [LOGS] [RUM] [RUM-REACT] [RUM-SLIM] [WORKER]
+
 ## v0.6.1
 
 - ✨ RUM no longer starts in a browser driven by automation (`navigator.webdriver` is true:
