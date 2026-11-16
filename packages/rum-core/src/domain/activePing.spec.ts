@@ -90,6 +90,32 @@ describe('activePing', () => {
   })
 
   describe('the report', () => {
+    it('waits for the anonymous id to reach storage before reporting', () => {
+      const clock = startClock()
+      const getAnonymousId = spyOn(sessionManager, 'getAnonymousId').and.returnValue(undefined)
+      start()
+
+      expect(requests.length).toBe(0)
+
+      getAnonymousId.and.returnValue('device-123')
+      clock.tick(1000)
+
+      expect(requests.length).toBe(1)
+      expect(payloadOf(requests[0])).toEqual(jasmine.objectContaining({ usr: { anonymous_id: 'device-123' } }))
+    })
+
+    it('stops waiting for an anonymous id after a bounded number of tries', () => {
+      const clock = startClock()
+      const getAnonymousId = spyOn(sessionManager, 'getAnonymousId').and.returnValue(undefined)
+      start()
+
+      clock.tick(60 * 1000)
+
+      // One read at start, then one per wait.
+      expect(getAnonymousId.calls.count()).toBe(11)
+      expect(requests.length).toBe(0)
+    })
+
     it('is sent once at start, carrying the anonymous id as the device', () => {
       start()
 

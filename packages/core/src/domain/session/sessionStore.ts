@@ -23,6 +23,8 @@ export interface SessionStore {
   expandOrRenewSession: () => void
   expandSession: () => void
   getSession: () => SessionState
+  /** FLASHCAT FORK - the anonymous id storage holds right now, which may lag or differ from the cache. */
+  getPersistedAnonymousId: () => string | undefined
   restartSession: () => void
   renewObservable: Observable<void>
   expireObservable: Observable<void>
@@ -238,6 +240,7 @@ export function startSessionStore<TrackingType extends string>(
     expandOrRenewSession: throttledExpandOrRenewSession,
     expandSession,
     getSession: () => sessionCache,
+    getPersistedAnonymousId: () => sessionStoreStrategy.retrieveSession().anonymousId,
     renewObservable,
     expireObservable,
     sessionStateUpdateObservable,

@@ -61,6 +61,21 @@ describe('rum session manager', () => {
   })
 
   describe('cookie storage', () => {
+    it('reports the anonymous id only while storage holds it', () => {
+      const sessionManager = startRumSessionManagerWithDefaults({
+        configuration: { sessionSampleRate: 100, trackAnonymousUser: true },
+      })
+      const persisted = getSessionState(SESSION_STORE_KEY).anonymousId
+      expect(persisted).toBeDefined()
+      expect(sessionManager.getAnonymousId()).toBe(persisted)
+
+      // Another page replaced the record, anonymous id included, before this page synchronized:
+      // the id this page still holds in memory is no longer the one the browser will keep.
+      const now = Date.now()
+      setCookie(SESSION_STORE_KEY, `aid=other-page&rum=1&id=abc&created=${now}&expire=${now + DURATION}`, DURATION)
+      expect(sessionManager.getAnonymousId()).toBeUndefined()
+    })
+
     it('when tracked with session replay should store session type and id', () => {
       startRumSessionManagerWithDefaults({ configuration: { sessionSampleRate: 100, sessionReplaySampleRate: 100 } })
 

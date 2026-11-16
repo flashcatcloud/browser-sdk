@@ -84,6 +84,17 @@ export function processSessionStoreOperations(
         persistWithLock(processedSession)
       } else {
         persistSession(processedSession)
+        // FLASHCAT FORK - without a lock, another page starting at the same moment can write its own
+        // state, anonymous id included, right after this one. When storage then holds another id,
+        // hand `after` what storage holds, as the lock path does, so every page settles on the one
+        // id that persists instead of each keeping the id it generated.
+        const persistedSession = sessionStoreStrategy.retrieveSession()
+        if (
+          persistedSession.anonymousId !== undefined &&
+          persistedSession.anonymousId !== processedSession.anonymousId
+        ) {
+          processedSession = persistedSession
+        }
       }
     }
   }

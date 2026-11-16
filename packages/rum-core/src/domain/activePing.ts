@@ -80,6 +80,12 @@ const MAX_PENDING_AGE = 3 * ONE_DAY
 /** Bounds on what one origin can be made to store, whatever the application does with `setUser`. */
 const MAX_SENT_COMBINATIONS = 50
 const MAX_PENDING_REPORTS = 10
+/**
+ * How long to keep waiting, at one-second steps, for the anonymous id to reach storage. The session
+ * store writes it at start, so this only covers a write that is late or briefly contended.
+ */
+const IDENTITY_WAIT_DELAY = ONE_SECOND
+const MAX_IDENTITY_WAITS = 10
 
 export interface ActivePingSetup {
   buildUrl: () => string
@@ -169,6 +175,8 @@ export function startActivePing(
   let stopped = false
   let inFlight = false
   let retryTimeoutId: TimeoutId | undefined
+  let identityWaitTimeoutId: TimeoutId | undefined
+  let identityWaits = 0
   let failedAttempts = 0
   // The combination this page last reported, and whether the queue was empty behind it.
   // User context updates can fire on every route change; answering those from here keeps
@@ -191,6 +199,11 @@ export function startActivePing(
     if (document.visibilityState === 'visible') {
       deviceKey = configuration.trackAnonymousUser ? (sessionManager.getAnonymousId() ?? '') : ''
       userId = currentUserId(userContext)
+      if (configuration.trackAnonymousUser && !deviceKey) {
+        // No anonymous id in storage yet: report once the one id every page will share has been
+        // written, rather than an id this page generated that may never persist.
+        waitForIdentity()
+      }
       if (deviceKey || userId) {
         combination = combinationOf(deviceKey, userId, configuration.version ?? '')
         if (combination === lastReportedCombination && lastReportedDrained && lastReportedDay === localDay(dateNow())) {
@@ -214,6 +227,17 @@ export function startActivePing(
    * `attempt()` — so a request that finishes after midnight cannot by itself look like
    * activity on the new day; a new day is recorded only by a real trigger.
    */
+  const waitForIdentity = () => {
+    if (identityWaitTimeoutId !== undefined || identityWaits >= MAX_IDENTITY_WAITS) {
+      return
+    }
+    identityWaits += 1
+    identityWaitTimeoutId = setTimeout(() => {
+      identityWaitTimeoutId = undefined
+      attempt()
+    }, IDENTITY_WAIT_DELAY)
+  }
+
   const drainQueue = (state: StoredState = readState(setup)) => {
     if (stopped || inFlight || !trackingConsentState.isGranted()) {
       return
@@ -375,6 +399,7 @@ export function startActivePing(
     stop: () => {
       stopped = true
       clearTimeout(retryTimeoutId)
+      clearTimeout(identityWaitTimeoutId)
       subscriptions.forEach((subscription) => subscription.unsubscribe())
       stopVisibility()
     },

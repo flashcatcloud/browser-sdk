@@ -21,6 +21,8 @@ export interface SessionManager<TrackingType extends string> {
   sessionStateUpdateObservable: Observable<{ previousState: SessionState; newState: SessionState }>
   expire: () => void
   updateSessionState: (update: (state: SessionState) => Partial<SessionState> | undefined) => void
+  /** FLASHCAT FORK - the anonymous id storage holds, see `SessionStore.getPersistedAnonymousId`. */
+  getPersistedAnonymousId: () => string | undefined
 }
 
 export interface SessionContext<TrackingType extends string> extends Context {
@@ -110,6 +112,7 @@ export function startSessionManager<TrackingType extends string>(
     sessionStateUpdateObservable: sessionStore.sessionStateUpdateObservable,
     expire: sessionStore.expire,
     updateSessionState: sessionStore.updateSessionState,
+    getPersistedAnonymousId: sessionStore.getPersistedAnonymousId,
   }
 }
 
