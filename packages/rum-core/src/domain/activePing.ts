@@ -52,6 +52,8 @@ declare const __BUILD_ENV__SDK_VERSION__: string
  * - `service`, `env`, `version`, `build_version`, `sdk_version`, and the platform facts under
  * `os` and `device` (for a web page, read coarsely off the user agent: the endpoint does not
  * parse one itself)
+ * - `is_automated`: `true` when the browser is driven by automation (`navigator.webdriver`), absent
+ * otherwise; such a device is reported and marked, like its events, rather than left out
  * - `age_ms`: how long ago the reported activity first tried to leave this client. The hour a
  * report belongs to is the server's call (receipt time minus this), never the device clock's.
  *
@@ -111,6 +113,7 @@ interface ActiveBeaconBody {
   usr: { anonymous_id?: string; id?: string }
   os: { name: string; version: string }
   device: { type: string; model: string; brand: string }
+  is_automated?: true
 }
 
 interface PendingReport {
@@ -267,6 +270,7 @@ export function startActivePing(
       },
       os: facts.os,
       device: facts.device,
+      ...(navigator.webdriver === true ? { is_automated: true as const } : {}),
     }
     // Kept before it is sent, not after: a page closed a second later has already lost its
     // request, and the next page to start is what delivers this one.

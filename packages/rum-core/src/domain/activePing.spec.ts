@@ -248,6 +248,23 @@ describe('activePing', () => {
       expect(payloadOf(requests[0])).toEqual(jasmine.objectContaining({ usr: { anonymous_id: 'device-123' } }))
     })
 
+    it('is sent from a browser driven by automation, marked as such', () => {
+      spyOnProperty(navigator, 'webdriver', 'get').and.returnValue(true)
+
+      start()
+
+      expect(requests.length).toBe(1)
+      expect(payloadOf(requests[0])).toEqual(
+        jasmine.objectContaining({ usr: { anonymous_id: 'device-123' }, is_automated: true })
+      )
+    })
+
+    it('carries no automation mark from a visitor’s browser', () => {
+      start()
+
+      expect(payloadOf(requests[0]).is_automated).toBeUndefined()
+    })
+
     it('reports only the user when anonymous tracking is off', () => {
       start(configurationWith({ trackAnonymousUser: false }))
       expect(requests.length).toBe(0)
