@@ -4,8 +4,8 @@ import type { DrawnConfiguration, RumSessionManager } from '../rumSessionManager
 import { RumEventType } from '../../rawRumEvent.types'
 import type { RecorderApi } from '../../boot/rumPublicApi'
 import type { DefaultRumEventAttributes, Hooks } from '../hooks'
-import type { ViewHistory } from './viewHistory'
 import { readUABrands } from '../../browser/browserFacts'
+import type { ViewHistory } from './viewHistory'
 
 /**
  * FLASHCAT FORK - what the shared schema says `_dd.configuration` holds, plus `rc_version` and

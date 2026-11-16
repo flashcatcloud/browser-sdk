@@ -11,7 +11,7 @@ export function startDisplayContext(hooks: Hooks, configuration: RumConfiguratio
   let viewport: ViewportDimension | undefined
   // FLASHCAT FORK - the device screen, a field the shared schema does not declare. Read once: unlike
   // the viewport it does not follow the window.
-  const screen = readScreen()
+  const deviceScreen = readScreen()
   // Use requestAnimationFrame to delay the calculation of viewport dimensions until after SDK initialization, preventing long tasks.
   const animationFrameId = requestAnimationFrame(
     monitor(() => {
@@ -27,7 +27,7 @@ export function startDisplayContext(hooks: Hooks, configuration: RumConfiguratio
     HookNames.Assemble,
     ({ eventType }): DefaultRumEventAttributes => ({
       type: eventType,
-      display: viewport || screen ? { ...(viewport ? { viewport } : {}), ...(screen ? { screen } : {}) } : undefined,
+      display: viewport ? { viewport, screen: deviceScreen } : { screen: deviceScreen },
     })
   )
 

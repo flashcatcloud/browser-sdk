@@ -5,9 +5,9 @@ import { createRumSessionManagerMock, noopRecorderApi } from '../../../test'
 import { SessionType } from '../rumSessionManager'
 import type { DefaultRumEventAttributes, Hooks } from '../hooks'
 import { createHooks } from '../hooks'
+import { readUABrands } from '../../browser/browserFacts'
 import { startSessionContext } from './sessionContext'
 import type { ViewHistory } from './viewHistory'
-import { readUABrands } from '../../browser/browserFacts'
 
 describe('session context', () => {
   let hooks: Hooks

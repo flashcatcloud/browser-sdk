@@ -1,9 +1,10 @@
+import { setNavigatorUserAgentData } from '@flashcatcloud/browser-core/test'
 import { readScreen, readUABrands } from './browserFacts'
 
 describe('browserFacts', () => {
   describe('readUABrands', () => {
     it('writes the brands like the Sec-CH-UA header', () => {
-      spyOnProperty(navigator as any, 'userAgentData', 'get').and.returnValue({
+      setNavigatorUserAgentData({
         brands: [
           { brand: 'Not-A.Brand', version: '99' },
           { brand: 'Google Chrome', version: '157' },
@@ -14,15 +15,13 @@ describe('browserFacts', () => {
     })
 
     it('escapes quotes and backslashes like a structured-field string', () => {
-      spyOnProperty(navigator as any, 'userAgentData', 'get').and.returnValue({
-        brands: [{ brand: 'Not"A\\Brand', version: '8' }],
-      })
+      setNavigatorUserAgentData({ brands: [{ brand: 'Not"A\\Brand', version: '8' }] })
 
       expect(readUABrands()).toBe('"Not\\"A\\\\Brand";v="8"')
     })
 
     it('is undefined without userAgentData', () => {
-      spyOnProperty(navigator as any, 'userAgentData', 'get').and.returnValue(undefined)
+      setNavigatorUserAgentData(undefined)
 
       expect(readUABrands()).toBeUndefined()
     })

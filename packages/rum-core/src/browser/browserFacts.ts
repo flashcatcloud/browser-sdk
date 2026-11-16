@@ -24,9 +24,8 @@ export function readUABrands(): string | undefined {
 }
 
 /** The device screen in CSS pixels (`screen.width`, `screen.height`). */
-export function readScreen(): { width: number; height: number } | undefined {
-  const { width, height } = window.screen || {}
-  return typeof width === 'number' && typeof height === 'number' ? { width, height } : undefined
+export function readScreen(): { width: number; height: number } {
+  return { width: window.screen.width, height: window.screen.height }
 }
 
 // A structured-field string, as Sec-CH-UA writes it: quoted, with backslash and quote escaped.
