@@ -15,8 +15,7 @@ interface NavigatorUABrand {
  * with on one side. Undefined where there is no userAgentData (Firefox, Safari, insecure pages).
  */
 export function readUABrands(): string | undefined {
-  const brands = (navigator as Navigator & { userAgentData?: { brands?: NavigatorUABrand[] } }).userAgentData
-    ?.brands
+  const brands = (navigator as Navigator & { userAgentData?: { brands?: NavigatorUABrand[] } }).userAgentData?.brands
   if (!Array.isArray(brands) || brands.length === 0) {
     return undefined
   }
