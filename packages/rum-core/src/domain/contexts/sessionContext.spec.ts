@@ -7,6 +7,7 @@ import type { DefaultRumEventAttributes, Hooks } from '../hooks'
 import { createHooks } from '../hooks'
 import { startSessionContext } from './sessionContext'
 import type { ViewHistory } from './viewHistory'
+import { readUABrands } from '../../browser/browserFacts'
 
 describe('session context', () => {
   let hooks: Hooks
@@ -165,6 +166,15 @@ describe('session context', () => {
 
     expect(automatedEvent.session!.is_automated).toBeTrue()
     expect(visitorEvent.session!.is_automated).toBeUndefined()
+  })
+
+  it('should set session.ua_brands to the brand list the page reads', () => {
+    const event = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'action',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(event.session!.ua_brands).toBe(readUABrands())
   })
 
   it('should set session.is_active when the session is active', () => {

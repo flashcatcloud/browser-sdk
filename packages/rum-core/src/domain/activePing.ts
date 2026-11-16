@@ -24,6 +24,7 @@ import type { RumConfiguration, RumInitConfiguration } from './configuration'
 import type { LifeCycle } from './lifeCycle'
 import { LifeCycleEventType } from './lifeCycle'
 import type { RumSessionManager } from './rumSessionManager'
+import { readScreen, readUABrands } from '../browser/browserFacts'
 
 // replaced at build time
 declare const __BUILD_ENV__SDK_VERSION__: string
@@ -54,6 +55,8 @@ declare const __BUILD_ENV__SDK_VERSION__: string
  * parse one itself)
  * - `is_automated`: `true` when the browser is driven by automation (`navigator.webdriver`), absent
  * otherwise; such a device is reported and marked, like its events, rather than left out
+ * - `ua_brands` and `display.screen`: what the page reads of the browser beyond its user agent (see
+ * `browserFacts`), as its events carry them; absent where the browser has none
  * - `age_ms`: how long ago the reported activity first tried to leave this client. The hour a
  * report belongs to is the server's call (receipt time minus this), never the device clock's.
  *
@@ -114,6 +117,8 @@ interface ActiveBeaconBody {
   os: { name: string; version: string }
   device: { type: string; model: string; brand: string }
   is_automated?: true
+  ua_brands?: string
+  display?: { screen: { width: number; height: number } }
 }
 
 interface PendingReport {
@@ -258,6 +263,8 @@ export function startActivePing(
       return
     }
     const facts = userAgentFacts()
+    const uaBrands = readUABrands()
+    const screen = readScreen()
     const report: ActiveBeaconBody = {
       service: configuration.service,
       env: setup.env,
@@ -271,6 +278,8 @@ export function startActivePing(
       os: facts.os,
       device: facts.device,
       ...(navigator.webdriver === true ? { is_automated: true as const } : {}),
+      ...(uaBrands ? { ua_brands: uaBrands } : {}),
+      ...(screen ? { display: { screen } } : {}),
     }
     // Kept before it is sent, not after: a page closed a second later has already lost its
     // request, and the next page to start is what delivers this one.
