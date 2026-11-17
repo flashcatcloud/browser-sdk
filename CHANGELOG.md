@@ -18,6 +18,20 @@
 
 ---
 
+## v0.6.3
+
+**Public Changes:**
+
+- ✨ [RUM] report `session.ua_brands`: `navigator.userAgentData.brands` in the `Sec-CH-UA` header format (`"Brand";v="version", ...`), read once per page in Chromium browsers and left out where the API does not exist. Also sent with the active ping as `ua_brands`.
+- ✨ [RUM] report the device screen as `display.screen.width` / `display.screen.height` (`screen.width` / `screen.height` in CSS pixels) on events and on the active ping, next to `display.viewport`.
+
+**Internal Changes:**
+
+- Merge pull request #61 from flashcatcloud/feat/report-ua-brands-screen
+- style: format with prettier [FLAGGING] [LOGS] [RUM] [RUM-REACT] [RUM-SLIM] [WORKER]
+- fix(rum): keep the brand and screen specs runnable outside Chromium [FLAGGING] [LOGS] [RUM] [RUM-REACT] [RUM-SLIM] [WORKER]
+- feat(rum): send the brand list and the screen the page reads [RUM] [RUM-REACT] [RUM-SLIM]
+
 ## v0.6.2
 
 **Internal Changes:**
