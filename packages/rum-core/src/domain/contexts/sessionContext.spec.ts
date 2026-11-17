@@ -5,6 +5,7 @@ import { createRumSessionManagerMock, noopRecorderApi } from '../../../test'
 import { SessionType } from '../rumSessionManager'
 import type { DefaultRumEventAttributes, Hooks } from '../hooks'
 import { createHooks } from '../hooks'
+import { readUABrands } from '../../browser/browserFacts'
 import { startSessionContext } from './sessionContext'
 import type { ViewHistory } from './viewHistory'
 
@@ -165,6 +166,15 @@ describe('session context', () => {
 
     expect(automatedEvent.session!.is_automated).toBeTrue()
     expect(visitorEvent.session!.is_automated).toBeUndefined()
+  })
+
+  it('should set session.ua_brands to the brand list the page reads', () => {
+    const event = hooks.triggerHook(HookNames.Assemble, {
+      eventType: 'action',
+      startTime: 0 as RelativeTime,
+    }) as DefaultRumEventAttributes
+
+    expect(event.session!.ua_brands).toBe(readUABrands())
   })
 
   it('should set session.is_active when the session is active', () => {

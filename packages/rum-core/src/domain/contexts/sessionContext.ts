@@ -4,6 +4,7 @@ import type { DrawnConfiguration, RumSessionManager } from '../rumSessionManager
 import { RumEventType } from '../../rawRumEvent.types'
 import type { RecorderApi } from '../../boot/rumPublicApi'
 import type { DefaultRumEventAttributes, Hooks } from '../hooks'
+import { readUABrands } from '../../browser/browserFacts'
 import type { ViewHistory } from './viewHistory'
 
 /**
@@ -34,6 +35,8 @@ export function startSessionContext(
   recorderApi: RecorderApi,
   viewHistory: ViewHistory
 ) {
+  // The brand list does not change while the page lives; read once.
+  const uaBrands = readUABrands()
   hooks.register(HookNames.Assemble, ({ eventType, startTime }): DefaultRumEventAttributes | DISCARDED => {
     const session = sessionManager.findTrackedSession(startTime)
     const view = viewHistory.findView(startTime)
@@ -87,6 +90,7 @@ export function startSessionContext(
       sampled_for_error: boolean | undefined
       sampled_for_error_replay: boolean | undefined
       is_automated: true | undefined
+      ua_brands: string | undefined
     } = {
       sampled_for_replay: sampledForReplay,
       sampled_for_error: sampledForError,
@@ -95,6 +99,7 @@ export function startSessionContext(
       // user agent, so only the page can tell. Its events are collected like any other and marked,
       // leaving the backend to decide what to count.
       is_automated: navigator.webdriver === true || undefined,
+      ua_brands: uaBrands,
     }
 
     // A session kept only because it errored reports a session rate of 0 over whatever it was drawn

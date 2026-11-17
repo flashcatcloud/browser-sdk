@@ -19,6 +19,7 @@ import {
   setPageVisibility,
 } from '@flashcatcloud/browser-core/test'
 import { createRumSessionManagerMock, mockRumConfiguration } from '../../test'
+import { readScreen, readUABrands } from '../browser/browserFacts'
 import { buildActivePingSetup, startActivePing } from './activePing'
 import type { RumConfiguration, RumInitConfiguration } from './configuration'
 import { buildUserContextManager } from './contexts/userContext'
@@ -263,6 +264,14 @@ describe('activePing', () => {
       start()
 
       expect(payloadOf(requests[0]).is_automated).toBeUndefined()
+    })
+
+    it('carries the brand list and the screen the page reads', () => {
+      start()
+
+      const payload = payloadOf(requests[0])
+      expect(payload.ua_brands).toBe(readUABrands())
+      expect(payload.display).toEqual({ screen: readScreen() })
     })
 
     it('reports only the user when anonymous tracking is off', () => {

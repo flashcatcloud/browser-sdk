@@ -37,6 +37,7 @@ describe('displayContext', () => {
             width: jasmine.any(Number),
             height: jasmine.any(Number),
           },
+          screen: { width: window.screen.width, height: window.screen.height },
         },
       })
     })
