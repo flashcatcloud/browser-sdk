@@ -1,16 +1,52 @@
-import type { Payload } from '@flashcatcloud/browser-core'
+import type { Duration, Payload, RelativeTime } from '@flashcatcloud/browser-core'
 import { RequestType } from '@flashcatcloud/browser-core'
 import type { MockFetch, MockFetchManager } from '@flashcatcloud/browser-core/test'
 import { registerCleanupTask, SPEC_ENDPOINTS, mockFetch, mockXhr, withXhr } from '@flashcatcloud/browser-core/test'
-import { mockRumConfiguration } from '../../test'
+import { createPerformanceEntry, mockGlobalPerformanceBuffer, mockRumConfiguration } from '../../test'
+import { RumPerformanceEntryType } from '../browser/performanceObservable'
 import { LifeCycle, LifeCycleEventType } from './lifeCycle'
 import type { RequestCompleteEvent, RequestStartEvent } from './requestCollection'
 import { trackFetch, trackXhr } from './requestCollection'
 import type { Tracer } from './tracing/tracer'
 import { clearTracingIfNeeded } from './tracing/tracer'
 import { createSpanIdentifier, createTraceIdentifier } from './tracing/identifier'
+import { matchRequestResourceEntry } from './resource/matchRequestResourceEntry'
 
 const DEFAULT_PAYLOAD = {} as Payload
+const CLOCK_DRIFT = 3
+
+/**
+ * Makes the monotonic clock (`performance.now()`) run ahead of the system clock (`Date`), as it
+ * does when the system clock is slewed or adjusted while a request is in flight.
+ */
+function mockMonotonicClockDrift() {
+  const originalNow = performance.now.bind(performance)
+  let offset = 0
+  spyOn(performance, 'now').and.callFake(() => originalNow() + offset)
+  return {
+    drift: () => {
+      offset += CLOCK_DRIFT
+    },
+  }
+}
+
+function createResourceEntry(name: string, startTime: RelativeTime, responseEnd: RelativeTime) {
+  return createPerformanceEntry(RumPerformanceEntryType.RESOURCE, {
+    name,
+    startTime,
+    duration: (responseEnd - startTime) as Duration,
+    fetchStart: startTime,
+    domainLookupStart: startTime,
+    domainLookupEnd: startTime,
+    connectStart: startTime,
+    connectEnd: startTime,
+    requestStart: startTime,
+    responseStart: startTime,
+    responseEnd,
+    redirectStart: 0 as RelativeTime,
+    redirectEnd: 0 as RelativeTime,
+  })
+}
 
 describe('collect fetch', () => {
   const FAKE_URL = 'http://fake-url/'
@@ -134,6 +170,24 @@ describe('collect fetch', () => {
     mockFetchManager.whenAllComplete(() => {
       expect(startSpy).not.toHaveBeenCalled()
       expect(completeSpy).not.toHaveBeenCalled()
+      done()
+    })
+  })
+
+  it('should keep the resource timing matchable when the system clock drifts during the request', (done) => {
+    const clockDrift = mockMonotonicClockDrift()
+    const performanceBuffer = mockGlobalPerformanceBuffer()
+
+    const pendingFetch = fetch(FAKE_URL)
+    clockDrift.drift()
+    const responseEnd = performance.now() as RelativeTime
+    pendingFetch.resolveWith({ status: 200, responseText: 'ok' })
+
+    mockFetchManager.whenAllComplete(() => {
+      const request = completeSpy.calls.argsFor(0)[0]
+      performanceBuffer.addPerformanceEntry(createResourceEntry(FAKE_URL, request.startClocks.relative, responseEnd))
+
+      expect(matchRequestResourceEntry(request)).toBeDefined()
       done()
     })
   })
@@ -282,6 +336,31 @@ describe('collect xhr', () => {
         const request = completeSpy.calls.argsFor(0)[0]
         expect(request.status).toEqual(0)
         expect(request.traceId).toEqual(undefined)
+        done()
+      },
+    })
+  })
+
+  it('should keep the resource timing matchable when the system clock drifts during the request', (done) => {
+    const clockDrift = mockMonotonicClockDrift()
+    const performanceBuffer = mockGlobalPerformanceBuffer()
+    let responseEnd: RelativeTime
+
+    withXhr({
+      setup(xhr) {
+        xhr.open('GET', '/ok')
+        xhr.send()
+        clockDrift.drift()
+        responseEnd = performance.now() as RelativeTime
+        xhr.complete(200, 'ok')
+      },
+      onComplete() {
+        const request = completeSpy.calls.argsFor(0)[0]
+        performanceBuffer.addPerformanceEntry(
+          createResourceEntry(request.url, request.startClocks.relative, responseEnd)
+        )
+
+        expect(matchRequestResourceEntry(request)).toBeDefined()
         done()
       },
     })

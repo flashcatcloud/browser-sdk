@@ -13,7 +13,7 @@ import {
   initXhrObservable,
   readBytesFromStream,
   elapsed,
-  timeStampNow,
+  relativeNow,
   tryToClone,
 } from '@flashcatcloud/browser-core'
 import type { RumSessionManager } from '..'
@@ -171,12 +171,12 @@ function waitForResponseToComplete(context: RumFetchResolveContext, callback: (d
   const clonedResponse = context.response && tryToClone(context.response)
   if (!clonedResponse || !clonedResponse.body) {
     // do not try to wait for the response if the clone failed, fetch error or null body
-    callback(elapsed(context.startClocks.timeStamp, timeStampNow()))
+    callback(elapsed(context.startClocks.relative, relativeNow()))
   } else {
     readBytesFromStream(
       clonedResponse.body,
       () => {
-        callback(elapsed(context.startClocks.timeStamp, timeStampNow()))
+        callback(elapsed(context.startClocks.relative, relativeNow()))
       },
       {
         bytesLimit: Number.POSITIVE_INFINITY,
