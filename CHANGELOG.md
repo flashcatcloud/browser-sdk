@@ -18,6 +18,16 @@
 
 ---
 
+## v0.6.4
+
+**Public Changes:**
+
+- 🐛 [RUM] measure XHR and fetch durations with the monotonic clock (`performance.now()`), so long requests keep their resource timing (timing breakdown, `size`, `protocol`) when the system clock drifts against it during the request.
+
+**Internal Changes:**
+
+- Merge pull request #62 from flashcatcloud/fix/request-monotonic-duration
+
 ## v0.6.3
 
 **Public Changes:**
