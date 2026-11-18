@@ -2,7 +2,7 @@ import type { InstrumentedMethodCall } from '../tools/instrumentMethod'
 import { instrumentMethod } from '../tools/instrumentMethod'
 import { Observable } from '../tools/observable'
 import type { Duration, ClocksState } from '../tools/utils/timeUtils'
-import { elapsed, clocksNow, timeStampNow } from '../tools/utils/timeUtils'
+import { elapsed, clocksNow, relativeNow } from '../tools/utils/timeUtils'
 import { normalizeUrl } from '../tools/utils/urlPolyfill'
 import { shallowClone } from '../tools/utils/objectUtils'
 import type { Configuration } from '../domain/configuration'
@@ -110,7 +110,7 @@ function sendXhr(
 
     const completeContext = context as XhrCompleteContext
     completeContext.state = 'complete'
-    completeContext.duration = elapsed(startContext.startClocks.timeStamp, timeStampNow())
+    completeContext.duration = elapsed(startContext.startClocks.relative, relativeNow())
     completeContext.status = xhr.status
     observable.notify(shallowClone(completeContext))
   }
