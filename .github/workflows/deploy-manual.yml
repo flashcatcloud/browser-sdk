@@ -42,6 +42,11 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      - name: Extract public release notes
+        run: |
+          VERSION=$(node -p "require('./lerna.json').version")
+          bash .github/scripts/extract-release-notes.sh --changelog CHANGELOG.md --version "$VERSION" --level 2 --output release-notes.md --public-only
+
       - name: Check release metadata
         run: node scripts/release/check-release.js
 
@@ -128,6 +133,30 @@ jobs:
         run: node ./scripts/deploy/publish-npm.js
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  github-release:
+    needs: publish-npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./lerna.json').version")
+          TAG="v${VERSION}"
+          bash .github/scripts/extract-release-notes.sh --changelog CHANGELOG.md --version "$VERSION" --level 2 --output release-notes.md --public-only
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file release-notes.md
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file release-notes.md --verify-tag
+          fi
 
   notify-success:
     needs: publish-npm
