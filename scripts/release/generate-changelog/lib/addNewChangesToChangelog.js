@@ -59,7 +59,6 @@ function getChangeLists() {
   const commits = command`git log ${[`${lastTagName}..HEAD`, '--pretty=format:%H %s']}`.run().split('\n')
 
   const internalChanges = []
-  const publicChanges = []
 
   commits.forEach((commit) => {
     const spaceIndex = commit.indexOf(' ')
@@ -70,20 +69,13 @@ function getChangeLists() {
     }
 
     const change = formatChange(hash, message)
-    const emoji = findFirstEmoji(change)
-    if (PUBLIC_EMOJI_PRIORITY.includes(emoji)) {
-      publicChanges.push(change)
-    } else {
-      internalChanges.push(change)
-    }
+    internalChanges.push(change)
   })
 
-  return [
-    formatChangeList('Public Changes', publicChanges, PUBLIC_EMOJI_PRIORITY),
-    formatChangeList('Internal Changes', internalChanges, INTERNAL_EMOJI_PRIORITY),
-  ]
-    .filter(Boolean)
-    .join('\n\n')
+  const priority = [...PUBLIC_EMOJI_PRIORITY, ...INTERNAL_EMOJI_PRIORITY]
+  return `**Public Changes:**\n\n**Internal Changes:**\n\n${internalChanges
+    .sort((a, b) => sortByEmojiPriority(a, b, priority))
+    .join('\n')}`
 }
 
 function getLastReleaseTagName() {
@@ -101,15 +93,6 @@ function sortByEmojiPriority(a, b, priorityList) {
     return emoji && priorityList.includes(emoji) ? priorityList.indexOf(emoji) : Number.MAX_VALUE
   }
   return getFirstRelevantEmojiIndex(a) - getFirstRelevantEmojiIndex(b)
-}
-
-function formatChangeList(title, changes, priority) {
-  if (!changes.length) {
-    return ''
-  }
-
-  const formatedList = changes.sort((a, b) => sortByEmojiPriority(a, b, priority)).join('\n')
-  return `**${title}:**\n\n${formatedList}`
 }
 
 function formatChange(hash, message) {
