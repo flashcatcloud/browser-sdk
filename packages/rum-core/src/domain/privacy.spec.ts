@@ -376,6 +376,49 @@ describe('shouldMaskNode', () => {
     })
   })
 
+  describe('for contenteditable elements', () => {
+    it('masks direct text and nested elements under MASK_USER_INPUT', () => {
+      const editor = document.createElement('div')
+      editor.setAttribute('contenteditable', 'true')
+      const paragraph = document.createElement('p')
+      const text = document.createTextNode('secret note')
+      paragraph.appendChild(text)
+      editor.appendChild(paragraph)
+
+      expect(shouldMaskNode(editor, NodePrivacyLevel.MASK_USER_INPUT)).toBeTrue()
+      expect(shouldMaskNode(paragraph, NodePrivacyLevel.MASK_USER_INPUT)).toBeTrue()
+      expect(shouldMaskNode(text, NodePrivacyLevel.MASK_USER_INPUT)).toBeTrue()
+      expect(shouldMaskNode(text, NodePrivacyLevel.ALLOW)).toBeFalse()
+    })
+
+    it('masks empty-attribute and plaintext-only contenteditable elements under MASK_USER_INPUT', () => {
+      const emptyAttr = document.createElement('div')
+      emptyAttr.setAttribute('contenteditable', '')
+      const emptyText = document.createTextNode('draft')
+      emptyAttr.appendChild(emptyText)
+      expect(shouldMaskNode(emptyText, NodePrivacyLevel.MASK_USER_INPUT)).toBeTrue()
+
+      const plainText = document.createElement('div')
+      plainText.setAttribute('contenteditable', 'plaintext-only')
+      const plainNode = document.createTextNode('plain')
+      plainText.appendChild(plainNode)
+      expect(shouldMaskNode(plainNode, NodePrivacyLevel.MASK_USER_INPUT)).toBeTrue()
+    })
+
+    it('does not mask descendants explicitly marked contenteditable="false"', () => {
+      const editor = document.createElement('div')
+      editor.setAttribute('contenteditable', 'true')
+      const readOnly = document.createElement('span')
+      readOnly.setAttribute('contenteditable', 'false')
+      const label = document.createTextNode('static label')
+      readOnly.appendChild(label)
+      editor.appendChild(readOnly)
+
+      expect(shouldMaskNode(readOnly, NodePrivacyLevel.MASK_USER_INPUT)).toBeFalse()
+      expect(shouldMaskNode(label, NodePrivacyLevel.MASK_USER_INPUT)).toBeFalse()
+    })
+  })
+
   describe('for other elements', () => {
     it('returns false if the privacy level is ALLOW or MASK_USER_INPUT', () => {
       const element = document.createElement('div')

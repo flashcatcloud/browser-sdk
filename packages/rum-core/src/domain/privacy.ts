@@ -147,8 +147,8 @@ export function getNodeSelfPrivacyLevel(node: Node): NodePrivacyLevel | undefine
  *
  * In the `mask` case, it is trivial: we should mask the element.
  *
- * In the `mask-user-input` case, we should mask the element only if it is a "form" element or the
- * direct parent is a form element for text nodes).
+ * In the `mask-user-input` case, we should mask the element if it is a form element or
+ * contenteditable element (or for text nodes, if its parent is one).
  *
  * Other `shouldMaskNode` cases are edge cases that should not matter too much (ex: should we mask a
  * node if it is ignored or hidden? it doesn't matter since it won't be serialized).
@@ -159,8 +159,10 @@ export function shouldMaskNode(node: Node, privacyLevel: NodePrivacyLevel) {
     case NodePrivacyLevel.HIDDEN:
     case NodePrivacyLevel.IGNORE:
       return true
-    case NodePrivacyLevel.MASK_USER_INPUT:
-      return isTextNode(node) ? isFormElement(node.parentNode) : isFormElement(node)
+    case NodePrivacyLevel.MASK_USER_INPUT: {
+      const target = isTextNode(node) ? node.parentNode : node
+      return isFormElement(target) || isContentEditableElement(target)
+    }
     default:
       return false
   }
@@ -181,6 +183,29 @@ function isFormElement(node: Node | null): boolean {
     }
   }
   return !!FORM_PRIVATE_TAG_NAMES[element.tagName]
+}
+
+function isContentEditableElement(node: Node | null): boolean {
+  let current: Node | null = node
+  while (current) {
+    if (isElementNode(current)) {
+      if ((current as HTMLElement).isContentEditable) {
+        return true
+      }
+      const attr = current.getAttribute('contenteditable')
+      if (attr !== null) {
+        const normalized = attr.toLowerCase()
+        if (normalized === 'false') {
+          return false
+        }
+        if (normalized === '' || normalized === 'true' || normalized === 'plaintext-only') {
+          return true
+        }
+      }
+    }
+    current = getParentNode(current)
+  }
+  return false
 }
 
 /**

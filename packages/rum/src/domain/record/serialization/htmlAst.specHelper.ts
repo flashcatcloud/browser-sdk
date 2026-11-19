@@ -708,7 +708,7 @@ export const AST_MASK_USER_INPUT = {
               childNodes: [
                 {
                   type: 3,
-                  textContent: 'editable private div',
+                  textContent: 'xxxxxxxx xxxxxxx xxx',
                 },
               ],
             },
