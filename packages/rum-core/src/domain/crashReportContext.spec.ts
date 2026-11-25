@@ -46,16 +46,20 @@ describe('startCrashReportContext', () => {
     })
   }
 
+  let stopContext: () => void
+
   function start() {
-    const { stop } = startCrashReportContext(lifeCycle)
-    registerCleanupTask(stop)
+    stopContext = startCrashReportContext(lifeCycle).stop
+    registerCleanupTask(stopContext)
   }
 
-  function collectView(overrides: { usr?: { id?: string; anonymous_id?: string }; viewId?: string } = {}) {
+  function collectView(
+    overrides: { usr?: { id?: string; anonymous_id?: string }; viewId?: string; isActive?: boolean } = {}
+  ) {
     lifeCycle.notify(LifeCycleEventType.RUM_EVENT_COLLECTED, {
       type: 'view',
       session: { id: 'session-id' },
-      view: { id: overrides.viewId ?? 'view-id', name: 'checkout' },
+      view: { id: overrides.viewId ?? 'view-id', name: 'checkout', is_active: overrides.isActive ?? true },
       version: '1.2.3',
       service: 'shop',
       usr: 'usr' in overrides ? overrides.usr : { id: 'user-id', anonymous_id: 'device-id' },
@@ -135,6 +139,37 @@ describe('startCrashReportContext', () => {
         session: { id: 'other-session' },
         view: { id: 'other-view' },
       } as unknown as RumEvent & Context)
+
+      expect(stored).toEqual({})
+    })
+
+    it('keeps the active view when an ended view sends its last update', async () => {
+      resolveInitialize()
+      await flushPromises()
+
+      collectView({ viewId: 'next-view' })
+      collectView({ viewId: 'previous-view', isActive: false })
+
+      expect(stored.view_id).toBe('next-view')
+    })
+
+    it('clears the keys when the session expires, and the ended view does not bring them back', async () => {
+      resolveInitialize()
+      await flushPromises()
+      collectView()
+
+      lifeCycle.notify(LifeCycleEventType.SESSION_EXPIRED)
+      collectView({ isActive: false })
+
+      expect(stored).toEqual({})
+    })
+
+    it('clears the keys when stopped', async () => {
+      resolveInitialize()
+      await flushPromises()
+      collectView()
+
+      stopContext()
 
       expect(stored).toEqual({})
     })

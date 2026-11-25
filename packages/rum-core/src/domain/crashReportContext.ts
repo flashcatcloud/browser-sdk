@@ -10,14 +10,7 @@ import { LifeCycleEventType } from './lifeCycle'
  */
 export const CRASH_REPORT_BUFFER_BYTES = 2048
 
-export type CrashReportKey =
-  | 'session_id'
-  | 'view_id'
-  | 'view_name'
-  | 'version'
-  | 'service'
-  | 'usr_id'
-  | 'usr_anonymous_id'
+type CrashReportValues = { [key: string]: string | undefined }
 
 interface CrashReportContext {
   initialize(length: number): Promise<void>
@@ -41,22 +34,23 @@ export function startCrashReportContext(lifeCycle: LifeCycle) {
     return { stop: noop }
   }
 
-  const written: Partial<Record<CrashReportKey, string>> = {}
-  let latest: Partial<Record<CrashReportKey, string>> | undefined
+  const context: CrashReportContext = crashReport
+  const written: CrashReportValues = {}
+  let latest: CrashReportValues = {}
   let ready = false
 
-  function write(values: Partial<Record<CrashReportKey, string>>) {
-    for (const key of Object.keys({ ...written, ...values }) as CrashReportKey[]) {
+  function write(values: CrashReportValues) {
+    for (const key of Object.keys({ ...written, ...values })) {
       const value = values[key]
       if (value === written[key]) {
         continue
       }
       try {
         if (value === undefined) {
-          crashReport!.delete(key)
+          context.delete(key)
           delete written[key]
         } else {
-          crashReport!.set(key, value)
+          context.set(key, value)
           written[key] = value
         }
       } catch {
@@ -65,34 +59,46 @@ export function startCrashReportContext(lifeCycle: LifeCycle) {
     }
   }
 
+  function update(values: CrashReportValues) {
+    latest = values
+    if (ready) {
+      write(latest)
+    }
+  }
+
   // `set` throws until `initialize` has resolved. A page that initialized it itself makes ours
   // reject, yet the context is initialized and accepts our keys, so both outcomes proceed.
   const onInitialized = () => {
     ready = true
-    if (latest) {
-      write(latest)
-    }
+    write(latest)
   }
   try {
-    crashReport.initialize(CRASH_REPORT_BUFFER_BYTES).then(onInitialized, onInitialized)
+    context.initialize(CRASH_REPORT_BUFFER_BYTES).then(onInitialized, onInitialized)
   } catch {
     return { stop: noop }
   }
 
-  const subscription = lifeCycle.subscribe(LifeCycleEventType.RUM_EVENT_COLLECTED, (event) => {
-    if (event.type !== RumEventType.VIEW) {
-      return
-    }
-    latest = crashReportValues(event as RumViewEvent)
-    if (ready) {
-      write(latest)
+  // Only the active view describes where a crash would happen. An ended view's last update comes
+  // after its successor started, or after the session expired, and would bring back stale keys.
+  const viewSubscription = lifeCycle.subscribe(LifeCycleEventType.RUM_EVENT_COLLECTED, (event) => {
+    if (event.type === RumEventType.VIEW && (event as RumViewEvent).view.is_active !== false) {
+      update(crashReportValues(event as RumViewEvent))
     }
   })
+  // Without a session there is nothing a crash could be attached to; keys left from the ended
+  // session would put a later crash on it.
+  const expiredSubscription = lifeCycle.subscribe(LifeCycleEventType.SESSION_EXPIRED, () => update({}))
 
-  return { stop: () => subscription.unsubscribe() }
+  return {
+    stop: () => {
+      viewSubscription.unsubscribe()
+      expiredSubscription.unsubscribe()
+      update({})
+    },
+  }
 }
 
-function crashReportValues(event: RumViewEvent) {
+function crashReportValues(event: RumViewEvent): CrashReportValues {
   return {
     session_id: event.session.id,
     view_id: event.view.id,
@@ -101,5 +107,5 @@ function crashReportValues(event: RumViewEvent) {
     service: event.service,
     usr_id: event.usr?.id,
     usr_anonymous_id: event.usr?.anonymous_id,
-  } satisfies Record<CrashReportKey, string | undefined>
+  }
 }
