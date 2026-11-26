@@ -24,6 +24,7 @@ import { createWindowOpenObservable } from '../browser/windowOpenObservable'
 import { startInternalContext } from '../domain/contexts/internalContext'
 import { LifeCycle, LifeCycleEventType } from '../domain/lifeCycle'
 import { startViewHistory } from '../domain/contexts/viewHistory'
+import { startCrashReportContext } from '../domain/crashReportContext'
 import { startRequestCollection } from '../domain/requestCollection'
 import { startActionCollection } from '../domain/action/actionCollection'
 import { startErrorCollection } from '../domain/error/errorCollection'
@@ -185,6 +186,7 @@ export function startRum(
   startConnectivityContext(hooks)
   const globalContext = startGlobalContext(hooks, configuration)
   const userContext = startUserContext(hooks, configuration, session)
+  cleanupTasks.push(startCrashReportContext(lifeCycle, userContext).stop)
 
   // FLASHCAT FORK - the daily active report. Started here because it reads the user context the
   // line above creates; it no-ops on its own when switched off or under an event bridge, where
