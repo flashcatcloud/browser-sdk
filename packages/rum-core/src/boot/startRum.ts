@@ -179,7 +179,6 @@ export function startRum(
   const pageStateHistory = startPageStateHistory(hooks, configuration)
   const viewHistory = startViewHistory(lifeCycle)
   cleanupTasks.push(() => viewHistory.stop())
-  cleanupTasks.push(startCrashReportContext(lifeCycle).stop)
   const urlContexts = startUrlContexts(lifeCycle, hooks, locationChangeObservable, location)
   cleanupTasks.push(() => urlContexts.stop())
   const featureFlagContexts = startFeatureFlagContexts(lifeCycle, hooks, configuration)
@@ -187,6 +186,7 @@ export function startRum(
   startConnectivityContext(hooks)
   const globalContext = startGlobalContext(hooks, configuration)
   const userContext = startUserContext(hooks, configuration, session)
+  cleanupTasks.push(startCrashReportContext(lifeCycle, userContext).stop)
 
   // FLASHCAT FORK - the daily active report. Started here because it reads the user context the
   // line above creates; it no-ops on its own when switched off or under an event bridge, where
