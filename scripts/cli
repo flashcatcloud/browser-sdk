@@ -64,23 +64,39 @@ cmd_build_json2type () {
 cmd_release () {
   [[ `git branch --show-current` != "main" ]] || fail 'please do not release from `main` branch'
 
-  # `lerna version` starts with `git remote update`, which fetches every remote and recurses into
-  # their submodules. Branches on the upstream fork reference `rum-events-format` commits its own
-  # remote does not serve, so that fetch fails and takes the release down before anything is
-  # tagged. Nothing here reads upstream, so keep it out of the update. Idempotent, and a no-op for
-  # anyone without that remote.
-  if git remote get-url upstream > /dev/null 2>&1; then
-    git config remote.upstream.skipDefaultUpdate true
-  fi
+  # `lerna version` runs `git remote update`, which fetches every remote and recurses into their
+  # submodules, even though lerna only compares against `origin`. Scoped GIT_CONFIG_* overrides
+  # keep non-origin remotes and submodule fetches out of that update without modifying local
+  # `.git/config` or assuming any specific remote name.
+  local -a git_env=()
+  local count="${GIT_CONFIG_COUNT:-0}"
+  git_env+=("GIT_CONFIG_KEY_${count}=fetch.recurseSubmodules")
+  git_env+=("GIT_CONFIG_VALUE_${count}=false")
+  count=$((count + 1))
+
+  local remote
+  while IFS= read -r remote; do
+    if [[ -n "$remote" && "$remote" != "origin" ]]; then
+      git_env+=("GIT_CONFIG_KEY_${count}=remote.${remote}.skipDefaultUpdate")
+      git_env+=("GIT_CONFIG_VALUE_${count}=true")
+      count=$((count + 1))
+    fi
+  done < <(git remote)
+
+  git_env+=("GIT_CONFIG_COUNT=${count}")
+
   # We should publish all packages regardless of if there are changes in each.
   # --force-publish will skip the `lerna changed` check for changed packages
   # https://github.com/lerna/lerna/tree/main/libs/commands/version#--force-publish
-  yarn lerna version --exact --force-publish
+  env "${git_env[@]}" yarn lerna version --exact --force-publish "$@"
 }
 
 cmd_version () {
   node ./scripts/release/generate-changelog
   node ./scripts/release/update-peer-dependency-versions.js
+  # Lerna writes `lerna.json` without a trailing newline, which would fail `yarn format` in CI.
+  yarn run prettier --write lerna.json
+  git add lerna.json
   lerna run pack --stream
   # keep test apps lockfiles up to date
   for app_dir in test/apps/*; do

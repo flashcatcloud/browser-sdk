@@ -5,11 +5,9 @@ on:
     tags:
       - 'v*' # 当推送带有 v 前缀的标签时触发
 
-# Unlike deploy-manual.yml, no job here asks for `fetch-tags`. This workflow is triggered *by* the
-# tag, so the tag is the ref being checked out and is already there — `check-release.js` finds it.
-# Asking for it on top makes checkout fetch the commit and the tag into the same `refs/tags/*`,
-# which git refuses: "Cannot fetch both <sha> and refs/tags/vX to refs/tags/vX". That failure took
-# down every tag-triggered release from v0.0.5 onwards.
+# No job here asks for `fetch-tags`. This workflow is triggered *by* the tag, so the tag is the ref
+# being checked out and is already present for `check-release.js`. Asking for `fetch-tags` makes
+# checkout fetch both the commit and the tag into the same `refs/tags/*`, which git refuses.
 
 env:
   NODE_VERSION: '23.11.1'
@@ -128,14 +126,22 @@ jobs:
     runs-on: ubuntu-latest
     if: success()
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Prepare notification
+      - name: Build notification payload
+        id: payload
+        env:
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          COMMIT_URL: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          COMMIT_MESSAGE=$(git show-branch --no-name HEAD)
-          echo "COMMIT_MESSAGE=$COMMIT_MESSAGE" >> $GITHUB_ENV
-          echo "COMMIT_URL=https://github.com/${{ github.repository }}/commit/${{ github.sha }}" >> $GITHUB_ENV
+          SUBJECT="${HEAD_COMMIT_MESSAGE%%$'\n'*}"
+          BODY=$(jq -nc \
+            --arg ref "${GITHUB_REF}" \
+            --arg subject "${SUBJECT}" \
+            --arg commit_url "${COMMIT_URL}" \
+            --arg actor "${GITHUB_ACTOR}" \
+            --arg run_url "${RUN_URL}" \
+            '{msgtype: "markdown", markdown: {title: "RUM sdk 部署通知", text: ("### ✅ RUM sdk 部署成功\n\n---\n\n 🔖 分支: " + $ref + "\n\n 📝 提交信息: [" + $subject + "](" + $commit_url + ")\n\n 👨‍💻 提交者: " + $actor + "\n\n 🚀 [查看部署详情](" + $run_url + ")")}}')
+          echo "body=${BODY}" >> "$GITHUB_OUTPUT"
 
       - name: Notify deployment success
         uses: zcong1993/actions-ding@master
@@ -143,14 +149,7 @@ jobs:
           ignoreError: 'true'
           dingToken: ${{ secrets.DING_TALK_TOKEN }}
           secret: ${{ secrets.DING_TALK_SECRET }}
-          body: |
-            {
-              "msgtype": "markdown",
-               "markdown": {
-                "title": "RUM sdk 部署通知",
-                "text": "### ✅ RUM sdk 部署成功\n\n---\n\n 🔖 分支: ${{ github.ref }}\n\n 📝 提交信息: [${{ github.event.head_commit.message }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})\n\n 👨‍💻 提交者: ${{ github.actor }}\n\n 🚀 [查看部署详情](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-              }
-            }
+          body: ${{ steps.payload.outputs.body }}
 
       - name: Notify secondary DingTalk group on success
         uses: zcong1993/actions-ding@master
@@ -158,28 +157,29 @@ jobs:
           ignoreError: 'true'
           dingToken: ${{ secrets.DING_TALK_TOKEN_2 }}
           secret: ${{ secrets.DING_TALK_SECRET_2 }}
-          body: |
-            {
-              "msgtype": "markdown",
-               "markdown": {
-                "title": "RUM sdk 部署通知",
-                "text": "### ✅ RUM sdk 部署成功\n\n---\n\n 🔖 分支: ${{ github.ref }}\n\n 📝 提交信息: [${{ github.event.head_commit.message }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})\n\n 👨‍💻 提交者: ${{ github.actor }}\n\n 🚀 [查看部署详情](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-              }
-            }
+          body: ${{ steps.payload.outputs.body }}
 
   notify-failure:
-    needs: publish-npm
+    needs: [preflight, deploy-prod, publish-npm]
     runs-on: ubuntu-latest
     if: failure()
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Prepare notification
+      - name: Build notification payload
+        id: payload
+        env:
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          COMMIT_URL: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          COMMIT_MESSAGE=$(git show-branch --no-name HEAD)
-          echo "COMMIT_MESSAGE=$COMMIT_MESSAGE" >> $GITHUB_ENV
-          echo "BUILD_URL=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_ENV
+          SUBJECT="${HEAD_COMMIT_MESSAGE%%$'\n'*}"
+          BODY=$(jq -nc \
+            --arg ref "${GITHUB_REF}" \
+            --arg subject "${SUBJECT}" \
+            --arg commit_url "${COMMIT_URL}" \
+            --arg actor "${GITHUB_ACTOR}" \
+            --arg run_url "${RUN_URL}" \
+            '{msgtype: "markdown", markdown: {title: "RUM sdk 部署通知", text: ("### ❌ RUM sdk 部署失败\n\n---\n\n 🔖 分支: " + $ref + "\n\n 📝 提交信息: [" + $subject + "](" + $commit_url + ")\n\n 👨‍💻 提交者: " + $actor + "\n\n 🚀 [查看部署详情](" + $run_url + ")")}}')
+          echo "body=${BODY}" >> "$GITHUB_OUTPUT"
 
       - name: Notify deployment failure
         uses: zcong1993/actions-ding@master
@@ -187,11 +187,4 @@ jobs:
           ignoreError: 'true'
           dingToken: ${{ secrets.DING_TALK_TOKEN }}
           secret: ${{ secrets.DING_TALK_SECRET }}
-          body: |
-            {
-              "msgtype": "markdown",
-              "markdown": {
-                "title": "RUM sdk 部署通知",
-                "text": "### ❌ RUM sdk 部署失败 \n\n---\n\n 🔖 分支: ${{ github.ref }}\n\n 📝 提交信息: [${{ github.event.head_commit.message }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})\n\n 👨‍💻 提交者: ${{ github.actor }}\n\n 🚀 [查看部署详情](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-              }
-            }
+          body: ${{ steps.payload.outputs.body }}

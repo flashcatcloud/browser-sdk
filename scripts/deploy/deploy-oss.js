@@ -1,7 +1,7 @@
 const OSS = require('ali-oss')
 const CDN = require('@alicloud/cdn20180510')
 const OpenApi = require('@alicloud/openapi-client')
-const { printLog, printError, runMain } = require('../lib/executionUtils')
+const { printLog, runMain } = require('../lib/executionUtils')
 const { forEachFile } = require('../lib/filesUtils')
 
 const { buildBundleFolder, packages } = require('./lib/deploymentUtils')
@@ -37,10 +37,6 @@ const client = new OSS({
 if (require.main === module) {
   const env = process.argv[2]
   const version = process.argv[3]
-  if (env === 'prod' && isPrereleaseVersion(version)) {
-    printError('❌❌❌❌检测到非正式版本，跳过CDN发布，当前版本为：', version)
-    process.exit(1)
-  }
   runMain(async () => {
     await main(env, version)
   })
@@ -57,6 +53,11 @@ async function main(env, version) {
   const awsConfig = AWS_CONFIG[env]
 
   await uploadPackages(awsConfig, version)
+
+  if (isPrereleaseVersion(version)) {
+    printLog(`${version} 是预发布版本，不更新 ${LATEST}`)
+    return
+  }
 
   // Redeploying an older release, or releasing a patch on an older line, must not move `latest` back.
   // The versions already published on OSS are the record of what was released, the current one included.
