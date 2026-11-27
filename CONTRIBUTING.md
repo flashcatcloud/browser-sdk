@@ -26,6 +26,11 @@ pull request:
 Our CI is not (yet) public, so it may be difficult to understand why your pull request status is
 failing. Make sure that all tests pass locally, and we'll try to sort it out in our CI.
 
+## Releases
+
+See [RELEASE.md](./RELEASE.md) for the release workflow, prerelease conventions, and post-release
+verification steps.
+
 ## Modules usage convention
 
 Use index.ts files to expose a single, minimal API in directories where modules are used together.

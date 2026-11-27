@@ -1,32 +1,24 @@
 name: Staging Deployment
 
 on:
-  workflow_dispatch:
-    inputs:
-      confirm_deploy:
-        description: 'Type "yes" to confirm deployment'
-        required: true
-        default: 'no'
+  push:
+    branches:
+      - staging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
 
 env:
   NODE_VERSION: '23.11.1'
   BUILD_MODE: release
 
 jobs:
-  validate-confirmation:
-    name: Validate manual confirmation
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require explicit confirmation
-        run: |
-          if [ "${{ github.event.inputs.confirm_deploy }}" != "yes" ]; then
-            echo 'Deployment blocked: confirm_deploy must be exactly "yes".'
-            exit 1
-          fi
-
   preflight:
     name: Staging preflight
-    needs: validate-confirmation
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
