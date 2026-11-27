@@ -42,17 +42,22 @@ if (require.main === module) {
   })
 }
 
-// A release is uploaded under its own version, which is never rewritten. The highest release is also
-// uploaded under `latest`, for pages that want to follow releases without changing their url.
+// A release is uploaded under its own version, which is never rewritten in prod. The highest
+// release is also uploaded under `latest`, for pages that want to follow releases without changing
+// their url.
 const LATEST = 'latest'
-// `latest` changes under the same url, so browsers may only keep it briefly; the CDN copy is
-// refreshed explicitly after each upload.
-const LATEST_CACHE_CONTROL = 'max-age=300'
+// `latest` and staging paths are overwritten under the same url, so browsers may only keep them
+// briefly; their CDN directories are refreshed explicitly after each upload.
+const MUTABLE_CACHE_CONTROL = 'max-age=300'
 
 async function main(env, version) {
   const awsConfig = AWS_CONFIG[env]
+  const versionOptions = env === 'staging' ? { headers: { 'Cache-Control': MUTABLE_CACHE_CONTROL } } : undefined
 
-  await uploadPackages(awsConfig, version)
+  await uploadPackages(awsConfig, version, versionOptions)
+  if (env === 'staging') {
+    await refreshCdnDirectory(`https://${awsConfig.cdnURL}${generateUploadPath(awsConfig, '', version)}`)
+  }
 
   if (isPrereleaseVersion(version)) {
     printLog(`${version} 是预发布版本，不更新 ${LATEST}`)
@@ -66,8 +71,8 @@ async function main(env, version) {
     printLog(`${version} 不是最高的正式版本，不更新 ${LATEST}`)
     return
   }
-  await uploadPackages(awsConfig, LATEST, { headers: { 'Cache-Control': LATEST_CACHE_CONTROL } })
-  // Versioned paths are new on every release, so only `latest` can be stale on the CDN.
+  await uploadPackages(awsConfig, LATEST, { headers: { 'Cache-Control': MUTABLE_CACHE_CONTROL } })
+  // Prod versioned paths are new on every release, so only `latest` needs a CDN refresh here.
   await refreshCdnDirectory(`https://${awsConfig.cdnURL}${generateUploadPath(awsConfig, '', LATEST)}`)
 }
 

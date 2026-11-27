@@ -66,10 +66,12 @@ serves the new version once the CDN cache refresh completes (typically a few min
 
 ## Staging Preview
 
-To test bundles before cutting a release tag, run the **Staging Deployment** workflow
-(`.github/workflows/deploy-staging.yml`) manually via GitHub Actions `workflow_dispatch` on your
-branch. It deploys only to `https://static.flashcat.cloud/browser-sdk-staging/v<version>/` and does
-not publish to npm.
+To test bundles before cutting a release tag, merge your branch into `staging` (via PR). Pushing to
+`staging` automatically triggers **Staging Deployment** (`.github/workflows/deploy-staging.yml`),
+which uploads bundles to `https://static.flashcat.cloud/browser-sdk-staging/v<version>/`, refreshes
+the staging CDN directory cache, and updates `/browser-sdk-staging/latest/` when `<version>` is the
+highest published full version in staging, without publishing to npm. Do not merge `staging` back
+into feature branches or `publish`.
 
 ## Handling a Failed Release
 
