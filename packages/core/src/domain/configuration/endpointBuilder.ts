@@ -94,11 +94,14 @@ function buildEndpointParameters(
   trackType: TrackType,
   configurationTags: string[],
   api: ApiType,
-  { retry, encoding }: Payload
+  { retry, encoding, recovered }: Payload
 ) {
   const tags = [`sdk_version:${__BUILD_ENV__SDK_VERSION__}`, `api:${api}`].concat(configurationTags)
   if (retry) {
     tags.push(`retry_count:${retry.count}`, `retry_after:${retry.lastFailureStatus}`)
+  }
+  if (recovered) {
+    tags.push('recovered:true')
   }
 
   const parameters = [

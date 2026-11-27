@@ -25,6 +25,12 @@ export interface Payload {
   bytesCount: number
   retry?: RetryInfo
   encoding?: 'deflate'
+  /**
+   * FLASHCAT FORK - events a page left unsent when it died (renderer crash, browser killed), sent
+   * from a later page of the same site. Tagged so the intake accepts them late and drops the ones
+   * the page did manage to send.
+   */
+  recovered?: boolean
 }
 
 export interface RetryInfo {

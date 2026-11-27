@@ -18,6 +18,7 @@ import type { LifeCycle } from '../domain/lifeCycle'
 import type { RumSessionManager } from '../domain/rumSessionManager'
 import { RumEventType } from '../rawRumEvent.types'
 import { startWithheldEventBuffer } from './withheldEventBuffer'
+import { startUnsentEventsMirror } from './unsentEventsMirror'
 
 export function startRumBatch(
   configuration: RumConfiguration,
@@ -30,12 +31,15 @@ export function startRumBatch(
   recorderApi: RecorderApi
 ) {
   const replica = configuration.replica
+  // FLASHCAT FORK - a copy of the unsent RUM events survives the page dying with them.
+  const unsentEventsMirror = startUnsentEventsMirror(configuration)
 
   const batch = startBatchWithReplica(
     configuration,
     {
       endpoint: configuration.rumEndpointBuilder,
       encoder: createEncoder(DeflateEncoderStreamId.RUM),
+      onPendingChange: unsentEventsMirror.onPendingChange,
     },
     replica && {
       endpoint: replica.rumEndpointBuilder,
@@ -66,6 +70,7 @@ export function startRumBatch(
       withheldEventBuffer.stop()
       batch.flush('session_expire')
       batch.stop()
+      unsentEventsMirror.stop()
     },
   }
 }

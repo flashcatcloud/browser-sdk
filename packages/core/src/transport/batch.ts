@@ -20,13 +20,27 @@ export function createBatch({
   request,
   flushController,
   messageBytesLimit,
+  onPendingChange,
 }: {
   encoder: Encoder
   request: HttpRequest
   flushController: FlushController
   messageBytesLimit: number
+  /**
+   * FLASHCAT FORK - called with the serialized messages not sent yet, each time they change: after a
+   * message is added, and with an empty list once they are handed to the request. The encoder may
+   * hold them compressed in a worker, out of reach, so the batch keeps the plain messages for this.
+   */
+  onPendingChange?: (pendingMessages: string[]) => void
 }): Batch {
   let upsertBuffer: { [key: string]: string } = {}
+  let pendingAdded: string[] = []
+
+  function notifyPendingChange() {
+    if (onPendingChange) {
+      onPendingChange(pendingAdded.concat(objectValues(upsertBuffer)))
+    }
+  }
   const flushSubscription = flushController.flushObservable.subscribe((event) => flush(event))
 
   function push(serializedMessage: string, estimatedMessageBytesCount: number, key?: string) {
@@ -36,10 +50,14 @@ export function createBatch({
       upsertBuffer[key] = serializedMessage
       flushController.notifyAfterAddMessage()
     } else {
+      if (onPendingChange) {
+        pendingAdded.push(serializedMessage)
+      }
       encoder.write(encoder.isEmpty ? serializedMessage : `\n${serializedMessage}`, (realMessageBytesCount) => {
         flushController.notifyAfterAddMessage(realMessageBytesCount - estimatedMessageBytesCount)
       })
     }
+    notifyPendingChange()
   }
 
   function hasMessageFor(key?: string): key is string {
@@ -75,6 +93,8 @@ export function createBatch({
   function flush(event: FlushEvent) {
     const upsertMessages = objectValues(upsertBuffer).join('\n')
     upsertBuffer = {}
+    pendingAdded = []
+    notifyPendingChange()
 
     const pageMightExit = isPageExitReason(event.reason)
     const send = pageMightExit ? request.sendOnExit : request.send

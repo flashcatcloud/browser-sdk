@@ -120,6 +120,15 @@ describe('endpointBuilder', () => {
         })
       ).toContain('retry_count%3A5%2Cretry_after%3A408')
     })
+
+    it('should tag recovered events', () => {
+      expect(
+        createEndpointBuilder(initConfiguration, 'rum', []).build('fetch', { ...DEFAULT_PAYLOAD, recovered: true })
+      ).toContain('recovered%3Atrue')
+      expect(createEndpointBuilder(initConfiguration, 'rum', []).build('fetch', DEFAULT_PAYLOAD)).not.toContain(
+        'recovered'
+      )
+    })
   })
 
   describe('PCI compliance intake with option', () => {

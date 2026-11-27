@@ -14,13 +14,18 @@ export interface BatchConfiguration {
   encoder: Encoder
 }
 
+interface PrimaryBatchConfiguration extends BatchConfiguration {
+  /** FLASHCAT FORK - see createBatch; the replica is not mirrored. */
+  onPendingChange?: (pendingMessages: string[]) => void
+}
+
 interface ReplicaBatchConfiguration<T> extends BatchConfiguration {
   transformMessage?: (message: T) => T
 }
 
 export function startBatchWithReplica<T extends Context>(
   configuration: Configuration,
-  primary: BatchConfiguration,
+  primary: PrimaryBatchConfiguration,
   replica: ReplicaBatchConfiguration<T> | undefined,
   reportError: (error: RawError) => void,
   pageMayExitObservable: Observable<PageMayExitEvent>,
@@ -30,9 +35,13 @@ export function startBatchWithReplica<T extends Context>(
   const primaryBatch = createBatchFromConfig(configuration, primary)
   const replicaBatch = replica && createBatchFromConfig(configuration, replica)
 
-  function createBatchFromConfig(configuration: Configuration, { endpoint, encoder }: BatchConfiguration) {
+  function createBatchFromConfig(
+    configuration: Configuration,
+    { endpoint, encoder, onPendingChange }: PrimaryBatchConfiguration
+  ) {
     return batchFactoryImp({
       encoder,
+      onPendingChange,
       request: createHttpRequest(endpoint, configuration.batchBytesLimit, reportError),
       flushController: createFlushController({
         messagesLimit: configuration.batchMessagesLimit,
