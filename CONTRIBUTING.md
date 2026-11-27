@@ -63,5 +63,11 @@ label our Commit messages and Pull Request titles:
 
 👌 - Updating code due to code review changes.
 
+## Release changelog
+
+When preparing a release, write the customer-facing notes under `**Public Changes:**` in
+`CHANGELOG.md`. The changelog generator puts commit entries under `**Internal Changes:**`;
+it leaves the Public section empty for you to fill. A release requires non-empty Public notes.
+
 [1]: https://flashcat.cloud/contact/
 [2]: https://gitmoji.carloscuesta.me/
