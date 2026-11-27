@@ -257,4 +257,35 @@ describe('batch', () => {
       expect(transport.sendOnExit).toHaveBeenCalledTimes(3)
     })
   })
+
+  describe('pending messages', () => {
+    let pending: string[][]
+
+    beforeEach(() => {
+      pending = []
+      batch = createBatch({
+        encoder,
+        request: transport,
+        flushController,
+        messageBytesLimit: MESSAGE_BYTES_LIMIT,
+        onPendingChange: (messages) => pending.push(messages),
+      })
+    })
+
+    it('reports the unsent added and upserted messages', () => {
+      batch.add(SMALL_MESSAGE)
+      batch.upsert({ message: 'v1' }, 'view')
+      batch.upsert({ message: 'v2' }, 'view')
+
+      expect(pending[pending.length - 1]).toEqual(['{"message":"hello"}', '{"message":"v2"}'])
+    })
+
+    it('reports nothing pending once the messages are handed to the request', () => {
+      batch.add(SMALL_MESSAGE)
+      flushController.notifyFlush()
+
+      expect(pending[pending.length - 1]).toEqual([])
+      expect(transport.send).toHaveBeenCalled()
+    })
+  })
 })
